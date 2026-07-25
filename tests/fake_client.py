@@ -24,8 +24,13 @@ class FakeHfClient(HfClientProtocol):
                 self._bytes[(summary.model_id, name)] = content
 
     def list_top_models(self, n: int) -> Iterable[ModelSummary]:
-        for s in self._summaries[:n]:
-            yield s
+        yield from self._summaries[:n]
+
+    def get_model_summary(self, model_id: str) -> ModelSummary:
+        for s in self._summaries:
+            if s.model_id == model_id:
+                return s
+        raise FileNotFoundError(f"no such model: {model_id}")
 
     def fetch_file(self, repo_id: str, filename: str) -> bytes:
         try:

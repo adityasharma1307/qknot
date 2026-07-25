@@ -1,0 +1,18 @@
+{
+  "generated_at": "2026-07-25T13:20:08.535074+00:00",
+  "snapshot_started": "2026-07-25T12:49:20.207243+00:00",
+  "script": "scripts/sample_longtail.py",
+  "procedure": "uniform random.sample without replacement from a createdAt-ordered enumeration of the registry, excluding Stratum A",
+  "seed": 20260725,
+  "k": 10000,
+  "population_enumerated": 2938109,
+  "stratum_a_size": 10002,
+  "excluded_as_stratum_a": 10002,
+  "frame_size": 2928107,
+  "sampling_fraction": 0.003415175743236159,
+  "frame_file": "data\\longtail_frame_2026-07-25.txt",
+  "frame_sha256": "548a60feb521f8bdb4a84d5698c9530b2ab0884139cff6471d7a57f095eddb93",
+  "sample_file": "data\\longtail_sample_2026-07-25.txt",
+  "sample_sha256": "0853194ffa0eba9da68595ddd8c4edb9720e151477db753ba46ad887ed2be567",
+  "authenticated": true
+}

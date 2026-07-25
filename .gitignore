@@ -25,6 +25,17 @@ htmlcov/
 .env
 *.token
 
+# Sampling frames. ~108 MiB of model ids each, over GitHub's 100 MiB hard
+# limit, and regenerable: scripts/sample_longtail.py rebuilds the frame, and
+# the committed manifest carries its SHA-256, so excluding it costs nothing
+# that can be verified. See data/DATASETS.md.
+data/longtail_frame_*.txt
+data/longtail_frame_*.txt.partial
+data/longtail_frame_*.txt.cursor
+
+# Run logs
+logs/
+
 # OS junk files
 Thumbs.db
 .DS_Store

@@ -4,6 +4,15 @@ Orchestrates the audit pipeline:
 
     HfClient -> detect_signature_files() -> parse_signature() -> classify -> ModelRecord
 
+UNIT OF ANALYSIS
+    One ModelRecord is one *repository*, not one model artefact. A repo is
+    labelled signed if it carries at least one recognised signature file
+    anywhere in its tree, however many that is: `kernels-community/relu` has 38
+    `.sigstore` files for its build matrix and `granitelib-rag-r1.0` has 33
+    `model.sig` files for its LoRA adapters, and each is a single row. Counting
+    artefacts instead would inflate apparent adoption several-fold on the
+    strength of two publishers' packaging habits. See data/DATASETS.md.
+
 The scanner is deliberately written to be resumable: each ModelRecord is
 appended to the output JSONL file as soon as it is produced. If the process
 crashes or is interrupted, re-running it will skip model_ids already present
@@ -13,13 +22,17 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 from .detect import detect_signature_files
-from .hf_client import HfClientProtocol, ModelSummary
+from .hf_client import (
+    HfClientProtocol,
+    ModelSummary,
+    TransientFetchError,
+    is_transient,
+)
 from .model import (
     ModelRecord,
     QLabel,
@@ -39,9 +52,20 @@ log = logging.getLogger(__name__)
 def audit_model(client: HfClientProtocol, summary: ModelSummary) -> ModelRecord:
     """Run the full audit on a single model and return the resulting record.
 
-    Network errors during signature-file download are caught and logged;
-    affected signatures are recorded with algorithm=UNKNOWN so the model
-    still appears in the dataset with a clear `error` label.
+    Failures during signature-file download are split into two kinds:
+
+      * Transient (rate limiting, connection loss, 5xx). These say nothing
+        about the model, so no record is produced at all -- ``TransientFetchError``
+        is raised and the caller leaves the model absent from the output so
+        that resume re-attempts it. Recording a 429 as a finding would let our
+        own request rate masquerade as a property of the registry.
+
+      * Permanent (missing file, refused oversize, malformed content). These
+        are genuine facts about the repo, recorded with algorithm=UNKNOWN and
+        an `error` label so the row count is preserved.
+
+    Raises:
+        TransientFetchError: if any signature file failed for a transient reason.
     """
     now = datetime.now(timezone.utc)
     candidates = detect_signature_files(summary.filenames)
@@ -66,12 +90,22 @@ def audit_model(client: HfClientProtocol, summary: ModelSummary) -> ModelRecord:
         )
 
     # Slow path: at least one candidate. Download and parse each.
-    per_sig_results: list[tuple[SigAlgorithm, SigFormat, Optional[int], Optional[str]]] = []
+    per_sig_results: list[tuple[SigAlgorithm, SigFormat, int | None, str | None]] = []
     notes_accum: list[str] = []
     for name, fmt in candidates:
         try:
             raw = client.fetch_file(summary.model_id, name)
         except Exception as exc:
+            if is_transient(exc):
+                # Do not write a record. The model must stay absent from the
+                # output so resume picks it up again; a partial record here
+                # would be indistinguishable from a real parse failure and
+                # would be skipped forever.
+                log.warning(
+                    "Transient failure for %s/%s (%s). Leaving unrecorded for retry.",
+                    summary.model_id, name, exc,
+                )
+                raise TransientFetchError(summary.model_id, exc) from exc
             log.warning("Fetch failed for %s/%s: %s", summary.model_id, name, exc)
             per_sig_results.append(
                 (SigAlgorithm.UNKNOWN, fmt, None, f"fetch_failed: {exc!s}")
@@ -91,7 +125,7 @@ def audit_model(client: HfClientProtocol, summary: ModelSummary) -> ModelRecord:
     # otherwise fall back to the first entry.
     primary_algo = SigAlgorithm.UNKNOWN
     primary_fmt = candidates[0][1]
-    primary_size: Optional[int] = None
+    primary_size: int | None = None
     for algo, fmt, size, note in per_sig_results:
         # Always keep the diagnostic note, even when the algorithm was
         # successfully classified -- notes like "inferred_from_sigstore_fulcio_default"
@@ -124,6 +158,34 @@ def audit_model(client: HfClientProtocol, summary: ModelSummary) -> ModelRecord:
     )
 
 
+def unavailable_record(model_id: str, cause: BaseException | str) -> ModelRecord:
+    """Record for a repo whose metadata could not be retrieved permanently.
+
+    Deleted, renamed, or gated repos are labelled ERROR rather than UNSIGNED.
+    The distinction matters for the survey: `unsigned` is a claim that we looked
+    and found no signature, while these are repos we could not look at. Counting
+    them as unsigned would inflate the very statistic the project reports.
+
+    They stay in the dataset so the realised sample size continues to match the
+    sampling frame recorded in the manifest.
+    """
+    return ModelRecord(
+        model_id=model_id,
+        publisher=model_id.split("/")[0] if "/" in model_id else "(individual)",
+        downloads=0,
+        last_modified=None,
+        file_count=0,
+        has_signature=False,
+        candidate_files=[],
+        sig_algorithm=SigAlgorithm.UNKNOWN,
+        sig_format=SigFormat.NONE,
+        key_size_bits=None,
+        q_label=QLabel.ERROR,
+        audit_ts=datetime.now(timezone.utc),
+        notes=f"metadata_unavailable: {cause!s}",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Bulk audit with resume support
 # ---------------------------------------------------------------------------
@@ -144,15 +206,99 @@ def _load_already_seen(jsonl_path: Path) -> set[str]:
     return seen
 
 
+def _stream_records(
+    client: HfClientProtocol,
+    make_summaries: Callable[
+        [set[str]], Iterable[ModelSummary | ModelRecord | TransientFetchError]
+    ],
+    out_path: Path,
+    resume: bool,
+    max_consecutive_transient: int,
+) -> Iterator[ModelRecord]:
+    """Shared audit loop for both the top-N and explicit-id entry points.
+
+    `make_summaries` receives the set of already-audited model_ids and returns
+    the summaries to process. Passing the set in lets the id-list path skip
+    metadata requests for models that are already done, which on a resumed
+    20,000-model run is the difference between one request per remaining model
+    and one per model in the whole sample.
+
+    The iterable may yield, in place of a summary:
+
+      * ``TransientFetchError`` -- metadata fetch failed for a transient reason.
+        Yielding rather than raising keeps one unreachable repo from aborting
+        the whole run while still routing it through the deferral accounting.
+      * ``ModelRecord`` -- an already-decided outcome that needs no auditing,
+        such as a repo that has been deleted since the sampling frame was built.
+    """
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    already_seen = _load_already_seen(out_path) if resume else set()
+    log.info("Resuming with %d models already audited", len(already_seen))
+
+    write_mode = "a" if resume else "w"
+    deferred: list[str] = []
+    consecutive = 0
+
+    def _defer(model_id: str, exc: BaseException) -> None:
+        """Record a transient failure without writing anything to the output."""
+        nonlocal consecutive
+        deferred.append(model_id)
+        consecutive += 1
+        if max_consecutive_transient and consecutive >= max_consecutive_transient:
+            raise RuntimeError(
+                f"Aborting: {consecutive} consecutive transient failures, "
+                f"most recently {model_id}. The registry is likely "
+                f"unreachable or the token is being throttled hard. "
+                f"{len(deferred)} models left unrecorded; rerun to resume."
+            ) from exc
+
+    with out_path.open(write_mode, encoding="utf-8") as out:
+        for item in make_summaries(already_seen):
+            if isinstance(item, TransientFetchError):
+                _defer(item.model_id, item)
+                continue
+            if item.model_id in already_seen:
+                continue
+            if isinstance(item, ModelRecord):
+                # Already decided upstream; no signature files to fetch.
+                consecutive = 0
+                out.write(item.model_dump_json() + "\n")
+                out.flush()
+                yield item
+                continue
+            try:
+                record = audit_model(client, item)
+            except TransientFetchError as exc:
+                # Deliberately write nothing: absence is what makes the model
+                # eligible for retry on the next resume.
+                _defer(item.model_id, exc)
+                continue
+            consecutive = 0
+            out.write(record.model_dump_json() + "\n")
+            out.flush()
+            yield record
+
+    if deferred:
+        log.warning(
+            "%d models were left unrecorded after transient failures and will be "
+            "retried on the next run: %s%s",
+            len(deferred),
+            ", ".join(deferred[:5]),
+            " ..." if len(deferred) > 5 else "",
+        )
+
+
 def run_audit(
     client: HfClientProtocol,
     n: int,
     out_path: Path,
     resume: bool = True,
+    max_consecutive_transient: int = 50,
 ) -> Iterator[ModelRecord]:
     """Run the audit on the top-N models, streaming records to ``out_path``.
 
-    Yields each ModelRecord as it is produced, so callers can show progress.
+    This is the Stratum A (head) entry point. Yields each ModelRecord as it is
+    produced, so callers can show progress.
 
     Args:
         client: the HuggingFace client (real or fixture).
@@ -165,18 +311,74 @@ def run_audit(
             in the file (each re-audited model_id would appear twice), which
             silently corrupted a prior full.jsonl into n=2000 with doubled
             counts across every label. resume=False must reset the file.
-    """
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    already_seen = _load_already_seen(out_path) if resume else set()
-    log.info("Resuming with %d models already audited", len(already_seen))
+        max_consecutive_transient: abort after this many transient failures in
+            a row. Skipping transient failures is right for an isolated 429,
+            but if the network has gone away entirely then quietly skipping
+            every remaining model would produce a run that looks complete and
+            is not. Set to 0 to disable the guard.
 
-    summaries: Iterable[ModelSummary] = client.list_top_models(n)
-    write_mode = "a" if resume else "w"
-    with out_path.open(write_mode, encoding="utf-8") as out:
-        for summary in summaries:
-            if summary.model_id in already_seen:
+    Raises:
+        RuntimeError: if `max_consecutive_transient` failures occur in a row.
+    """
+    return _stream_records(
+        client,
+        lambda _already: client.list_top_models(n),
+        out_path,
+        resume,
+        max_consecutive_transient,
+    )
+
+
+def run_audit_ids(
+    client: HfClientProtocol,
+    model_ids: Iterable[str],
+    out_path: Path,
+    resume: bool = True,
+    max_consecutive_transient: int = 50,
+) -> Iterator[ModelRecord]:
+    """Audit an explicit list of model ids, streaming records to ``out_path``.
+
+    This is the Stratum B (long-tail) entry point. Unlike ``run_audit``, the
+    membership of the sample is decided in advance by
+    ``scripts/sample_longtail.py`` and must not be re-derived here: the whole
+    validity of the random draw depends on auditing exactly the ids that were
+    drawn, including any that turn out to be empty or unreachable.
+
+    Ids already present in the output are skipped *before* their metadata is
+    requested, so resuming a partially-complete run costs nothing for work
+    already done.
+    """
+
+    def _summaries(
+        already_seen: set[str],
+    ) -> Iterator[ModelSummary | ModelRecord | TransientFetchError]:
+        for model_id in model_ids:
+            if model_id in already_seen:
                 continue
-            record = audit_model(client, summary)
-            out.write(record.model_dump_json() + "\n")
-            out.flush()
-            yield record
+            try:
+                yield client.get_model_summary(model_id)
+            except TransientFetchError as exc:
+                yield exc
+            except Exception as exc:
+                if is_transient(exc):
+                    log.warning("Transient metadata failure for %s: %s", model_id, exc)
+                    yield TransientFetchError(model_id, exc)
+                else:
+                    # A permanently unavailable repo (deleted, gated, renamed)
+                    # must stay in the output, or the denominator silently
+                    # shrinks and the sampling fraction stops meaning what the
+                    # manifest says it means.
+                    #
+                    # But it must NOT be labelled `unsigned`. Routing it through
+                    # audit_model with an empty file list would do exactly that,
+                    # because no candidate files means the unsigned fast path.
+                    # A repo we cannot see is unobservable, not unsigned;
+                    # recording it as unsigned turns absence of evidence into
+                    # evidence of absence, and biases the result in the
+                    # direction of this project's own conclusion.
+                    log.warning("Metadata unavailable for %s: %s", model_id, exc)
+                    yield unavailable_record(model_id, exc)
+
+    return _stream_records(
+        client, _summaries, out_path, resume, max_consecutive_transient
+    )

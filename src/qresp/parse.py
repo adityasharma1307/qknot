@@ -200,6 +200,31 @@ _PGP_ALGO_IDS: dict[int, SigAlgorithm] = {
 }
 
 
+def _pgp_packet_body(raw: bytes) -> bytes | None:
+    """Return the body of the first OpenPGP packet, or None if not a packet.
+
+    Handles both framings from RFC 4880 §4.2. Locating the body properly
+    matters because the previous implementation scanned a fixed window for a
+    plausible version byte, which both missed correctly framed packets and
+    matched arbitrary binary that happened to contain a 3, 4, 5 or 6.
+    """
+    tag_byte = raw[0]
+    if not tag_byte & 0x80:
+        return None  # bit 7 is set on every packet tag; this is not OpenPGP
+
+    if tag_byte & 0x40:  # new format: tag in low 6 bits, then a length octet
+        length_octet = raw[1]
+        if length_octet < 192:
+            return raw[2:]
+        if length_octet < 224:
+            return raw[3:]
+        if length_octet == 255:
+            return raw[6:]
+        return raw[2:]  # partial body length
+    # old format: length type in the low 2 bits
+    return {0: raw[2:], 1: raw[3:], 2: raw[5:], 3: raw[1:]}[tag_byte & 0x03]
+
+
 def parse_gpg(raw: bytes) -> ParseResult:
     """Best-effort parse of a binary or ASCII-armoured OpenPGP signature.
 
@@ -218,22 +243,54 @@ def parse_gpg(raw: bytes) -> ParseResult:
         except Exception as exc:
             return ParseResult(SigAlgorithm.UNKNOWN, notes=f"armor_decode_failed: {exc}")
 
-    # The first byte is the packet tag (0xC2 for signature in new format,
-    # 0x88-0x8B for old format). The public-key algorithm byte lives at a
-    # fixed offset within the packet header for v3 and v4 signatures.
     if len(raw) < 6:
         return ParseResult(SigAlgorithm.UNKNOWN, notes="packet_too_short")
 
-    # Version byte is at offset 2 (new format) or offset 1 (old format) after
-    # skipping the length octet(s). To keep this code robust, we scan a small
-    # window for the version + algo pattern.
-    for off in range(0, min(10, len(raw) - 3)):
-        version = raw[off]
-        if version in (3, 4, 5, 6):  # known OpenPGP signature versions
-            algo_byte = raw[off + 2] if version == 3 else raw[off + 3]
-            if algo_byte in _PGP_ALGO_IDS:
-                return ParseResult(_PGP_ALGO_IDS[algo_byte])
-    return ParseResult(SigAlgorithm.UNKNOWN, notes="no_recognised_pgp_algo_byte")
+    body = _pgp_packet_body(raw)
+    if body is None:
+        return ParseResult(SigAlgorithm.UNKNOWN, notes="not_an_openpgp_packet")
+    if not body:
+        return ParseResult(SigAlgorithm.UNKNOWN, notes="pgp_packet_empty")
+
+    version = body[0]
+    # Field offsets from RFC 4880 §5.2.2/§5.2.3 and RFC 9580 §5.2.3.
+    #
+    #   v3: version, hashed-material-length(=5), sig type, creation time[4],
+    #       key id[8], PUBLIC-KEY ALGORITHM, hash algorithm
+    #       -> public-key algorithm at offset 15
+    #
+    #   v4/v5/v6: version, sig type, PUBLIC-KEY ALGORITHM, hash algorithm, ...
+    #       -> public-key algorithm at offset 2
+    #
+    # Getting this wrong is not a harmless off-by-one. An earlier version of
+    # this function read offset 3 for v4, which is the *hash* algorithm, and
+    # offset 2 for v3, which is the signature type. Because hash ids 1/2/3
+    # (MD5/SHA1/RIPEMD160) collide with public-key ids 1/2/3 (RSA variants),
+    # the bug silently reported "RSA" for legacy-hash signatures and
+    # "no_recognised_pgp_algo_byte" for every modern SHA-256 one (hash id 8,
+    # which is not a public-key id). Every correctly formed contemporary
+    # OpenPGP signature was therefore recorded as unparseable.
+    # Each version needs only enough body to reach its algorithm octet; a
+    # blanket minimum would reject the short-but-valid packets that appear in
+    # fixtures and in real detached signatures with few subpackets.
+    if version == 3:
+        if len(body) < 16:
+            return ParseResult(SigAlgorithm.UNKNOWN, notes="pgp_v3_packet_too_short")
+        algo_byte = body[15]
+    elif version in (4, 5, 6):
+        if len(body) < 3:
+            return ParseResult(SigAlgorithm.UNKNOWN, notes="pgp_v4_packet_too_short")
+        algo_byte = body[2]
+    else:
+        return ParseResult(
+            SigAlgorithm.UNKNOWN, notes=f"unsupported_pgp_signature_version: {version}"
+        )
+
+    if algo_byte in _PGP_ALGO_IDS:
+        return ParseResult(_PGP_ALGO_IDS[algo_byte])
+    return ParseResult(
+        SigAlgorithm.UNKNOWN, notes=f"unknown_pgp_pubkey_algo_id: {algo_byte}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -274,6 +331,58 @@ def parse_in_toto(raw: bytes) -> ParseResult:
 # ---------------------------------------------------------------------------
 # Dispatch
 # ---------------------------------------------------------------------------
+# Signature schemes emit fixed-size output, so for a bare signature carrying no
+# framing the length is the only identifying signal there is.
+#
+# This is weaker evidence than parsing and is labelled as such in the notes.
+# Two caveats a reader must not lose:
+#
+#   * 64 bytes is ambiguous between Ed25519 and a raw ECDSA P-256 r||s pair.
+#     Both are classical, so the quantum-vulnerability label is unaffected and
+#     only the specific algorithm is uncertain. ECDSA_OTHER is reported rather
+#     than guessing between them.
+#   * The post-quantum sizes are included so that a PQC signature in the wild
+#     is recognised rather than dismissed as unparseable. Finding one would be
+#     the single most important result this tool could produce, and it would be
+#     absurd to miss it because the file lacked a header.
+_RAW_SIGNATURE_SIZES: dict[int, SigAlgorithm] = {
+    64:   SigAlgorithm.ECDSA_OTHER,  # Ed25519 or raw ECDSA P-256; classical either way
+    256:  SigAlgorithm.RSA_2048,
+    384:  SigAlgorithm.RSA_3072,
+    512:  SigAlgorithm.RSA_4096,
+    2420: SigAlgorithm.ML_DSA_44,
+    3309: SigAlgorithm.ML_DSA_65,
+    4627: SigAlgorithm.ML_DSA_87,
+    7856: SigAlgorithm.SLH_DSA,      # SLH-DSA-128s
+    16224: SigAlgorithm.SLH_DSA,     # SLH-DSA-128f
+}
+
+
+def parse_raw_signature(raw: bytes) -> ParseResult:
+    """Classify a headerless signature by its length alone.
+
+    Last resort for files that carry no magic number, no OID and no framing --
+    the output of `openssl dgst -sign` and similar. The algorithm is genuinely
+    not recoverable from such a file; length narrows it, and the note records
+    that the attribution is an inference rather than a parse.
+
+    That these signatures are not self-describing is itself worth reporting: a
+    third party cannot determine what algorithm protects an artefact, which
+    makes a cryptographic-agility inventory impossible without out-of-band
+    information such as an accompanying certificate.
+    """
+    algo = _RAW_SIGNATURE_SIZES.get(len(raw))
+    if algo is None:
+        return ParseResult(
+            SigAlgorithm.UNKNOWN,
+            notes=f"headerless_signature_of_unrecognised_length: {len(raw)} bytes",
+        )
+    return ParseResult(
+        algo,
+        notes=f"inferred_from_raw_signature_length: {len(raw)} bytes, no header present",
+    )
+
+
 def parse_signature(raw: bytes, fmt: SigFormat) -> ParseResult:
     """Dispatch a raw signature file to the appropriate format parser."""
     if fmt in (SigFormat.SIGSTORE, SigFormat.OMS):
@@ -281,10 +390,17 @@ def parse_signature(raw: bytes, fmt: SigFormat) -> ParseResult:
     if fmt == SigFormat.IN_TOTO:
         return parse_in_toto(raw)
     if fmt == SigFormat.GPG:
-        return parse_gpg(raw)
-    # CUSTOM or unknown format: try sigstore first (it's the modal case),
-    # then fall back to GPG, since some publishers misname their files.
+        result = parse_gpg(raw)
+        if result.algorithm != SigAlgorithm.UNKNOWN:
+            return result
+        return parse_raw_signature(raw)
+    # CUSTOM or unknown format: try sigstore first (it's the modal case), then
+    # GPG since some publishers misname their files, then fall back to
+    # classifying a bare signature by its length.
     fallback = parse_sigstore(raw)
     if fallback.algorithm != SigAlgorithm.UNKNOWN:
         return fallback
-    return parse_gpg(raw)
+    gpg = parse_gpg(raw)
+    if gpg.algorithm != SigAlgorithm.UNKNOWN:
+        return gpg
+    return parse_raw_signature(raw)
