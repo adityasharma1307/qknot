@@ -1,0 +1,30 @@
+# Python auto-generated files
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Test / tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Secrets. Never commit an HF token.
+.env
+*.token
+
+# OS junk files
+Thumbs.db
+.DS_Store
