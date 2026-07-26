@@ -10,10 +10,14 @@
 > CS F376 Design Project, BITS Pilani Dubai Campus, 2025–26.
 > Supervisor: Dr. Tamizharasan Periyasamy.
 
-> **Working repository.** Phase I as published (report, figures, and the
-> 2026-05-21 dataset) is archived at
+> **Working repository, currently private.** Phase I as published (report,
+> figures, and the 2026-05-21 dataset) is archived at
 > [adityasharma1307/qresp](https://github.com/adityasharma1307/qresp) and is not
 > modified. Development continues here.
+>
+> **Before making this repository public**, read item 0 of
+> [`docs/OPEN-QUESTIONS.md`](docs/OPEN-QUESTIONS.md). One file needs a decision
+> at that moment, and it is the kind of decision that is easy to miss.
 
 `qresp` does two things. It **audits** the cryptographic provenance of public
 machine learning models on HuggingFace, classifying each by quantum
