@@ -29,6 +29,13 @@ dependencies = [
     "typer>=0.12",         # CLI
     "rich>=13.7",          # pretty terminal output
     "pydantic>=2.5",       # record schema validation
+    # Signing primitives. These were previously absent, so `pip install qresp`
+    # produced a package whose signing half raised ImportError on first use --
+    # including the `qresp sign` and `qresp verify` commands.
+    "cryptography>=42.0",  # Ed25519 via constant-time OpenSSL
+    "dilithium-py>=1.1",   # ML-DSA (FIPS 204). Offline signing only:
+                           # pure Python, not constant-time. See
+                           # docs/THREAT-MODEL.md and signing/backends.py.
 ]
 
 [project.optional-dependencies]
@@ -39,6 +46,7 @@ analysis = [
 ]
 dev = [
     "pytest>=8.0",
+    "jsonschema>=4.0",   # validates our bundles against the real OMS schemas
     "pytest-cov>=5.0",
     "ruff>=0.5",
     "mypy>=1.10",
@@ -56,10 +64,19 @@ target-version = "py310"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "B", "SIM"]
-ignore = ["E501"]
+ignore = [
+    "E501",
+    # typer.Option() in a default is the documented Typer idiom;
+    # the "singleton variable" workaround would obscure the CLI.
+    "B008",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# jsonschema warns that the OMS $schema draft is unresolvable offline.
+# Vendoring the schemas is deliberate; the warning is not actionable.
+filterwarnings = ["ignore:The metaschema specified by .schema:DeprecationWarning"]
+pythonpath = ["src"]
 python_files = ["test_*.py"]
 addopts = "-v --strict-markers"
 
@@ -67,3 +84,20 @@ addopts = "-v --strict-markers"
 python_version = "3.10"
 strict = true
 ignore_missing_imports = true
+
+# `strict = true` above was declared but had never passed -- 69 errors, so the
+# claim was decorative. `qresp.signing` now genuinely satisfies it, which is the
+# half that matters: it is the reusable package, the one someone else might
+# depend on, and the one where a wrong type is a correctness question rather
+# than a formatting one.
+#
+# `qresp.audit` and `qresp.cli` are checked but not strictly. They are research
+# code against an untyped HTTP API and a CLI framework that leans on runtime
+# introspection, where full annotation buys little. Relaxing them explicitly is
+# honest; leaving a global claim that fails is not.
+[[tool.mypy.overrides]]
+module = ["qresp.audit.*", "qresp.cli"]
+disallow_untyped_defs = false
+disallow_untyped_calls = false
+disallow_any_generics = false
+warn_return_any = false

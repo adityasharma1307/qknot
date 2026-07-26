@@ -1,0 +1,23 @@
+# Keep line endings stable across Windows and Linux.
+#
+# Without this, a Windows tool rewriting a data file with CRLF produces a diff
+# in which EVERY line has changed, even though no content has. That happened to
+# four files here: `longtail_sample_2026-07-25.txt` showed 10,000 changed lines
+# for zero content changes.
+#
+# Two harms, and the second is the serious one:
+#   1. Review becomes impossible -- a real one-line change is invisible in a
+#      10,000-line diff.
+#   2. GitHub push protection scans the diff, so a full-file rewrite re-exposes
+#      every line to secret scanning. This dataset legitimately contains
+#      repository *names* shaped like credentials (see security/), and a
+#      spurious full-file diff drags them back through that check for no reason.
+*.jsonl  text eol=lf
+*.json   text eol=lf
+*.txt    text eol=lf
+*.md     text eol=lf
+*.py     text eol=lf
+*.ps1    text eol=crlf
+*.png    binary
+*.pdf    binary
+*.docx   binary

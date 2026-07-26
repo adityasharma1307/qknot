@@ -13,17 +13,16 @@ import logging
 import sys
 from collections import Counter
 from pathlib import Path
-from typing import Optional
 
 import typer
 from rich.console import Console
 from rich.progress import BarColumn, Progress, TextColumn, TimeRemainingColumn
 from rich.table import Table
 
-from .hf_client import HfClient
-from .model import QLabel
-from .qrng import OnFailure, QrngUnavailable, get_entropy
-from .scanner import run_audit, run_audit_ids
+from .audit.hf_client import HfClient
+from .audit.model import QLabel
+from .audit.scanner import run_audit, run_audit_ids
+from .signing.entropy import OnFailure, QrngUnavailable, get_entropy
 
 app = typer.Typer(
     help="QResP: Quantum-Resilient Provenance audit for ML model registries.",
@@ -36,7 +35,7 @@ console = Console()
 def scan(
     n: int = typer.Option(50, "--n", help="Number of top-downloaded models to audit."),
     out: Path = typer.Option(Path("data/audit.jsonl"), "--out", help="Output JSONL file."),
-    token: Optional[str] = typer.Option(
+    token: str | None = typer.Option(
         None, "--token", envvar="HF_TOKEN",
         help="HuggingFace API token. Optional, but raises rate limits.",
     ),
@@ -78,11 +77,11 @@ def scan(
 def scan_ids(
     ids_file: Path = typer.Option(
         ..., "--ids", help="Newline-delimited model ids, as written by "
-                           "scripts/sample_longtail.py.",
+                           "scripts/audit/sample_longtail.py.",
     ),
     out: Path = typer.Option(Path("data/longtail.jsonl"), "--out",
                              help="Output JSONL file."),
-    token: Optional[str] = typer.Option(
+    token: str | None = typer.Option(
         None, "--token", envvar="HF_TOKEN",
         help="HuggingFace API token. Strongly recommended at this scale.",
     ),
@@ -153,15 +152,19 @@ def scan_ids(
 @app.command()
 def entropy(
     n_bytes: int = typer.Option(32, "--bytes", help="How much entropy to draw."),
-    backend: str = typer.Option(
-        "anu", "--backend", help="Entropy source: anu, system, ibm, usb.",
+    backend: str | None = typer.Option(
+        None, "--backend",
+        help="LEGACY single-source mode: anu, system, ibm, usb. Omit to mix "
+             "all available sources, which is the recommended path.",
     ),
+    no_beacon: bool = typer.Option(
+        False, "--no-beacon", help="Skip the NIST beacon when mixing."),
     on_qrng_failure: str = typer.Option(
         "fallback", "--on-qrng-failure",
         help="Non-interactive behaviour when the quantum source fails: "
              "wait, fallback, or abort. Ignored when a human can be prompted.",
     ),
-    out: Optional[Path] = typer.Option(
+    out: Path | None = typer.Option(
         None, "--out", help="Write the attestation record to this JSON file.",
     ),
     show_entropy: bool = typer.Option(
@@ -173,16 +176,34 @@ def entropy(
 ) -> None:
     """Draw attested entropy and print the attestation record.
 
-    The record states which backend actually served the bytes, which is what
-    lets a verifier tell a quantum-seeded key from one that fell back to the
-    system CSPRNG. Falling back is sound -- ML-DSA's security rests on
-    Module-LWE hardness, not on the seed's physical origin -- but it must be
-    visible rather than assumed.
+    The record states where the bytes actually came from, which is what lets a
+    verifier tell a quantum-seeded key from one that fell back to the system
+    CSPRNG. Falling back is sound -- ML-DSA's security rests on Module-LWE
+    hardness, not on the seed's physical origin -- but it must be visible
+    rather than assumed.
+
+    Two modes, and the default changed for a reason. Mixing every available
+    source is strictly better than choosing one: the result is at least as
+    strong as the strongest input, so there is no downgrade to reason about,
+    and the attestation it produces is the format the verifier's temporal
+    layer can read. `--backend` selects a single source and yields the older
+    attestation shape, which carries no `not_before` and is therefore invisible
+    to `evidence_from_attestation`.
     """
     logging.basicConfig(
         level=logging.DEBUG if verbose else logging.INFO,
         format="%(asctime)s %(levelname)-7s %(name)s :: %(message)s",
         stream=sys.stdout,
+    )
+
+    if backend is None:
+        _entropy_mixed(n_bytes, no_beacon, out, show_entropy)
+        return
+
+    console.print(
+        "[yellow]--backend selects one source and produces the legacy "
+        "attestation, which carries no timestamp and cannot supply time "
+        "evidence to a verifier. Omit --backend to mix sources instead.[/yellow]"
     )
 
     try:
@@ -202,6 +223,9 @@ def entropy(
     except NotImplementedError as exc:
         console.print(f"[yellow]{exc}[/yellow]")
         raise typer.Exit(3) from None
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(2) from None
 
     att = result.attestation
     if att.is_quantum:
@@ -221,6 +245,48 @@ def entropy(
     console.print_json(att.to_json())
     if show_entropy:
         console.print(f"\nraw: {result.raw.hex()}")
+    if out:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(att.to_json() + "\n", encoding="utf-8")
+        console.print(f"\nAttestation written to {out}")
+
+
+def _entropy_mixed(
+    n_bytes: int, no_beacon: bool, out: Path | None, show_entropy: bool
+) -> None:
+    """The recommended path: combine every source that responds."""
+    from .signing.entropy.mixing import NoSecretEntropy, default_sources, mix_entropy
+
+    try:
+        result = mix_entropy(default_sources(use_beacon=not no_beacon),
+                             n_bytes=n_bytes, context=b"qresp-cli-entropy")
+    except NoSecretEntropy as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from None
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(2) from None
+
+    att = result.attestation
+    if att.is_quantum_seeded:
+        console.print(f"[green]Quantum entropy contributed secret material: "
+                      f"{att.quantum_contributors}.[/green]")
+    else:
+        console.print("[yellow]No quantum source contributed secret material; "
+                      "the seed's unpredictability is from the system CSPRNG. "
+                      "This is sound, and it is recorded rather than assumed.[/yellow]")
+    if att.verifiable_contributors:
+        console.print(f"[green]Independently checkable: "
+                      f"{att.verifiable_contributors}[/green]")
+    else:
+        console.print("[yellow]No externally verifiable contribution, so this "
+                      "attestation carries no timestamp a verifier can use.[/yellow]")
+    for note in att.notes:
+        console.print(f"[yellow]note: {note}")
+
+    console.print_json(att.to_json())
+    if show_entropy:
+        console.print(f"\nraw: {result.seed.hex()}")
     if out:
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(att.to_json() + "\n", encoding="utf-8")
@@ -255,7 +321,7 @@ def summarise(
 def _print_summary(
     counter: Counter[QLabel],
     path: Path,
-    n_models: Optional[int] = None,
+    n_models: int | None = None,
 ) -> None:
     """Pretty-print a summary table to the console."""
     total = n_models if n_models is not None else sum(counter.values())
@@ -277,3 +343,147 @@ def _print_summary(
 
 if __name__ == "__main__":
     app()
+
+
+# ---------------------------------------------------------------------------
+# Signing
+# ---------------------------------------------------------------------------
+# The signing pipeline is the project's reusable half, and until now it had no
+# CLI at all -- it was reachable only by importing the package. These two
+# commands exist so that signing an artefact does not require writing Python,
+# which is the difference between a library and a tool someone else can adopt.
+@app.command("sign")
+def sign_artefact(
+    target: Path = typer.Argument(..., help="File or directory to sign."),
+    out: Path = typer.Option(Path("signature.bundle.json"), "--out",
+                             help="Where to write the OMS-compatible bundle."),
+    keys_out: Path | None = typer.Option(
+        None, "--keys-out", help="Write the PUBLIC keys here (JSON)."),
+    suite: str = typer.Option("ed25519+ml-dsa-44", "--suite",
+                              help="Algorithms, '+'-separated."),
+    name: str = typer.Option("artefact", "--name",
+                             help="Subject name recorded in the statement."),
+    context: str = typer.Option("", "--context",
+                                help="Domain separation, e.g. 'model-release'."),
+    exposure: str = typer.Option("offline", "--exposure",
+                                 help="offline | online. See docs/THREAT-MODEL.md."),
+    seed_hex: str | None = typer.Option(
+        None, "--seed", help="Hex seed for reproducible keys. Omit to draw "
+                             "attested entropy (network, with PRNG fallback)."),
+    no_beacon: bool = typer.Option(
+        False, "--no-beacon", help="Skip the NIST beacon (offline use)."),
+    deterministic: bool = typer.Option(
+        False, "--deterministic",
+        help="Byte-reproducible signatures (FIPS 204 deterministic mode). "
+             "Off by default: hedged signing defends against fault injection."),
+) -> None:
+    """Sign an artefact with a non-separable hybrid signature."""
+    from .signing.backends import BackendUnsuitable, Exposure
+    from .signing.bundle import build_bundle, bundle_to_json
+    from .signing.sign import keygen, sign
+
+    algorithms = [a.strip() for a in suite.split("+") if a.strip()]
+    try:
+        chosen = Exposure(exposure.lower())
+    except ValueError:
+        console.print(f"[red]--exposure must be 'offline' or 'online', got {exposure!r}")
+        raise typer.Exit(2) from None
+
+    if seed_hex:
+        try:
+            keys = keygen(suite=algorithms, seed=bytes.fromhex(seed_hex))
+        except ValueError as exc:
+            console.print(f"[red]bad --seed: {exc}")
+            raise typer.Exit(2) from None
+        console.print("[yellow]Keys derived from an explicit seed: reproducible, "
+                      "and only as secret as that seed.")
+    else:
+        from .signing.entropy.mixing import default_sources
+
+        keys = keygen(suite=algorithms,
+                      entropy_sources=default_sources(use_beacon=not no_beacon))
+
+    try:
+        signed = sign(target, keys, exposure=chosen, context=context.encode(),
+                      subject_name=name, deterministic=deterministic)
+    except BackendUnsuitable as exc:
+        console.print(f"[red]{exc}")
+        raise typer.Exit(1) from None
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(bundle_to_json(build_bundle(signed)), encoding="utf-8")
+
+    table = Table(title="Signed", show_header=True, header_style="bold")
+    for column in ("algorithm", "signature", "key"):
+        table.add_column(column)
+    for algorithm in signed.binding.algorithms:
+        table.add_row(algorithm, f"{len(signed.signatures[algorithm])} B",
+                      keys.keys[algorithm].fingerprint[:16])
+    console.print(table)
+    console.print(f"digest ({signed.digest_algorithm}): {signed.digest}")
+    if signed.manifest is not None:
+        console.print(f"files hashed: {len(signed.manifest)}")
+        if signed.manifest.excluded:
+            console.print(f"[yellow]paths excluded (names bound into the digest, "
+                          f"contents not hashed): {signed.manifest.exclusion_summary()}")
+    for note in signed.notes:
+        console.print(f"[yellow]note: {note}")
+    console.print(f"[green]bundle -> {out}")
+
+    if keys_out:
+        keys_out.parent.mkdir(parents=True, exist_ok=True)
+        keys_out.write_text(json.dumps(keys.public_keys(), indent=2), encoding="utf-8")
+        console.print(f"[green]public keys -> {keys_out}")
+    console.print("[bold red]Secret keys were NOT written. They exist only in "
+                  "this process and are gone now.[/bold red] Pass --seed to "
+                  "reproduce them.")
+
+
+@app.command("verify")
+def verify_artefact(
+    target: Path = typer.Argument(..., help="File or directory to verify."),
+    bundle: Path = typer.Option(..., "--bundle", help="The signature bundle."),
+    mode: str = typer.Option("strict", "--mode", help="strict | classical | pqc."),
+    context: str = typer.Option("", "--context", help="Must match signing."),
+) -> None:
+    """Verify an artefact against a bundle, and report what was checked."""
+    from .signing.bundle import parse_bundle
+    from .signing.sign import VerificationFailed, VerifyMode, verify
+
+    try:
+        chosen = VerifyMode(mode.lower())
+    except ValueError:
+        console.print(f"[red]--mode must be strict, classical or pqc; got {mode!r}")
+        raise typer.Exit(2) from None
+
+    try:
+        parsed = parse_bundle(json.loads(bundle.read_text(encoding="utf-8")))
+    except (OSError, ValueError) as exc:
+        console.print(f"[red]could not read the bundle: {exc}")
+        raise typer.Exit(2) from None
+
+    try:
+        report = verify(target, parsed, mode=chosen, context=context.encode())
+    except VerificationFailed as exc:
+        console.print("[bold red]VERIFICATION FAILED[/bold red]")
+        console.print(str(exc))
+        raise typer.Exit(1) from None
+
+    console.print("[bold green]VERIFIED[/bold green]")
+    console.print(f"  mode              : {report['mode']}")
+    console.print(f"  algorithms checked: {report['algorithms_checked']}")
+    console.print(f"  quantum resistant : {report['quantum_resistant']}")
+    console.print(f"  binding enforced  : {report['binding_enforced']}")
+    temporal = report["temporal"]
+    console.print(f"  time evidence     : {temporal['evidence']} "
+                  f"(trusted={temporal['evidence_trusted']}, "
+                  f"bound={temporal['evidence_bound']})")
+    for finding in temporal["findings"]:
+        colour = "red" if finding.startswith("[critical]") else "yellow"
+        console.print(f"    [{colour}]{finding}")
+    for warning in report["warnings"]:
+        console.print(f"  [yellow]warning: {warning}")
+    entropy = report["signed_claims"]["entropy"]
+    if entropy:
+        console.print(f"  entropy (claimed) : quantum_seeded={entropy['quantum_seeded']} "
+                      f"verifiable={entropy['externally_verifiable_sources']}")

@@ -36,6 +36,21 @@ data/longtail_frame_*.txt.cursor
 # Run logs
 logs/
 
+# Responsible-disclosure material. Full credential-shaped identifiers, held
+# locally for reporting to HuggingFace and never published. The redacted
+# JSON alongside it is safe to commit.
+security/*.PRIVATE.txt
+security/*.private.*
+
 # OS junk files
 Thumbs.db
 .DS_Store
+
+# Pre-backfill snapshots written by scripts/audit/rescan_silent_rows.py.
+# Git already preserves the previous state of any tracked file, so committing a
+# copy alongside it is redundant -- and because these datasets contain
+# repository names shaped like credentials, a fresh full-file blob would drag
+# them through GitHub's secret scanning again for nothing. Recover the original
+# with:
+#     git show <commit>:data/longtail_10k_2026-07-25.jsonl
+data/*.prebackfill-*.jsonl
