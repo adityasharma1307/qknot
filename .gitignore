@@ -54,3 +54,23 @@ Thumbs.db
 # with:
 #     git show <commit>:data/longtail_10k_2026-07-25.jsonl
 data/*.prebackfill-*.jsonl
+
+# Scratch produced by running notebooks/qresp_demo.ipynb. The notebook is the
+# deliverable; everything it writes is a per-run artefact -- tampered copies,
+# a synthetic attacker tree, a stand-in HF snapshot, and the bundle/keys the
+# CLI section emits. Committing them would ship a signed bundle whose keys were
+# generated on one machine at one moment, which is meaningless to a reader and
+# invites the assumption that it is a reference vector.
+executed_demo.ipynb
+**/hf-stand-in/
+**/synthetic-model/
+**/tampered/
+**/ci-artefact/
+**/openai-inc--privacy-filter/
+notebooks/cli.bundle.json
+notebooks/cli.keys.json
+
+# The demo notebook's Colab fallback clones the repository. If that path runs
+# from inside a checkout -- which it should not, but did once when the local
+# search failed -- it leaves a nested clone here. Never commit one.
+/qresp2/

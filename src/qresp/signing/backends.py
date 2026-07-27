@@ -12,8 +12,9 @@ THE SIDE-CHANNEL PROBLEM, STATED PLAINLY
 `dilithium-py` says: "Under no circumstances should this be used for
 cryptographic applications... not designed to be secure against any form of
 side-channel attack." That warning is about **timing**, not correctness. The
-library passes the FIPS 204 known-answer tests; see
-`scripts/verify/run_ml_dsa_kats.py`.
+library reproduces NIST's ACVP FIPS 204 vectors byte for byte -- key generation,
+signing (deterministic and hedged) and verification, 180 vectors -- checked on
+every test run by `tests/signing/test_fips204_acvp.py`.
 
 ML-DSA signing uses rejection sampling: it loops until a candidate signature
 falls within bounds, and the iteration count depends on secret data. Measured
@@ -298,8 +299,8 @@ class MlDsaBackend:
                 "duration depend on secret data",
                 "safe for offline release signing, where timings are not "
                 "observable; NOT for an online signing service",
-                "functional correctness validated against FIPS 204 KATs; "
-                "that establishes correctness, not side-channel resistance",
+                "functional correctness validated against NIST ACVP FIPS 204 "
+                "vectors; that establishes correctness, not side-channel resistance",
                 "for online use, implement this interface over liboqs-python",
             ],
         ).to_dict()

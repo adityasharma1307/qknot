@@ -4,7 +4,8 @@
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)
 ![Models audited](https://img.shields.io/badge/Repositories%20audited-20%2C000-green.svg)
 ![PQ-safe](https://img.shields.io/badge/PQ--safe%20repositories-0-red.svg)
-![Tests](https://img.shields.io/badge/Tests-647%20passing-brightgreen.svg)
+![Tests](https://img.shields.io/badge/Tests-833%20passing-brightgreen.svg)
+![FIPS 204](https://img.shields.io/badge/FIPS%20204%20ACVP-180%2F180-brightgreen.svg)
 
 > Phase I and II of *Quantum-Resilient Provenance for Machine Learning Supply Chains*
 > CS F376 Design Project, BITS Pilani Dubai Campus, 2025–26.
@@ -108,6 +109,20 @@ one leaves the other attesting to its absence.
 | **Format** | OMS v1.0-compatible Sigstore bundle, validated against the published schemas |
 | **Entropy** | Sources mixed, never chosen between; quantum origin attested, never assumed |
 | **Signed** | DSSE PAE over the whole statement — attestation and metadata included |
+| **Conformance** | 180 NIST ACVP FIPS 204 vectors, byte-exact, run offline on every test invocation |
+
+### Run it end to end
+
+[`notebooks/qresp_demo.ipynb`](notebooks/qresp_demo.ipynb) signs
+`openai/privacy-filter` — one of the 39 signed repositories in the head stratum,
+currently carrying an ECDSA P-256 Sigstore signature — then attacks the result
+seven ways: artefact tampering, unsigned additions to an excluded directory,
+signature stripping (with and without rewriting the declared suite), metadata
+forgery, verification from 2031, and artefact substitution.
+
+Runs in Colab with no API keys and no hardware; falls back cleanly and says so
+when the network is unavailable. Regenerate with
+`python scripts/demo/build_notebook.py --run`.
 
 `qresp.signing` imports nothing from `qresp.audit` and knows nothing about
 HuggingFace or machine learning. It signs bytes. That boundary is enforced by a

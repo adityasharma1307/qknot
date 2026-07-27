@@ -88,10 +88,11 @@ OMS_REQUIRED_ALGORITHM = "sha256"
 # Domain separation. A manifest digest must never collide with a file digest of
 # the same bytes, and neither must be reusable as a signature binding.
 #
-# v2 because the exclusion list is now part of the digest: a v1 digest over the
-# same tree is a different value, and deliberately so. Silently keeping the tag
-# would have let two incompatible constructions share an identifier.
-MANIFEST_DOMAIN = b"qresp-manifest-v2"
+# v3. The tag moves whenever the construction changes, so two incompatible
+# schemes can never share an identifier:
+#   v2  exclusions became part of the digest
+#   v3  symlinks to regular files are followed and their target recorded
+MANIFEST_DOMAIN = b"qresp-manifest-v3"
 
 # Separate tags for the two sections, so an excluded path can never be
 # reinterpreted as an included one.
@@ -131,11 +132,18 @@ def digest_file(path: Path, algorithm: str = DEFAULT_ALGORITHM) -> str:
 
 @dataclass(frozen=True)
 class FileEntry:
-    """One file in a manifest. `path` is POSIX-relative to the artefact root."""
+    """One file in a manifest. `path` is POSIX-relative to the artefact root.
+
+    `link_target` is set when the path is a symlink whose content was hashed.
+    Recording it matters: two symlinks pointing at identical content are not the
+    same artefact, and repointing one at a different file that happens to hash
+    the same would otherwise be invisible.
+    """
 
     path: str
     size: int
     digests: dict[str, str]
+    link_target: str | None = None
 
     def digest(self, algorithm: str = DEFAULT_ALGORITHM) -> str:
         return self.digests[algorithm]
@@ -199,6 +207,7 @@ def manifest_digest(
     Two sections, each under its own domain tag and preceded by its count:
 
         included: len(path) || path || len(digest) || digest
+                  || len(link_target) || link_target
         excluded: len(path) || path || len(reason) || reason || len(target) || target
 
     All lengths are 8-byte big-endian, and both sections are sorted by path.
@@ -221,6 +230,7 @@ def manifest_digest(
     for entry in included:
         h.update(_field_bytes(entry.path.encode("utf-8")))
         h.update(_field_bytes(bytes.fromhex(entry.digest(algorithm))))
+        h.update(_field_bytes((entry.link_target or "").encode("utf-8")))
 
     h.update(_EXCLUDED_TAG)
     skipped = sorted(excluded, key=lambda e: e.path)
@@ -238,7 +248,7 @@ def build_manifest(
     algorithm: str = DEFAULT_ALGORITHM,
     also: tuple[str, ...] = (OMS_REQUIRED_ALGORITHM,),
     ignore: tuple[str, ...] = (".git", "__pycache__"),
-    follow_symlinks: bool = False,
+    follow_symlinks: bool = True,
 ) -> Manifest:
     """Walk `root` and digest every file under it.
 
@@ -253,11 +263,22 @@ def build_manifest(
             `algorithm` field does not permit SHA-3.
         ignore: directory or file names whose *contents* are not hashed. Their
             paths are still recorded.
-        follow_symlinks: off by default. A followed symlink can point outside
-            the artefact root, so a manifest built with it on does not describe
-            a self-contained tree. OMS records this choice in
-            `serialization.allow_symlinks` for the same reason. When off, each
-            symlink is recorded with its target rather than ignored.
+        follow_symlinks: **on by default**, and the default matters. A
+            `huggingface_hub` snapshot directory is composed *entirely* of
+            symlinks into a shared blob cache:
+
+                snapshots/<rev>/config.json -> ../../blobs/<sha>
+
+            With symlinks excluded, such a tree has zero hashable files and
+            signing it raised "no files found" -- so the single most common
+            artefact this tool exists to sign could not be signed at all.
+
+            Following a symlink hashes the content it resolves to and records
+            the link target in the entry. Both are bound into the digest, so
+            repointing a link is detected even if the new target hashes
+            identically, and adding one is detected because it adds an entry.
+            Set this to False for a strictly self-contained tree, where links
+            are recorded as exclusions and never read.
 
     Raises:
         ValueError: if `root` is not a directory, or contains no files. An
@@ -284,13 +305,23 @@ def build_manifest(
                 excluded.append(ExcludedEntry(rel, f"ignored:{ignored_by}"))
             continue
 
-        if path.is_symlink() and not follow_symlinks:
+        link_target: str | None = None
+        if path.is_symlink():
             try:
-                target = os.readlink(path)
+                link_target = str(os.readlink(path))
             except OSError as exc:                     # pragma: no cover
-                target = f"<unreadable: {exc}>"
-            excluded.append(ExcludedEntry(rel, "symlink", target=str(target)))
-            continue
+                link_target = f"<unreadable: {exc}>"
+
+            if not follow_symlinks:
+                excluded.append(ExcludedEntry(rel, "symlink", target=link_target))
+                continue
+            if not path.is_file():
+                # Dangling, or pointing at a directory. Not read either way:
+                # a broken link has no content, and following a directory link
+                # risks a cycle. Recorded so its presence is still covered.
+                reason = "symlink-broken" if not path.exists() else "symlink-directory"
+                excluded.append(ExcludedEntry(rel, reason, target=link_target))
+                continue
 
         if not path.is_file():
             continue
@@ -299,6 +330,7 @@ def build_manifest(
             path=rel,
             size=path.stat().st_size,
             digests={a: digest_file(path, a) for a in wanted},
+            link_target=link_target,
         ))
 
     if not entries:

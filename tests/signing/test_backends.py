@@ -91,7 +91,20 @@ class TestHonestSelfDescription:
         depend on secret data' is checkable."""
         caveats = " ".join(ml_dsa.describe()["caveats"]).lower()
         assert "rejection sampling" in caveats
-        assert "kat" in caveats and "not side-channel" in caveats
+        assert "not side-channel" in caveats
+
+    def test_ml_dsa_caveats_name_the_conformance_evidence_precisely(self, ml_dsa):
+        """The caveat must say *which* vectors, not just "KATs".
+
+        It previously said "FIPS 204 KATs" while the script behind that claim
+        ran round-3 Dilithium vectors against the round-3 Dilithium module --
+        a different algorithm from the one this backend signs with. Naming the
+        specific vector suite is what makes the claim checkable rather than
+        reassuring. See tests/signing/fips204_vectors/PROVENANCE.md.
+        """
+        caveats = " ".join(ml_dsa.describe()["caveats"]).lower()
+        assert "acvp" in caveats and "fips 204" in caveats
+        assert "correctness, not side-channel resistance" in caveats
 
     def test_ed25519_admits_it_is_shor_vulnerable(self, ed25519):
         assert ed25519.quantum_resistant is False

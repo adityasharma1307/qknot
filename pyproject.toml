@@ -50,6 +50,12 @@ dev = [
     "pytest-cov>=5.0",
     "ruff>=0.5",
     "mypy>=1.10",
+    # Executing the Task 7 demo notebook. Needed by
+    # scripts/demo/build_notebook.py --run, not by the notebook itself:
+    # a reader opening it in Colab or Jupyter needs none of these.
+    "nbclient>=0.10",
+    "nbformat>=5.10",
+    "ipykernel>=6.29",
 ]
 
 [project.scripts]

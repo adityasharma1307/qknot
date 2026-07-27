@@ -120,15 +120,22 @@ class TestBuildManifest:
             "an added file must not slip past a signed manifest"
         )
 
-    def test_symlinks_are_skipped_by_default(self, tmp_path: Path):
+    def test_symlinks_are_followed_by_default(self, tmp_path: Path):
+        """Changed default. A huggingface_hub snapshot is entirely symlinks into
+        a blob cache, so excluding them meant a downloaded model had zero
+        hashable files and could not be signed at all."""
         root = self._tree(tmp_path / "m")
         outside = tmp_path / "outside.txt"
-        outside.write_bytes(b"not part of the artefact")
+        outside.write_bytes(b"content reached through the link")
         try:
             (root / "link.txt").symlink_to(outside)
         except (OSError, NotImplementedError):
             pytest.skip("symlinks unavailable on this platform")
-        assert "link.txt" not in {e.path for e in build_manifest(root).entries}
+        entries = {e.path: e for e in build_manifest(root).entries}
+        assert "link.txt" in entries
+        assert entries["link.txt"].digest() == digest_bytes(
+            b"content reached through the link")
+        assert entries["link.txt"].link_target is not None
 
     def test_empty_tree_is_refused(self, tmp_path: Path):
         empty = tmp_path / "empty"
@@ -234,6 +241,25 @@ class TestExcludedPathsAreStillBoundIntoTheDigest:
         after, _ = digest_artefact(root)
         assert before != after, "the symlink target is part of the artefact"
 
+    def test_repointing_at_identical_content_still_changes_the_digest(self, tmp_path):
+        """The reason `link_target` is bound in as well as the content.
+
+        Two files can hash the same and still be different files. If only the
+        content were covered, swapping a link between them would be invisible --
+        and "which file is this really" is exactly what a provenance tool is
+        being asked."""
+        root = self._tree(tmp_path)
+        a = tmp_path / "a.bin"
+        a.write_bytes(b"identical")
+        b = tmp_path / "b.bin"
+        b.write_bytes(b"identical")
+        os.symlink(a, root / "link")
+        before, _ = digest_artefact(root)
+        (root / "link").unlink()
+        os.symlink(b, root / "link")
+        after, _ = digest_artefact(root)
+        assert before != after
+
     def test_excluded_contents_are_still_never_read(self, tmp_path):
         """The point is visibility, not hashing: contents stay unread, so the
         original reasons for excluding them are undisturbed."""
@@ -251,9 +277,15 @@ class TestExcludedPathsAreStillBoundIntoTheDigest:
         outside.write_bytes(b"x")
         os.symlink(outside, root / "link")
         _, manifest = digest_artefact(root)
-        entry = next(e for e in manifest.excluded if e.path == "link")
-        assert entry.reason == "symlink"
-        assert entry.target and entry.target.endswith("evil.bin")
+        entry = next(e for e in manifest.entries if e.path == "link")
+        assert entry.link_target and entry.link_target.endswith("evil.bin")
+
+    def test_a_clean_tree_has_no_exclusions(self, tmp_path):
+        """No exclusions means no behavioural change beyond the domain tag."""
+        root = self._tree(tmp_path)
+        _, manifest = digest_artefact(root)
+        assert manifest.excluded == []
+        assert manifest.exclusion_summary() == {}
 
     def test_exclusions_cannot_be_confused_with_inclusions(self):
         """Separate domain tags and section counts: a path recorded as excluded
@@ -264,9 +296,70 @@ class TestExcludedPathsAreStillBoundIntoTheDigest:
                                    [ExcludedEntry("a", "symlink", "ab" * 32)])
         assert as_included != as_mixed
 
-    def test_a_clean_tree_is_unaffected(self, tmp_path):
-        """No exclusions means no behavioural change beyond the domain tag."""
+    def test_symlinks_can_still_be_excluded_explicitly(self, tmp_path):
+        """`follow_symlinks=False` keeps the strictly-self-contained semantics
+        for anyone who wants them."""
         root = self._tree(tmp_path)
-        _, manifest = digest_artefact(root)
-        assert manifest.excluded == []
-        assert manifest.exclusion_summary() == {}
+        outside = tmp_path / "x.bin"
+        outside.write_bytes(b"x")
+        os.symlink(outside, root / "link")
+        manifest = build_manifest(root, follow_symlinks=False)
+        assert "link" not in [e.path for e in manifest.entries]
+        entry = next(e for e in manifest.excluded if e.path == "link")
+        assert entry.reason == "symlink"
+
+
+class TestHuggingFaceSnapshotLayout:
+    """A `huggingface_hub` snapshot is a tree of symlinks into a blob cache.
+
+    Excluding symlinks made such a tree contain zero hashable files, so signing
+    a downloaded model raised "no files found" -- the tool could not sign the
+    artefact it exists to sign. Caught by running the Task 7 demo against a real
+    download rather than a fixture.
+    """
+
+    @staticmethod
+    def _snapshot(tmp_path):
+        blobs = tmp_path / "blobs"
+        blobs.mkdir()
+        snap = tmp_path / "snapshots" / "rev"
+        snap.mkdir(parents=True)
+        (blobs / "aaa").write_bytes(b'{"arch": "test"}')
+        (blobs / "bbb").write_bytes(b"weights" * 100)
+        os.symlink(os.path.relpath(blobs / "aaa", snap), snap / "config.json")
+        os.symlink(os.path.relpath(blobs / "bbb", snap), snap / "model.safetensors")
+        return snap
+
+    def test_a_snapshot_of_only_symlinks_can_be_signed(self, tmp_path):
+        manifest = build_manifest(self._snapshot(tmp_path))
+        assert len(manifest) == 2
+        assert all(e.link_target for e in manifest.entries)
+
+    def test_the_content_behind_the_links_is_what_is_hashed(self, tmp_path):
+        snap = self._snapshot(tmp_path)
+        manifest = build_manifest(snap)
+        entry = next(e for e in manifest.entries if e.path == "config.json")
+        assert entry.digest() == digest_bytes(b'{"arch": "test"}')
+
+    def test_tampering_with_a_blob_is_detected(self, tmp_path):
+        snap = self._snapshot(tmp_path)
+        before, _ = digest_artefact(snap)
+        (tmp_path / "blobs" / "aaa").write_bytes(b'{"arch": "BACKDOORED"}')
+        after, _ = digest_artefact(snap)
+        assert before != after
+
+    def test_a_dangling_link_is_recorded_not_fatal(self, tmp_path):
+        """HF caches can be pruned, leaving links with no blob behind them.
+        That is a broken artefact, not a crash -- record it and carry on."""
+        snap = self._snapshot(tmp_path)
+        os.symlink("/nonexistent/blob", snap / "missing.bin")
+        manifest = build_manifest(snap)
+        entry = next(e for e in manifest.excluded if e.path == "missing.bin")
+        assert entry.reason == "symlink-broken"
+
+    def test_a_pruned_blob_changes_the_digest(self, tmp_path):
+        snap = self._snapshot(tmp_path)
+        before, _ = digest_artefact(snap)
+        (tmp_path / "blobs" / "aaa").unlink()
+        after, _ = digest_artefact(snap)
+        assert before != after, "a link that stopped resolving is a real change"

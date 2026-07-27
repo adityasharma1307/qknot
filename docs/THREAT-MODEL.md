@@ -161,8 +161,15 @@ verifier can see which mode produced it.
 
 `dilithium-py` states plainly that it "has not been designed to be secure
 against any form of side-channel attack". That warning is about timing, not
-correctness: the library reproduces the FIPS 204 known-answer tests byte for
-byte (`scripts/verify/run_ml_dsa_kats.py`).
+correctness: the library reproduces NIST's ACVP FIPS 204 vectors byte for byte
+across key generation, signing and verification
+(`tests/signing/test_fips204_acvp.py`, 180 vectors, run on every test
+invocation).
+
+An earlier revision cited `run_ml_dsa_kats.py`, which ran round-3 **Dilithium**
+KATs against the round-3 Dilithium module -- a different algorithm from the
+ML-DSA the backend actually signs with, and therefore no evidence about it. See
+`tests/signing/fips204_vectors/PROVENANCE.md`.
 
 ML-DSA signing uses **rejection sampling**. It generates a candidate signature,
 checks whether it falls within bounds, and retries if not. The number of

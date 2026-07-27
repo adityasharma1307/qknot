@@ -13,16 +13,26 @@ import logging
 import sys
 from collections import Counter
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import typer
 from rich.console import Console
 from rich.progress import BarColumn, Progress, TextColumn, TimeRemainingColumn
 from rich.table import Table
 
-from .audit.hf_client import HfClient
-from .audit.model import QLabel
-from .audit.scanner import run_audit, run_audit_ids
-from .signing.entropy import OnFailure, QrngUnavailable, get_entropy
+# The audit stack is imported lazily, inside the commands that use it.
+#
+# `qresp.signing` deliberately depends on nothing from `qresp.audit` -- a
+# boundary a test enforces -- so that the signing half is reusable for any
+# artefact. Importing the audit modules here quietly undid that for anyone
+# using the CLI: `qresp sign`, a pure signing operation, would not start
+# without `tenacity`, `huggingface_hub` and `pydantic` installed. Someone who
+# wants to sign a firmware image should not need a HuggingFace client.
+#
+# Caught by running the demo notebook in a bare environment, where the CLI
+# crashed on `tenacity` while signing a local directory.
+if TYPE_CHECKING:
+    from .audit.model import QLabel
 
 app = typer.Typer(
     help="QResP: Quantum-Resilient Provenance audit for ML model registries.",
@@ -54,6 +64,9 @@ def scan(
         # the first INFO line.
         stream=sys.stdout,
     )
+
+    from .audit.hf_client import HfClient
+    from .audit.scanner import run_audit
 
     client = HfClient(token=token)
     label_counter: Counter[QLabel] = Counter()
@@ -128,6 +141,9 @@ def scan_ids(
             "[yellow]No token supplied. A scan of this size will very likely be "
             "rate limited; pass --token or set HF_TOKEN.[/yellow]"
         )
+
+    from .audit.hf_client import HfClient
+    from .audit.scanner import run_audit_ids
 
     client = HfClient(token=token)
     label_counter: Counter[QLabel] = Counter()
@@ -205,6 +221,8 @@ def entropy(
         "attestation, which carries no timestamp and cannot supply time "
         "evidence to a verifier. Omit --backend to mix sources instead.[/yellow]"
     )
+
+    from .signing.entropy import OnFailure, QrngUnavailable, get_entropy
 
     try:
         policy = OnFailure(on_qrng_failure)
@@ -302,6 +320,8 @@ def summarise(
         console.print(f"[red]File not found:[/red] {inp}")
         raise typer.Exit(code=1)
 
+    from .audit.model import QLabel
+
     label_counter: Counter[QLabel] = Counter()
     n_models = 0
     with inp.open() as f:
@@ -334,6 +354,8 @@ def _print_summary(
     table.add_column("Count", justify="right")
     table.add_column("Share", justify="right")
     # display in a stable, meaningful order
+    from .audit.model import QLabel
+
     for lbl in [QLabel.SAFE, QLabel.VULNERABLE, QLabel.UNSIGNED, QLabel.MIXED, QLabel.ERROR]:
         cnt = counter.get(lbl, 0)
         pct = (cnt / total * 100.0) if total else 0.0
