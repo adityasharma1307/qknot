@@ -111,6 +111,24 @@ one leaves the other attesting to its absence.
 | **Signed** | DSSE PAE over the whole statement — attestation and metadata included |
 | **Conformance** | 180 NIST ACVP FIPS 204 vectors, byte-exact, run offline on every test invocation |
 
+### Benchmarks
+
+[`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) — signing latency, signature sizes,
+scaling with artefact size, and the entropy-source analysis.
+
+Two numbers worth knowing, both measured:
+
+**Hashing dominates.** The signature cost is flat at ~19 ms regardless of
+artefact size, while the digest grows linearly. At 338 MB/s a 7 GB model takes
+21 s to hash against 19 ms to sign — the post-quantum signature is **0.09% of
+the total**, and that share *falls* as models grow.
+
+**The Ed25519 half is nearly free.** The hybrid costs 21.2 ms more than Ed25519
+alone, but only **0.28 ms more than ML-DSA alone**. Once you are paying for a
+post-quantum signature, backward compatibility with every verifier that exists
+today costs almost nothing — which is the practical argument for a hybrid over a
+straight migration.
+
 ### Run it end to end
 
 [`notebooks/qresp_demo.ipynb`](notebooks/qresp_demo.ipynb) signs

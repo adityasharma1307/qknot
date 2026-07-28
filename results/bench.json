@@ -1,0 +1,376 @@
+{
+  "environment": {
+    "python": "3.13.14",
+    "implementation": "CPython",
+    "executable": "C:\\Users\\dell\\Desktop\\Projects\\QRESP 2\\qresp2\\.venv\\Scripts\\python.exe",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "machine": "AMD64",
+    "processor": "Intel64 Family 6 Model 183 Stepping 1, GenuineIntel",
+    "timestamp": "2026-07-28T18:19:44+0530",
+    "dilithium_py": "(unknown)",
+    "cryptography": "49.0.0",
+    "cpu_count": 32
+  },
+  "reps": 50,
+  "primitives": {
+    "ed25519": {
+      "keygen": {
+        "label": "keygen",
+        "n": 50,
+        "median_ms": 0.025499961338937283,
+        "p25_ms": 0.025300018023699522,
+        "p75_ms": 0.025600020308047533,
+        "min_ms": 0.025200017262250185,
+        "max_ms": 0.0377000542357564,
+        "mean_ms": 0.025926001835614443,
+        "stdev_ms": 0.002194877798810326
+      },
+      "sign": {
+        "label": "sign",
+        "n": 50,
+        "median_ms": 0.043599982745945454,
+        "p25_ms": 0.04339998122304678,
+        "p75_ms": 0.04497499321587384,
+        "min_ms": 0.04299997817724943,
+        "max_ms": 0.05299999611452222,
+        "mean_ms": 0.04461799864657223,
+        "stdev_ms": 0.002243328722522067
+      },
+      "verify": {
+        "label": "verify",
+        "n": 50,
+        "median_ms": 0.06765002035535872,
+        "p25_ms": 0.06707498687319458,
+        "p75_ms": 0.0686999992467463,
+        "min_ms": 0.06459996802732348,
+        "max_ms": 0.09079999290406704,
+        "mean_ms": 0.06891199969686568,
+        "stdev_ms": 0.0045141355842986935
+      },
+      "signature_bytes": 64,
+      "public_key_bytes": 32,
+      "secret_key_bytes": 32,
+      "quantum_resistant": false
+    },
+    "ml-dsa-44": {
+      "keygen": {
+        "label": "keygen",
+        "n": 50,
+        "median_ms": 4.232399980537593,
+        "p25_ms": 3.9710250130156055,
+        "p75_ms": 4.304175003198907,
+        "min_ms": 3.6601999890990555,
+        "max_ms": 4.672300012316555,
+        "mean_ms": 4.172999997390434,
+        "stdev_ms": 0.22519271108567332
+      },
+      "sign": {
+        "label": "sign",
+        "n": 50,
+        "median_ms": 18.823349993908778,
+        "p25_ms": 10.997424993547611,
+        "p75_ms": 26.930524996714666,
+        "min_ms": 8.90010001603514,
+        "max_ms": 102.75149997323751,
+        "mean_ms": 24.54759000102058,
+        "stdev_ms": 19.601112482702053
+      },
+      "verify": {
+        "label": "verify",
+        "n": 50,
+        "median_ms": 4.696049989433959,
+        "p25_ms": 4.435075024957769,
+        "p75_ms": 4.869850003160536,
+        "min_ms": 4.064099979586899,
+        "max_ms": 5.319599993526936,
+        "mean_ms": 4.676799998851493,
+        "stdev_ms": 0.31528409515688766
+      },
+      "signature_bytes": 2420,
+      "public_key_bytes": 1312,
+      "secret_key_bytes": 2560,
+      "quantum_resistant": true
+    },
+    "ml-dsa-65": {
+      "keygen": {
+        "label": "keygen",
+        "n": 50,
+        "median_ms": 7.053750014165416,
+        "p25_ms": 7.014025031821802,
+        "p75_ms": 7.1068750257836655,
+        "min_ms": 6.8860999890603125,
+        "max_ms": 7.380599970929325,
+        "mean_ms": 7.069980000378564,
+        "stdev_ms": 0.09797855493750475
+      },
+      "sign": {
+        "label": "sign",
+        "n": 50,
+        "median_ms": 30.52229995955713,
+        "p25_ms": 23.558025030069984,
+        "p75_ms": 45.379900009720586,
+        "min_ms": 14.521399978548288,
+        "max_ms": 113.46120003145188,
+        "mean_ms": 36.753427997464314,
+        "stdev_ms": 19.81867984234996
+      },
+      "verify": {
+        "label": "verify",
+        "n": 50,
+        "median_ms": 7.790450006723404,
+        "p25_ms": 7.734399987384677,
+        "p75_ms": 7.874899994931184,
+        "min_ms": 7.569700013846159,
+        "max_ms": 8.00359999993816,
+        "mean_ms": 7.793790001887828,
+        "stdev_ms": 0.10539663684680638
+      },
+      "signature_bytes": 3309,
+      "public_key_bytes": 1952,
+      "secret_key_bytes": 4032,
+      "quantum_resistant": true
+    },
+    "ml-dsa-87": {
+      "keygen": {
+        "label": "keygen",
+        "n": 50,
+        "median_ms": 11.075349990278482,
+        "p25_ms": 10.214449983322993,
+        "p75_ms": 11.197174986591563,
+        "min_ms": 9.127500001341105,
+        "max_ms": 11.563400039449334,
+        "mean_ms": 10.82795599824749,
+        "stdev_ms": 0.6018649577640331
+      },
+      "sign": {
+        "label": "sign",
+        "n": 50,
+        "median_ms": 42.973750008968636,
+        "p25_ms": 30.723225005203858,
+        "p75_ms": 61.33147499349434,
+        "min_ms": 21.0166999604553,
+        "max_ms": 150.68710001651198,
+        "mean_ms": 50.2266919973772,
+        "stdev_ms": 28.200125609932364
+      },
+      "verify": {
+        "label": "verify",
+        "n": 50,
+        "median_ms": 11.377550021279603,
+        "p25_ms": 10.742750018835068,
+        "p75_ms": 11.872549992403947,
+        "min_ms": 10.111399984452873,
+        "max_ms": 12.59519997984171,
+        "mean_ms": 11.329165998613462,
+        "stdev_ms": 0.700224177901154
+      },
+      "signature_bytes": 4627,
+      "public_key_bytes": 2592,
+      "secret_key_bytes": 4896,
+      "quantum_resistant": true
+    }
+  },
+  "scaling": {
+    "1MB": {
+      "digest": {
+        "label": "digest",
+        "n": 50,
+        "median_ms": 10.286000004271045,
+        "p25_ms": 10.033849990577437,
+        "p75_ms": 10.6283000059193,
+        "min_ms": 9.384899982251227,
+        "max_ms": 11.553799966350198,
+        "mean_ms": 10.275889998301864,
+        "stdev_ms": 0.4675181433346337
+      },
+      "sign_total": {
+        "label": "sign_total",
+        "n": 50,
+        "median_ms": 29.837499983841553,
+        "p25_ms": 22.543024984770454,
+        "p75_ms": 37.27485000854358,
+        "min_ms": 20.297200011555105,
+        "max_ms": 115.47629995038733,
+        "mean_ms": 33.18292199750431,
+        "stdev_ms": 16.17351568242171
+      },
+      "signature_only_ms": 19.551,
+      "digest_share_pct": 34.5,
+      "throughput_mb_s": 97.2
+    },
+    "10MB": {
+      "digest": {
+        "label": "digest",
+        "n": 50,
+        "median_ms": 34.33244998450391,
+        "p25_ms": 33.597800036659464,
+        "p75_ms": 35.34375001618173,
+        "min_ms": 32.55349997198209,
+        "max_ms": 43.24490000726655,
+        "mean_ms": 34.80908199795522,
+        "stdev_ms": 2.0035790525196773
+      },
+      "sign_total": {
+        "label": "sign_total",
+        "n": 50,
+        "median_ms": 54.33480002102442,
+        "p25_ms": 49.61435003497172,
+        "p75_ms": 63.324874980025925,
+        "min_ms": 41.69939999701455,
+        "max_ms": 111.78029997972772,
+        "mean_ms": 57.78493199730292,
+        "stdev_ms": 13.407684725975296
+      },
+      "signature_only_ms": 20.002,
+      "digest_share_pct": 63.2,
+      "throughput_mb_s": 291.3
+    },
+    "100MB": {
+      "digest": {
+        "label": "digest",
+        "n": 12,
+        "median_ms": 295.513849996496,
+        "p25_ms": 284.721724994597,
+        "p75_ms": 302.913349980372,
+        "min_ms": 280.02700000070035,
+        "max_ms": 313.9855000190437,
+        "mean_ms": 294.77604166216526,
+        "stdev_ms": 11.164446058228096
+      },
+      "sign_total": {
+        "label": "sign_total",
+        "n": 12,
+        "median_ms": 314.4909499969799,
+        "p25_ms": 298.0746500106761,
+        "p75_ms": 334.3106749962317,
+        "min_ms": 288.71189994970337,
+        "max_ms": 382.37870001466945,
+        "mean_ms": 320.7479916648784,
+        "stdev_ms": 28.37400074062015
+      },
+      "signature_only_ms": 18.977,
+      "digest_share_pct": 94.0,
+      "throughput_mb_s": 338.4
+    }
+  },
+  "hybrid_overhead": {
+    "ed25519_only": {
+      "sign": {
+        "label": "sign",
+        "n": 50,
+        "median_ms": 6.67910001357086,
+        "p25_ms": 6.569699980900623,
+        "p75_ms": 6.872700032545254,
+        "min_ms": 6.371099967509508,
+        "max_ms": 12.413099990226328,
+        "mean_ms": 6.904940000968054,
+        "stdev_ms": 0.9133161573813017
+      },
+      "verify": {
+        "label": "verify",
+        "n": 50,
+        "median_ms": 6.20339997112751,
+        "p25_ms": 6.025250011589378,
+        "p75_ms": 6.490425032097846,
+        "min_ms": 5.8126000221818686,
+        "max_ms": 8.612100034952164,
+        "mean_ms": 6.299277998041362,
+        "stdev_ms": 0.44588750024377455
+      },
+      "total_signature_bytes": 64
+    },
+    "hybrid": {
+      "sign": {
+        "label": "sign",
+        "n": 50,
+        "median_ms": 27.890600002137944,
+        "p25_ms": 20.359450005344115,
+        "p75_ms": 40.012625002418645,
+        "min_ms": 15.934299968648702,
+        "max_ms": 86.88900002744049,
+        "mean_ms": 32.052049996564165,
+        "stdev_ms": 15.427982693293753
+      },
+      "verify": {
+        "label": "verify",
+        "n": 50,
+        "median_ms": 12.011250015348196,
+        "p25_ms": 11.327575004543178,
+        "p75_ms": 12.814750007237308,
+        "min_ms": 10.463299986440688,
+        "max_ms": 17.263200017623603,
+        "mean_ms": 12.250254000537097,
+        "stdev_ms": 1.2991775356037114
+      },
+      "total_signature_bytes": 2484
+    },
+    "ml_dsa_only": {
+      "sign": {
+        "label": "sign",
+        "n": 50,
+        "median_ms": 27.613299986114725,
+        "p25_ms": 20.690899997134693,
+        "p75_ms": 41.06849999516271,
+        "min_ms": 16.81169995572418,
+        "max_ms": 98.85950002353638,
+        "mean_ms": 31.92343199858442,
+        "stdev_ms": 15.805993677215218
+      },
+      "verify": {
+        "label": "verify",
+        "n": 50,
+        "median_ms": 11.376700014807284,
+        "p25_ms": 10.975600001984276,
+        "p75_ms": 11.592725015361793,
+        "min_ms": 10.388199996668845,
+        "max_ms": 12.931799981743097,
+        "mean_ms": 11.309141996316612,
+        "stdev_ms": 0.4838444810220508
+      },
+      "total_signature_bytes": 2420
+    },
+    "overhead": {
+      "absolute_ms": 21.211,
+      "multiple": 4.2,
+      "extra_signature_bytes": 2420,
+      "note": "over a 1 MiB artefact; the digest is common to both, so the difference is the ML-DSA signature and nothing else"
+    }
+  },
+  "cli": {
+    "interpreter_startup": {
+      "label": "python -c pass",
+      "n": 5,
+      "median_ms": 45.36500002723187,
+      "p25_ms": 44.5540499931667,
+      "p75_ms": 47.98674999619834,
+      "min_ms": 44.17670000111684,
+      "max_ms": 49.052099988330156,
+      "mean_ms": 46.08932000119239,
+      "stdev_ms": 1.9361014846936426
+    },
+    "sign": {
+      "label": "qresp sign",
+      "n": 5,
+      "median_ms": 244.69740001950413,
+      "p25_ms": 238.66254999302328,
+      "p75_ms": 251.8640499911271,
+      "min_ms": 235.57249997975305,
+      "max_ms": 257.85549997817725,
+      "mean_ms": 245.15011999756098,
+      "stdev_ms": 8.145973859624906
+    },
+    "verify": {
+      "label": "qresp verify",
+      "n": 5,
+      "median_ms": 205.41120000416413,
+      "p25_ms": 202.33219998772256,
+      "p75_ms": 217.14295001584105,
+      "min_ms": 199.82439995510504,
+      "max_ms": 225.0181999988854,
+      "mean_ms": 208.87230000225827,
+      "stdev_ms": 9.630025694273792
+    },
+    "note": "interpreter startup is measured separately because it is typically the majority of a single invocation and is not a cost of the signing scheme"
+  },
+  "invariant_violations": []
+}

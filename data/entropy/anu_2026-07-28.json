@@ -1,0 +1,11 @@
+{
+  "source": "anu",
+  "bits": 1000000,
+  "bytes_collected": 125000,
+  "sha256": "f2a059eeac39288fa26a0fa9b55d0ba0182403288918bcfcef1561f35ff3ccb7",
+  "started": "2026-07-28T18:29:32+0530",
+  "finished": "2026-07-28T18:30:06+0530",
+  "requests": 21,
+  "notes": [],
+  "references": []
+}

@@ -1,0 +1,13 @@
+{
+  "source": "system",
+  "bits": 1000000,
+  "bytes_collected": 125000,
+  "sha256": "c6efa05f4eff94f992bae1f51ff854cfb9dda11b5f12871e662cb2b710bc4314",
+  "started": "2026-07-28T18:21:08+0530",
+  "finished": "2026-07-28T18:21:08+0530",
+  "requests": 0,
+  "notes": [
+    "os.urandom: a CSPRNG, not an entropy source. Passing any statistical test here is expected and proves nothing about the underlying noise."
+  ],
+  "references": []
+}

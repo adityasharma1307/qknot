@@ -18,6 +18,15 @@
 *.md     text eol=lf
 *.py     text eol=lf
 *.ps1    text eol=crlf
+*.bin    binary
 *.png    binary
 *.pdf    binary
 *.docx   binary
+
+# `*.bin` above is not belt-and-braces. The entropy samples in data/entropy/
+# have their SHA-256 recorded in a manifest beside them, and randomness.py
+# checks it. Git's binary heuristic would almost certainly catch them anyway --
+# random data contains NUL bytes -- but "almost certainly" is the wrong
+# standard for a file whose whole purpose is to hash to a recorded value. A
+# single CRLF translation on checkout would break the digest and make the
+# analysis unreproducible, with no clue as to why.

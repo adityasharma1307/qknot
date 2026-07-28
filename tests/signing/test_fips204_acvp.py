@@ -156,7 +156,13 @@ class TestTheSchemesAreDistinct:
         """
         from dilithium_py.dilithium import Dilithium2
 
-        Dilithium2.set_drbg_seed(bytes(48))
+        # Default entropy, not a seeded DRBG. `set_drbg_seed` needs
+        # pycryptodome for its AES-CTR implementation, which this project does
+        # not otherwise depend on -- and nothing here needs determinism. The
+        # claim is about key sizes and cross-verification, both of which hold
+        # for any key. Requiring a dependency a test does not need is how a
+        # suite comes to fail on a clean install, which is exactly how this was
+        # found.
         pk_d, sk_d = Dilithium2.keygen()
         _pk_m, sk_m = ml_dsa.ML_DSA_44.key_derive(bytes(32))
 

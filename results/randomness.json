@@ -1,0 +1,358 @@
+[
+  {
+    "source": "anu_2026-07-28",
+    "bytes": 125000,
+    "bits": 1000000,
+    "sp800_90b_mcv_bitwise": {
+      "n_symbols": 1000000,
+      "alphabet_bits": 1,
+      "distinct_symbols": 2,
+      "mode_count": 500864,
+      "p_hat": 0.500864,
+      "p_upper_99": 0.502152,
+      "min_entropy_per_symbol": 0.9938,
+      "min_entropy_per_bit": 0.9938,
+      "ideal_per_symbol": 1
+    },
+    "sp800_90b_mcv_bytewise": {
+      "n_symbols": 125000,
+      "alphabet_bits": 8,
+      "distinct_symbols": 256,
+      "mode_count": 558,
+      "p_hat": 0.004464,
+      "p_upper_99": 0.00494972,
+      "min_entropy_per_symbol": 7.6584,
+      "min_entropy_per_bit": 0.9573,
+      "ideal_per_symbol": 8
+    },
+    "chi_square_bytewise": {
+      "chi_square": 269.94,
+      "dof": 255,
+      "p_value": 0.248678,
+      "uniform_at_0.01": true
+    },
+    "sp800_22": {
+      "bits": 1000000,
+      "undersized": false,
+      "recommended_bits": 1000000,
+      "alpha": 0.01,
+      "tests_run": 5,
+      "tests_passed": 5,
+      "tests_failed": 0,
+      "wall_seconds": 0.21,
+      "implementation": "qresp.signing.entropy.sp800_22 (verified subset)",
+      "not_implemented": [
+        "binary_matrix_rank",
+        "dft",
+        "non_overlapping_template",
+        "overlapping_template",
+        "maurers_universal",
+        "linear_complexity",
+        "serial",
+        "approximate_entropy",
+        "random_excursions",
+        "random_excursions_variant",
+        "longest_run_of_ones"
+      ],
+      "tests": {
+        "monobit": {
+          "passed": true,
+          "p_value": 0.083988,
+          "statistic": 1.728,
+          "detail": "|S_n|=1728, n=1000000"
+        },
+        "frequency_block": {
+          "passed": true,
+          "p_value": 0.097536,
+          "statistic": 7974.40625,
+          "detail": "7812 blocks of 128"
+        },
+        "runs": {
+          "passed": true,
+          "p_value": 0.029631,
+          "statistic": 501086.0,
+          "detail": "501086 runs, pi=0.5009"
+        },
+        "cumulative_sums_forward": {
+          "passed": true,
+          "p_value": 0.091217,
+          "statistic": 1999.0,
+          "detail": "max |S_k|=1999"
+        },
+        "cumulative_sums_backward": {
+          "passed": true,
+          "p_value": 0.110985,
+          "statistic": 1915.0,
+          "detail": "max |S_k|=1915"
+        }
+      }
+    }
+  },
+  {
+    "source": "beacon_2026-07-28",
+    "bytes": 125000,
+    "bits": 1000000,
+    "sp800_90b_mcv_bitwise": {
+      "n_symbols": 1000000,
+      "alphabet_bits": 1,
+      "distinct_symbols": 2,
+      "mode_count": 500051,
+      "p_hat": 0.500051,
+      "p_upper_99": 0.501339,
+      "min_entropy_per_symbol": 0.9961,
+      "min_entropy_per_bit": 0.9961,
+      "ideal_per_symbol": 1
+    },
+    "sp800_90b_mcv_bytewise": {
+      "n_symbols": 125000,
+      "alphabet_bits": 8,
+      "distinct_symbols": 256,
+      "mode_count": 560,
+      "p_hat": 0.00448,
+      "p_upper_99": 0.00496658,
+      "min_entropy_per_symbol": 7.6535,
+      "min_entropy_per_bit": 0.9567,
+      "ideal_per_symbol": 8
+    },
+    "chi_square_bytewise": {
+      "chi_square": 248.8,
+      "dof": 255,
+      "p_value": 0.597604,
+      "uniform_at_0.01": true
+    },
+    "sp800_22": {
+      "bits": 1000000,
+      "undersized": false,
+      "recommended_bits": 1000000,
+      "alpha": 0.01,
+      "tests_run": 5,
+      "tests_passed": 5,
+      "tests_failed": 0,
+      "wall_seconds": 0.2,
+      "implementation": "qresp.signing.entropy.sp800_22 (verified subset)",
+      "not_implemented": [
+        "binary_matrix_rank",
+        "dft",
+        "non_overlapping_template",
+        "overlapping_template",
+        "maurers_universal",
+        "linear_complexity",
+        "serial",
+        "approximate_entropy",
+        "random_excursions",
+        "random_excursions_variant",
+        "longest_run_of_ones"
+      ],
+      "tests": {
+        "monobit": {
+          "passed": true,
+          "p_value": 0.918757,
+          "statistic": 0.102,
+          "detail": "|S_n|=102, n=1000000"
+        },
+        "frequency_block": {
+          "passed": true,
+          "p_value": 0.526489,
+          "statistic": 7803.03125,
+          "detail": "7812 blocks of 128"
+        },
+        "runs": {
+          "passed": true,
+          "p_value": 0.41221,
+          "statistic": 500410.0,
+          "detail": "500410 runs, pi=0.5001"
+        },
+        "cumulative_sums_forward": {
+          "passed": true,
+          "p_value": 0.253513,
+          "statistic": 1527.0,
+          "detail": "max |S_k|=1527"
+        },
+        "cumulative_sums_backward": {
+          "passed": true,
+          "p_value": 0.308276,
+          "statistic": 1425.0,
+          "detail": "max |S_k|=1425"
+        }
+      }
+    }
+  },
+  {
+    "source": "system_2026-07-28",
+    "bytes": 125000,
+    "bits": 1000000,
+    "sp800_90b_mcv_bitwise": {
+      "n_symbols": 1000000,
+      "alphabet_bits": 1,
+      "distinct_symbols": 2,
+      "mode_count": 500347,
+      "p_hat": 0.500347,
+      "p_upper_99": 0.501635,
+      "min_entropy_per_symbol": 0.9953,
+      "min_entropy_per_bit": 0.9953,
+      "ideal_per_symbol": 1
+    },
+    "sp800_90b_mcv_bytewise": {
+      "n_symbols": 125000,
+      "alphabet_bits": 8,
+      "distinct_symbols": 256,
+      "mode_count": 551,
+      "p_hat": 0.004408,
+      "p_upper_99": 0.00489067,
+      "min_entropy_per_symbol": 7.6758,
+      "min_entropy_per_bit": 0.9595,
+      "ideal_per_symbol": 8
+    },
+    "chi_square_bytewise": {
+      "chi_square": 236.45,
+      "dof": 255,
+      "p_value": 0.791746,
+      "uniform_at_0.01": true
+    },
+    "sp800_22": {
+      "bits": 1000000,
+      "undersized": false,
+      "recommended_bits": 1000000,
+      "alpha": 0.01,
+      "tests_run": 5,
+      "tests_passed": 5,
+      "tests_failed": 0,
+      "wall_seconds": 0.21,
+      "implementation": "qresp.signing.entropy.sp800_22 (verified subset)",
+      "not_implemented": [
+        "binary_matrix_rank",
+        "dft",
+        "non_overlapping_template",
+        "overlapping_template",
+        "maurers_universal",
+        "linear_complexity",
+        "serial",
+        "approximate_entropy",
+        "random_excursions",
+        "random_excursions_variant",
+        "longest_run_of_ones"
+      ],
+      "tests": {
+        "monobit": {
+          "passed": true,
+          "p_value": 0.487682,
+          "statistic": 0.694,
+          "detail": "|S_n|=694, n=1000000"
+        },
+        "frequency_block": {
+          "passed": true,
+          "p_value": 0.36515,
+          "statistic": 7854.5,
+          "detail": "7812 blocks of 128"
+        },
+        "runs": {
+          "passed": true,
+          "p_value": 0.493017,
+          "statistic": 499657.0,
+          "detail": "499657 runs, pi=0.4997"
+        },
+        "cumulative_sums_forward": {
+          "passed": true,
+          "p_value": 0.37352,
+          "statistic": 1320.0,
+          "detail": "max |S_k|=1320"
+        },
+        "cumulative_sums_backward": {
+          "passed": true,
+          "p_value": 0.366248,
+          "statistic": 1331.0,
+          "detail": "max |S_k|=1331"
+        }
+      }
+    }
+  },
+  {
+    "source": "BROKEN CONTROL (repeating block)",
+    "bytes": 125000,
+    "bits": 1000000,
+    "sp800_90b_mcv_bitwise": {
+      "n_symbols": 1000000,
+      "alphabet_bits": 1,
+      "distinct_symbols": 2,
+      "mode_count": 500076,
+      "p_hat": 0.500076,
+      "p_upper_99": 0.501364,
+      "min_entropy_per_symbol": 0.9961,
+      "min_entropy_per_bit": 0.9961,
+      "ideal_per_symbol": 1
+    },
+    "sp800_90b_mcv_bytewise": {
+      "n_symbols": 125000,
+      "alphabet_bits": 8,
+      "distinct_symbols": 256,
+      "mode_count": 489,
+      "p_hat": 0.003912,
+      "p_upper_99": 0.00436682,
+      "min_entropy_per_symbol": 7.8392,
+      "min_entropy_per_bit": 0.9799,
+      "ideal_per_symbol": 8
+    },
+    "chi_square_bytewise": {
+      "chi_square": 0.11,
+      "dof": 255,
+      "p_value": 1.0,
+      "uniform_at_0.01": true
+    },
+    "sp800_22": {
+      "bits": 1000000,
+      "undersized": false,
+      "recommended_bits": 1000000,
+      "alpha": 0.01,
+      "tests_run": 5,
+      "tests_passed": 4,
+      "tests_failed": 1,
+      "wall_seconds": 0.2,
+      "implementation": "qresp.signing.entropy.sp800_22 (verified subset)",
+      "not_implemented": [
+        "binary_matrix_rank",
+        "dft",
+        "non_overlapping_template",
+        "overlapping_template",
+        "maurers_universal",
+        "linear_complexity",
+        "serial",
+        "approximate_entropy",
+        "random_excursions",
+        "random_excursions_variant",
+        "longest_run_of_ones"
+      ],
+      "tests": {
+        "monobit": {
+          "passed": true,
+          "p_value": 0.879187,
+          "statistic": 0.152,
+          "detail": "|S_n|=152, n=1000000"
+        },
+        "frequency_block": {
+          "passed": false,
+          "p_value": 0.0,
+          "statistic": 62512.0,
+          "detail": "7812 blocks of 128"
+        },
+        "runs": {
+          "passed": true,
+          "p_value": 0.948989,
+          "statistic": 499968.0,
+          "detail": "499968 runs, pi=0.4999"
+        },
+        "cumulative_sums_forward": {
+          "passed": true,
+          "p_value": 1.0,
+          "statistic": 171.0,
+          "detail": "max |S_k|=171"
+        },
+        "cumulative_sums_backward": {
+          "passed": true,
+          "p_value": 1.0,
+          "statistic": 152.0,
+          "detail": "max |S_k|=152"
+        }
+      }
+    }
+  }
+]
