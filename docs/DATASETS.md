@@ -353,3 +353,31 @@ is the better home for it.
 `scripts/verify/redteam_check.py` re-checks every claim above: sample integrity,
 manifest hashes, seed reproducibility, the label partition, and that no
 resolved algorithm lacks a provenance note. Run it before quoting any figure.
+
+## Entropy samples (`data/entropy/`)
+
+Three 125,000-byte samples analysed in [`BENCHMARKS.md`](BENCHMARKS.md) §5,
+committed so the analysis can be re-run over the same input. Each `.bin` has a
+`.json` manifest recording a SHA-256 of the sample, the collection window and
+the request count.
+
+Only the **beacon** sample is verifiable by a third party: its manifest records
+every pulse index and `output_value`, so anyone can re-request those pulses
+from NIST and confirm the bytes were not fabricated. The ANU sample carries no
+such record, and `os.urandom` is by nature local. This is stated wherever the
+samples are discussed because a reader is otherwise entitled to assume all
+three are equally checkable.
+
+`*.bin` is marked `binary` in `.gitattributes`. Git's heuristic would almost
+certainly classify random data as binary anyway, but "almost certainly" is the
+wrong standard for a file whose whole purpose is to hash to a recorded value —
+a single CRLF translation on checkout would break the digest silently. The
+round-trip through the object store was verified byte-identical for all three.
+
+**No API key appears in any manifest.** The ANU key is read from `ANU_API_KEY`
+or `--anu-key` and never written to disk. If you re-collect, keep it that way.
+
+**These are samples, not a source of randomness.** Nothing in `qresp` reads
+them; they exist to be analysed, and they are public, recorded, and stale.
+Using them as key material would be catastrophic, which is the only reason this
+sentence is here.
