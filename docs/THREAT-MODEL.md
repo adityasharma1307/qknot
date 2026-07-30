@@ -292,3 +292,76 @@ Both are cited in the paper's limitations section. The timing numbers are
 hardware-dependent; the *shape* of the result — spread proportional to
 rejection-sampling iterations, and attack accuracy rising with trace count
 despite added noise — is not.
+
+---
+
+## Identity registration: what it protects, and whom it does not
+
+`signing/registration.py` binds an OIDC identity to a long-term post-quantum
+key by way of a statement signed with a Fulcio-certified ECDSA P-256 key:
+
+```
+OIDC -> Fulcio certificate over P-256
+     -> registration: "identity X vouches for ML-DSA key K"
+     -> artefacts signed with hybrid(Ed25519, K)
+```
+
+P-256 is not a preference. It is the only algorithm that clears both
+constraints at once: Fulcio certifies it, and it has an externalised prehash so
+Rekor v2 will log the entry. Ed25519 fails the second; Ed25519ph fails the
+first. The deployed identity ecosystem leaves exactly one usable path.
+
+### The asymmetry, stated plainly
+
+**Artefact integrity is post-quantum secure. Identity assurance is not.** An
+adversary who breaks P-256 can forge a registration and therefore the binding
+between a name and a key, even though they cannot forge the ML-DSA signature
+over the artefact itself.
+
+This is not hidden by the design; it is *concentrated* by it. One statement per
+key carries the classical assumption instead of every artefact signature
+carrying it. That makes the caveat easy to state precisely, easy to audit — one
+object to check rather than thousands — and easy to replace wholesale if a
+post-quantum CA appears.
+
+### The boundary condition
+
+**Only identities registered before P-256's deprecation deadline are
+protected.** The mechanism is not retroactive.
+
+An identity first appearing *after* P-256 is broken gains nothing: an adversary
+who can forge P-256 can mint a registration for a key they control, and the
+statement carries no property distinguishing it from an honest one. Registering
+early is what buys the protection, and there is no way to buy it late.
+
+Such an identity needs a **non-cryptographic bootstrap** — pinning, or
+trust-on-first-use, or an out-of-band channel. That is a *complement* to this
+mechanism, not a competitor: it addresses the population this mechanism cannot
+reach, by different means and with different assumptions.
+
+### One abstraction, two applications
+
+Registration timestamps are assessed by `temporal.assess` — the same function,
+the same `Bound`-typed evidence, the same soft-warn and hard-fail thresholds
+that artefact signatures go through. "Was this signature made while its
+algorithm was still trusted?" is one question, whether the signature covers a
+model or a key-ownership claim.
+
+`assess_registration` is a named call into that function and nothing more.
+`tests/signing/test_registration.py` asserts the two paths produce *identical*
+findings for identical evidence, so divergence is a test failure rather than a
+silent gap: if the identity layer ever developed a window the artefact layer
+does not have, an attacker would use it.
+
+Note what is assessed: the algorithm the **statement** is signed with (P-256),
+not the post-quantum key it vouches for. Checking the registered algorithm
+would report the reassuring answer forever, since ML-DSA has no deadline.
+
+### Out of scope: hardware-rooted identity
+
+A TPM- or HSM-backed device attestation, or a post-quantum-capable CA, would
+root identity in something an adversary with a quantum computer cannot forge.
+That is the structural fix for the asymmetry above and it is **explicitly out of
+scope here**, consistent with how this document treats hardware attestation
+elsewhere. It is recorded as future work rather than gestured at as a mitigation
+this project provides.
