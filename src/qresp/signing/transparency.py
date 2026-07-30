@@ -70,9 +70,26 @@ __all__ = [
 
 
 # Two operators, deliberately. See `establish_time`.
+#
+# NOT every public TSA is usable, and the reason is worth knowing before
+# swapping one in. A response must survive a *strict DER* parse.
+# `timestamp.digicert.com` does not: its CMS `SignedData::certificates` SET is
+# not sorted in DER order, and since RFC 5652 types that field as a `SET OF`
+# -- whose elements DER requires to be sorted by encoding -- `rfc3161-client`
+# rejects the whole response with `InvalidSetOrdering`. sigstore-python uses
+# the same parser, so this is not peculiar to this project.
+#
+# The response is NOT to relax the parser. Accepting non-canonical DER in a
+# verification path is how signature-malleability bugs start: if two distinct
+# byte strings are both accepted as the same structure, an attacker gains a
+# degree of freedom in something meant to be exactly comparable.
+#
+# Run `python scripts/verify/probe_tsa.py` to check candidates before editing
+# this tuple, and prefer two authorities run by DIFFERENT organisations --
+# two endpoints belonging to one company are a single source of trust.
 DEFAULT_TSA_URLS: tuple[str, ...] = (
-    "http://timestamp.digicert.com",
     "http://timestamp.sectigo.com",
+    "http://rfc3161.ai.moda",
 )
 
 # How many INDEPENDENT verified times an artefact must carry.
