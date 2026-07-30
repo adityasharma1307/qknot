@@ -381,3 +381,81 @@ or `--anu-key` and never written to disk. If you re-collect, keep it that way.
 them; they exist to be analysed, and they are public, recorded, and stale.
 Using them as key material would be catastrophic, which is the only reason this
 sentence is here.
+
+---
+
+# Multi-ecosystem extension: PyPI and npm
+
+**Written before any collection ran.** The decisions below fix the methodology
+in advance so that a result cannot be arrived at by choosing definitions after
+seeing the data.
+
+## Unit of analysis: per-project, any release ever attested
+
+**DECIDED. A project counts as attested if ANY release of it has ever carried
+an attestation.** Not the latest release.
+
+Three reasons, in order of weight:
+
+1. **Comparability.** The HuggingFace study counts repositories, not files or
+   revisions. Counting npm/PyPI per-release would measure a different quantity
+   in each ecosystem and make the cross-ecosystem comparison — the entire point
+   of running this — meaningless.
+2. **npm's `latest` tag is mutable; PyPI's is not.** A per-latest-release
+   definition would silently mean different things on the two hubs, and the
+   difference would show up as an ecosystem effect that is really a definitional
+   artefact.
+3. **It measures adoption, not recency.** A project that attested every release
+   through 2025 and has not shipped since is a project that adopted signing. A
+   per-latest-release count would record it as unsigned, conflating "never
+   adopted" with "not released lately" — the same conflation between *absent*
+   and *unchecked* this project keeps refusing to make elsewhere.
+
+The cost is stated too: per-project **overstates current practice**. A project
+that attested once in 2023 and stopped counts as attested. Where that matters,
+report the per-release figure alongside rather than switching definitions.
+
+## Why not BigQuery
+
+The task memo specified `bigquery-public-data.pypi.file_downloads`. That is not
+used, and the substitute is better on three counts rather than merely cheaper:
+
+- It needs no GCP project, no billing, and cannot run up a bill on a
+  mis-scoped query over a very large table.
+- The published ranking is a **dated artefact** that can be archived beside the
+  scan. Re-running a BigQuery query later gives different numbers, because the
+  underlying table advances; a reader could never reproduce the exact head
+  stratum. A committed JSON they can.
+- It removes a dependency on credentials nobody on this project has.
+
+The cost is a dependency on a third party's query rather than our own. That is
+recorded in the provenance, and the query they run is published.
+
+## Population and strata
+
+| | HuggingFace (done) | PyPI (planned) | npm (planned) |
+|---|---|---|---|
+| frame | HF API enumeration | `pypi.org/simple/` full index | CouchDB `_all_docs` |
+| head | top 10,000 by downloads | top 10,000 from published ranking | **see open question** |
+| tail | 10,000 random from remainder | 10,000 random from remainder | 10,000 random from remainder |
+| attestation check | signature files in repo | PyPI Integrity API | npm registry metadata |
+
+Sampling seed, frame digest and cursor are recorded exactly as for the
+HuggingFace long tail, so the sample is re-derivable.
+
+## Open question: how to define npm's head stratum
+
+PyPI has a published downloads ranking. **npm does not.** Its downloads API is
+per-package (bulk requests cap at 128 names), so ranking a ~3.5M package frame
+would take on the order of 27,000 requests — hours of polling, and a load on a
+free public service that is hard to justify for a stratification detail.
+
+Three options, none free of cost:
+
+| option | cost |
+|---|---|
+| third-party npm ranking | same provenance caveat as PyPI, but a less established source |
+| rank a random subsample rather than the frame | head is then "top of a sample", not "top of the ecosystem" — a different quantity |
+| drop npm's head/tail split; report one random sample | loses the popularity contrast that is the HF study's clearest finding |
+
+Not yet decided. It must be, before npm collection runs.
