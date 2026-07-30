@@ -2,90 +2,122 @@
 
     python scripts/audit/fetch_npm_frame.py --out data/npm_frame_2026-07-30.txt
 
-UNTESTED FROM THE DEVELOPMENT SANDBOX
+WHY NOT replicate.npmjs.com/_all_docs
 =====================================
-`replicate.npmjs.com` is unreachable there, so response size, paging behaviour
-and rate limits for ~3.5M names are unknown to this code's author. It is
-written defensively as a result: it pages, it reports progress, and it can be
-resumed from the last key rather than restarted.
+That was the plan. It returns **HTTP 400** -- npm has restricted the public
+CouchDB replication endpoint, so paging the namespace out of it is no longer
+available regardless of `limit`.
 
-If the registry turns out to serve the whole thing in one response, the paging
-simply completes in one iteration. If it rate-limits, `--start-key` picks up
-where the last run stopped.
+The replacement is better on the axis this project cares about. The npm package
+`all-the-package-names` publishes the full list as `names.json`, and a **pinned
+version is a dated artefact**: fix the version and the exact frame is
+reproducible by anyone, indefinitely. `_all_docs` could never offer that -- the
+namespace advances between requests, so two people paging it get two different
+frames and neither can reconstruct the other's.
+
+Same reasoning that replaced BigQuery with a published PyPI ranking, and the
+same provenance tier: a third party's published snapshot, cited by version.
+
+MEASURED 2026-07-30, version 2.0.2517
+=====================================
+    4,290,079 names, 26 MB compressed, ONE request
+    1,603,659 scoped (37.4%)
+
+That scoped fraction is why the head ranking is two-stage. npm's bulk downloads
+endpoint rejects scoped names, so a bulk-only ranking would have silently
+excluded **over a third of the namespace**, including a disproportionate share
+of the most popular packages (`@babel/*`, `@types/*`). The bias would have been
+towards unscoped packages, not towards popular ones.
 """
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import sys
+import tarfile
 import time
+import urllib.request
 from pathlib import Path
-from urllib.parse import quote
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
-REPLICATE = "https://replicate.npmjs.com/_all_docs"
+PACKAGE = "all-the-package-names"
+REGISTRY = "https://registry.npmjs.org"
+UA = {"User-Agent": "qresp-audit (+https://github.com/qresp)"}
+
+
+def _get(url: str, timeout: float = 300.0) -> bytes:
+    request = urllib.request.Request(url, headers=UA)
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        data: bytes = response.read()
+    return data
+
+
+def resolve_version(version: str | None) -> tuple[str, str]:
+    """Return (version, tarball_url). Pin explicitly for reproducibility."""
+    metadata = json.loads(_get(f"{REGISTRY}/{PACKAGE}"))
+    if version is None:
+        version = str(metadata["dist-tags"]["latest"])
+        print(f"  version: {version} (latest -- pin it with --version to make "
+              f"this frame reproducible)")
+    else:
+        print(f"  version: {version} (pinned)")
+    if version not in metadata["versions"]:
+        raise SystemExit(f"{PACKAGE}@{version} does not exist")
+    return version, str(metadata["versions"][version]["dist"]["tarball"])
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--out", type=Path, required=True)
-    parser.add_argument("--page", type=int, default=50_000,
-                        help="Names per request.")
-    parser.add_argument("--start-key", default=None,
-                        help="Resume from this package name.")
-    parser.add_argument("--limit", type=int, default=None,
-                        help="Stop after N names. For a smoke test.")
+    parser.add_argument("--version", default=None,
+                        help=f"Pin a {PACKAGE} version. Default: latest.")
     args = parser.parse_args(argv)
 
-    import requests
-
-    session = requests.Session()
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    mode = "a" if args.start_key else "w"
-    start = args.start_key
-    total = 0
+    print(f"enumerating npm via {PACKAGE}")
     started = time.time()
+    version, tarball = resolve_version(args.version)
 
-    print(f"enumerating npm -> {args.out}")
-    with args.out.open(mode, encoding="utf-8") as handle:
-        while True:
-            url = f"{REPLICATE}?limit={args.page}"
-            if start:
-                url += f"&start_key={quote(json.dumps(start))}"
-            try:
-                response = session.get(url, timeout=300,
-                                       headers={"User-Agent": "qresp-audit"})
-                response.raise_for_status()
-                rows = response.json().get("rows", [])
-            except Exception as exc:
-                print(f"\n  FAILED after {total:,} names: {exc}")
-                print(f"  resume with:  --start-key {start!r}")
-                return 1
+    print(f"  fetching {tarball}")
+    raw = _get(tarball)
+    print(f"  {len(raw)/1e6:.1f} MB in {time.time()-started:.0f}s")
 
-            if start and rows and rows[0].get("id") == start:
-                rows = rows[1:]          # start_key is inclusive
-            if not rows:
-                break
+    with tarfile.open(fileobj=io.BytesIO(raw), mode="r:gz") as archive:
+        member = next((m for m in archive.getmembers()
+                       if m.name.endswith("names.json")), None)
+        if member is None:
+            raise SystemExit("names.json not found in the tarball")
+        handle = archive.extractfile(member)
+        if handle is None:
+            raise SystemExit("names.json could not be read")
+        names = json.load(handle)
 
-            for row in rows:
-                name = row.get("id")
-                if name and not name.startswith("_"):
-                    handle.write(name + "\n")
-                    total += 1
-            handle.flush()
-            start = rows[-1].get("id")
-            rate = total / max(time.time() - started, 1e-9)
-            print(f"  {total:,} names  {rate:,.0f}/s  last={start}")
+    scoped = sum(1 for n in names if n.startswith("@"))
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    args.out.write_text("\n".join(names) + "\n", encoding="utf-8")
 
-            if args.limit and total >= args.limit:
-                break
-            if len(rows) < args.page - 1:
-                break
+    manifest = args.out.with_suffix(".manifest.json")
+    manifest.write_text(json.dumps({
+        "generated": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "source": f"npm:{PACKAGE}@{version}",
+        "tarball": tarball,
+        "total": len(names),
+        "scoped": scoped,
+        "note": "Pinned version makes this frame exactly reproducible; "
+                "replicate.npmjs.com/_all_docs returns HTTP 400 and could not "
+                "offer that property regardless.",
+    }, indent=2), encoding="utf-8")
 
-    print(f"\n  wrote {total:,} names -> {args.out}")
+    print(f"\n  {len(names):,} names ({scoped:,} scoped, "
+          f"{100*scoped/len(names):.1f}%)")
+    print(f"  -> {args.out}")
+    print(f"  -> {manifest}")
+    print("\n  Scoped packages cannot use npm's bulk downloads endpoint, which "
+          "is why\n  the head ranking is two-stage: over a third of the "
+          "namespace would\n  otherwise be excluded from it.")
     return 0
 
 

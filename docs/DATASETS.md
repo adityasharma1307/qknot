@@ -525,11 +525,42 @@ not a count of zero. Sorting it to the bottom would turn a collection failure
 into a claim about its popularity. `rank_npm.py` excludes them and reports how
 many.
 
-### Still open: frame enumeration
+### Frame enumeration: SOLVED, and better than planned
 
-`replicate.npmjs.com` is unreachable from the development sandbox, so response
-size, paging behaviour and rate limits for ~3.5M names are untested.
-`scripts/audit/fetch_npm_frame.py` is written defensively as a result — it
-pages, reports progress, and resumes from `--start-key` after a failure rather
-than restarting. This is an unknown to be measured on first run, not a decision
-to be made.
+`replicate.npmjs.com/_all_docs` returns **HTTP 400** — npm has restricted the
+public CouchDB replication endpoint. Paging it is no longer possible at any
+`limit`.
+
+The replacement is stronger on the axis that matters here. The npm package
+`all-the-package-names` publishes the full namespace as `names.json`, and a
+**pinned version is a dated artefact** — fix the version and the exact frame is
+reproducible indefinitely. `_all_docs` could never offer that: the namespace
+advances between requests, so two people paging it obtain two different frames
+and neither can reconstruct the other's.
+
+Measured 2026-07-30, version 2.0.2517:
+
+    4,290,079 names, 26 MB, ONE request, 11 seconds
+    1,603,659 scoped (37.4%)
+
+### The scoped fraction forces one more decision
+
+npm's bulk downloads endpoint rejects scoped packages, and **37.4% of the
+namespace is scoped**. Individually querying 1.6M scoped names at the ~20 req/s
+this project sustains would take about 22 hours, which is not a reasonable load
+to place on a free service for a stratification detail.
+
+Ranking all *unscoped* names is by contrast cheap: 2.69M ÷ 128 ≈ 21,000 bulk
+requests, roughly 18 minutes.
+
+That leaves two self-consistent designs, and one inconsistent one to avoid:
+
+| design | property |
+|---|---|
+| **A. unscoped-only population** — exclude scoped from *both* strata, define the study as covering npm's unscoped packages (62.6% of the namespace) | symmetric, needs no third party, fully reproducible; narrows the claim |
+| **B. candidate pool** — a popularity-ish source supplies ~50k names *including* scoped ones, then stage 2 ranks them by measured downloads | covers the whole namespace; depends on an external candidate source |
+| ~~C. head excludes scoped, tail includes them~~ | **rejected**: the strata would differ in composition as well as popularity, so any head/tail contrast would confound the two |
+
+Design C is the trap worth naming, because it is what happens by default if the
+bulk endpoint's limitation is worked around without noticing that it applies to
+only one stratum.
