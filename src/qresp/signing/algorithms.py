@@ -49,10 +49,23 @@ class AlgorithmSpec:
     """Everything the package knows about one algorithm.
 
     `disallowed_after` is a *date*, and the policy it encodes reads "unacceptable
-    for new signatures after 2030-12-31" -- meaning the whole of that day is
+    for new signatures after 2031-12-31" -- meaning the whole of that day is
     still acceptable. `disallowed_after_date` therefore returns the last instant
     of the named day, not its midnight. Comparing against midnight would have
     declared a signature made at noon on the deadline to be past it.
+
+    `regime` names the regulation the date comes from, and it is not
+    decoration. There is no single post-quantum deadline: CNSA 2.0 requires
+    exclusive post-quantum software signing for national security systems from
+    2027-01-01, while OMB M-26-15 -- which states in terms that it "does not
+    apply to national security systems" -- puts civilian signature migration at
+    2031-12-31, and the NIST IR 8547 *draft* uses 2030 deprecated / 2035
+    disallowed. A date recorded without its regime cannot be checked, updated,
+    or argued with, and an operator on a different regime cannot tell that the
+    number does not apply to them.
+
+    This registry currently encodes **OMB M-26-15**. A national-security
+    deployment must substitute CNSA 2.0 dates; see docs/CITATIONS.md 1.
     """
 
     algorithm: str
@@ -60,6 +73,7 @@ class AlgorithmSpec:
     status: TrustStatus
     disallowed_after: str | None
     source: str
+    regime: str | None = None       # which regulation this date comes from
     note: str = ""
     backend: str | None = None      # key into backends._BACKENDS, or None
 
@@ -86,9 +100,10 @@ REGISTRY: dict[str, AlgorithmSpec] = {
         algorithm="ed25519",
         resists_shor=False,
         status=TrustStatus.DEPRECATED,
-        disallowed_after="2030-12-31",
-        source="NIST SP 800-131A Rev.2 transition timeline for classical "
-               "public-key algorithms",
+        disallowed_after="2031-12-31",
+        source="OMB M-26-15 Phase 4 (Signature Migration, 2031), "
+               "implementing EO 14412",
+        regime="omb-m-26-15",
         note="Shor-vulnerable. Sound against classical adversaries today; the "
              "date reflects the transition deadline, not a known break.",
         backend="ed25519",
@@ -97,8 +112,9 @@ REGISTRY: dict[str, AlgorithmSpec] = {
         algorithm="ecdsa-p256",
         resists_shor=False,
         status=TrustStatus.DEPRECATED,
-        disallowed_after="2030-12-31",
-        source="NIST SP 800-131A Rev.2",
+        disallowed_after="2031-12-31",
+        source="OMB M-26-15 Phase 4 (Signature Migration, 2031), implementing EO 14412",
+        regime="omb-m-26-15",
         note="Shor-vulnerable. Note that published quantum resource estimates "
              "for ECDLP-256 target secp256k1 rather than P-256; the distinction "
              "matters and should not be blurred when citing them.",
@@ -107,24 +123,27 @@ REGISTRY: dict[str, AlgorithmSpec] = {
         algorithm="ecdsa-p384",
         resists_shor=False,
         status=TrustStatus.DEPRECATED,
-        disallowed_after="2030-12-31",
-        source="NIST SP 800-131A Rev.2",
+        disallowed_after="2031-12-31",
+        source="OMB M-26-15 Phase 4 (Signature Migration, 2031), implementing EO 14412",
+        regime="omb-m-26-15",
         note="Shor-vulnerable; a larger curve delays classical attack, not quantum.",
     ),
     "rsa-2048": AlgorithmSpec(
         algorithm="rsa-2048",
         resists_shor=False,
         status=TrustStatus.DEPRECATED,
-        disallowed_after="2030-12-31",
-        source="NIST SP 800-131A Rev.2",
+        disallowed_after="2031-12-31",
+        source="OMB M-26-15 Phase 4 (Signature Migration, 2031), implementing EO 14412",
+        regime="omb-m-26-15",
         note="Shor-vulnerable.",
     ),
     "rsa-4096": AlgorithmSpec(
         algorithm="rsa-4096",
         resists_shor=False,
         status=TrustStatus.DEPRECATED,
-        disallowed_after="2030-12-31",
-        source="NIST SP 800-131A Rev.2",
+        disallowed_after="2031-12-31",
+        source="OMB M-26-15 Phase 4 (Signature Migration, 2031), implementing EO 14412",
+        regime="omb-m-26-15",
         note="Shor-vulnerable; key size does not help against Shor.",
     ),
     "ml-dsa-44": AlgorithmSpec(

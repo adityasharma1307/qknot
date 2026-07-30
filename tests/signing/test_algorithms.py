@@ -75,7 +75,13 @@ class TestDeadlineInclusivity:
     def test_the_deadline_runs_to_the_end_of_its_day(self):
         spec = REGISTRY["ed25519"]
         end = spec.disallowed_after_date
-        assert end.year == 2030 and end.month == 12 and end.day == 31
+        # Literal on purpose: this test pins the POLICY, so moving the
+        # deadline must be a deliberate act that updates a test. The regime is
+        # OMB M-26-15 Phase 4 (signature migration, 2031) -- not Phase 3's 2030
+        # date, which governs key establishment, and not CNSA 2.0's 2027, which
+        # applies only to national security systems.
+        assert end.year == 2031 and end.month == 12 and end.day == 31
+        assert spec.regime == "omb-m-26-15"
         assert (end.hour, end.minute) == (23, 59), (
             "midnight would exclude the whole of the final day"
         )

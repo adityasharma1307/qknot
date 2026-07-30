@@ -7,10 +7,11 @@ answers and different remedies, and conflating them is the common mistake.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from qresp.signing.algorithms import REGISTRY
 from qresp.signing.temporal import (
     ALGORITHM_POLICIES,
     Bound,
@@ -21,12 +22,20 @@ from qresp.signing.temporal import (
 )
 
 BEFORE = datetime(2026, 7, 26, tzinfo=timezone.utc)
-AFTER = datetime(2031, 6, 1, tzinfo=timezone.utc)   # past the 2030 deadlines
+
+# Derived, not hardcoded. These tests check the *semantics* of the deadline
+# comparison, not the value of the deadline -- so when policy moves (2030 ->
+# 2031 when the regime was fixed to OMB M-26-15) they should keep testing the
+# same thing rather than needing a sweep of literals. test_algorithms.py pins
+# the value; this file pins the behaviour around it.
+DEADLINE = REGISTRY["ed25519"].disallowed_after_date
+assert DEADLINE is not None, "ed25519 must carry a deadline for these tests"
+AFTER = DEADLINE + timedelta(days=180)              # comfortably past it
 HYBRID = ["ed25519", "ml-dsa-44"]
 
 
 class TestTheDeadlineIsInclusive:
-    """"Unacceptable after 2030-12-31" means the whole of that day is fine.
+    """"Unacceptable after <date>" means the whole of that day is fine.
 
     Parsing the date to midnight made a signature at noon on the deadline read
     as past it -- a whole day of false positives at exactly the moment the
@@ -34,19 +43,25 @@ class TestTheDeadlineIsInclusive:
     """
 
     def test_noon_on_the_deadline_is_still_inside_it(self):
-        noon = datetime(2030, 12, 31, 12, 0, tzinfo=timezone.utc)
+        noon = DEADLINE.replace(hour=12, minute=0, second=0, microsecond=0)
         assert not assess(["ed25519"], now=noon).has_critical
 
     def test_the_last_second_of_the_deadline_day_is_inside_it(self):
-        last = datetime(2030, 12, 31, 23, 59, 59, tzinfo=timezone.utc)
+        last = DEADLINE.replace(microsecond=0)
         assert not assess(["ed25519"], now=last).has_critical
 
-    def test_the_next_day_is_outside_it(self):
-        nextday = datetime(2031, 1, 1, 0, 0, 1, tzinfo=timezone.utc)
-        assert assess(["ed25519"], now=nextday).has_critical
+    def test_the_last_instant_of_the_deadline_day_is_inside_it(self):
+        """The boundary itself, to the microsecond."""
+        assert not assess(["ed25519"], now=DEADLINE).has_critical
+
+    def test_the_next_microsecond_is_outside_it(self):
+        assert assess(["ed25519"],
+                      now=DEADLINE + timedelta(microseconds=1)).has_critical
 
     def test_a_signature_made_on_the_deadline_day_is_not_convicted(self):
-        evidence = TimeEvidence.from_beacon("2030-12-31T12:00:00Z")
+        noon = DEADLINE.replace(hour=12, minute=0, second=0, microsecond=0)
+        evidence = TimeEvidence.from_beacon(
+            noon.strftime("%Y-%m-%dT%H:%M:%SZ"))
         result = assess(["ed25519"], evidence=evidence, now=BEFORE)
         assert not any("disallowed algorithm" in m for m in result.messages())
 
@@ -161,9 +176,10 @@ class TestAfterTheDeadline:
         was made" while holding trusted evidence that it was made too late,
         which would have sent a reader looking for the wrong problem.
         """
-        evidence = TimeEvidence.from_beacon("2031-01-05T00:00:00Z")
+        past = DEADLINE + timedelta(days=5)
+        evidence = TimeEvidence.from_beacon(past.strftime("%Y-%m-%dT%H:%M:%SZ"))
         result = assess(["ed25519"], evidence=evidence,
-                        now=datetime(2031, 2, 1, tzinfo=timezone.utc))
+                        now=DEADLINE + timedelta(days=32))
         messages = " ".join(result.messages())
         assert "used a disallowed algorithm" in messages
         assert "no trusted evidence" not in messages, (
@@ -174,7 +190,8 @@ class TestAfterTheDeadline:
     def test_a_future_dated_signature_before_the_deadline_warns(self):
         """Deadline not yet reached, but the signature claims to postdate it:
         a clock problem or a fabricated timestamp."""
-        evidence = TimeEvidence.from_beacon("2031-01-05T00:00:00Z")
+        past = DEADLINE + timedelta(days=5)
+        evidence = TimeEvidence.from_beacon(past.strftime("%Y-%m-%dT%H:%M:%SZ"))
         result = assess(["ed25519"], evidence=evidence, now=BEFORE)
         assert any("used a disallowed algorithm" in m for m in result.messages())
 

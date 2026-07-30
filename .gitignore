@@ -74,3 +74,9 @@ notebooks/cli.keys.json
 # from inside a checkout -- which it should not, but did once when the local
 # search failed -- it leaves a nested clone here. Never commit one.
 /qresp2/
+
+# Primary sources behind docs/CITATIONS.md, kept locally rather than committed.
+# 33 MB of PDFs makes every commit slow over a mounted filesystem, and a
+# citation record does not need the bytes -- it needs stable identifiers.
+# Superseded by references.bib with DOIs, which makes these redundant.
+docs/sources/
