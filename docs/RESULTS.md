@@ -5,7 +5,7 @@ Every figure here is reproducible from a committed artefact; where a number
 cannot be independently re-derived by a third party, that is said explicitly
 rather than left to inference.
 
-Last updated 2026-07-29. Source artefacts: `data/`, `results/`,
+Last updated 2026-07-30. Source artefacts: `data/`, `results/`,
 `docs/DATASETS.md`, `docs/BENCHMARKS.md`.
 
 ---
@@ -86,25 +86,25 @@ responded.
 
 ## 3. Cost of the transition
 
-Measured 2026-07-28, Windows 11, Intel Core i7-13xxx, CPython 3.13.14 in a
-clean virtualenv. Full detail in [`BENCHMARKS.md`](BENCHMARKS.md); all 115
-figures are re-derived from `results/*.json` by `scripts/bench/check_docs.py`
-on every test run.
+Measured 2026-07-30, Windows 11, CPython 3.13.14, `--reps 250`, hybrid and
+scaling at `ml-dsa-87` (the shipped default). Full detail in
+[`BENCHMARKS.md`](BENCHMARKS.md); all 115 figures are re-derived from
+`results/*.json` by `scripts/bench/check_docs.py` on every test run.
 
 ### Primitives
 
 | algorithm | sign | signature | public key |
 |---|---|---|---|
-| Ed25519 | 0.044 ms | 64 B | 32 B |
-| ML-DSA-44 | 18.82 ms | 2,420 B | 1,312 B |
-| ML-DSA-65 | 30.52 ms | 3,309 B | 1,952 B |
-| ML-DSA-87 | 42.97 ms | 4,627 B | 2,592 B |
+| Ed25519 | 0.088 ms | 64 B | 32 B |
+| ML-DSA-44 | 16.198 ms | 2,420 B | 1,312 B |
+| ML-DSA-65 | 27.878 ms | 3,309 B | 1,952 B |
+| **ML-DSA-87** (default) | **33.845 ms** | **4,627 B** | 2,592 B |
 
-Ed25519 signs **428× faster** and produces a signature **37.8× smaller**. Two
-qualifications that both flatter the classical side: `dilithium-py` is a
-readable reference implementation, not an optimised one, and Ed25519 here is
-OpenSSL's C. This is not the cost of ML-DSA; it is the cost of *this*
-implementation of it.
+Against the shipped default, Ed25519 signs **383× faster** and produces a
+signature **72.3× smaller**. Two qualifications that both flatter the classical
+side: `dilithium-py` is a readable reference implementation, not an optimised
+one, and Ed25519 here is OpenSSL's C. This is not the cost of ML-DSA; it is the
+cost of *this* implementation of it.
 
 ### The two results that matter
 
@@ -112,48 +112,57 @@ implementation of it.
 
 | artefact | digest | signature | signature share |
 |---|---|---|---|
-| 1 MiB | 10.3 ms | 19.6 ms | 66% |
-| 100 MiB | 295.5 ms | 19.0 ms | 6% |
-| **7 GB** (extrapolated) | **21.2 s** | **0.019 s** | **0.09%** |
+| 1 MiB | 3.9 ms | 35.2 ms | 90% |
+| 100 MiB | 213.9 ms | 36.1 ms | 14% |
+| **7 GB** (extrapolated) | **15.3 s** | **0.036 s** | **0.235%** |
 
-At 338 MB/s, hashing a 7 GB model takes 21 seconds; signing the digest takes 19
-milliseconds. **The post-quantum signature is 0.09% of the work, and that share
-falls as models grow.** The objection that post-quantum signatures are too slow
-is true of the primitive in isolation and false of the operation anyone
-actually performs.
+Across a hundred-fold change in artefact size the signature cost moves by 1.05×
+— it is flat because you sign a digest, so the artefact cannot reach it. At
+468 MB/s, hashing a 7 GB model takes 15 seconds against 36 milliseconds to
+sign. **The post-quantum signature is 0.235% of the work, and that share falls
+as models grow.** The objection that post-quantum signatures are too slow is
+true of the primitive in isolation and false of the operation anyone actually
+performs.
 
-**Backward compatibility is nearly free.**
+**Backward compatibility is nearly free — and it replicates.**
 
 | configuration | sign | signature bytes |
 |---|---|---|
-| Ed25519 only | 6.68 ms | 64 |
-| **hybrid** | **27.89 ms** | **2,484** |
-| ML-DSA-44 only | 27.61 ms | 2,420 |
+| Ed25519 only | 3.25 ms | 64 |
+| **hybrid** | **37.26 ms** | **4,691** |
+| ML-DSA-87 only | 36.95 ms | 4,627 |
 
-Measured against `ed25519+ml-dsa-44`. **The shipped default is now
-`ed25519+ml-dsa-87`**, whose hybrid signature is 4,691 bytes (exact) and whose
-sign time extrapolates to ~52 ms (not measured — see
-[`BENCHMARKS.md`](BENCHMARKS.md) §3).
+Adopting the hybrid over Ed25519 costs 34.0 ms and 4,627 bytes. But over ML-DSA
+**alone** it costs **0.31 ms and exactly 64 bytes**.
 
-Adopting the hybrid over Ed25519 costs 21.2 ms and 2,420 bytes. But over
-ML-DSA **alone** it costs **0.28 ms and 64 bytes**. Once you are paying for a
-post-quantum signature, keeping every verifier that exists today working is
-essentially free — which is the practical argument for a hybrid over a straight
-migration.
+Measured independently at two parameter sets on different days, the increment
+was **+0.28 ms at ML-DSA-44** and **+0.31 ms at ML-DSA-87** — agreement to
+within 0.03 ms across a run in which the post-quantum half more than doubled in
+cost. The cost of the classical half does not depend on the post-quantum
+parameter set, which makes this a structural property of the construction
+rather than a fact about one configuration. It is the strongest practical
+argument for a hybrid over a straight migration.
 
 ### Timing variation, and why the mean is not reported
 
 | algorithm | median | max/min |
 |---|---|---|
-| Ed25519 | 0.044 ms | 1.2× |
-| ML-DSA-44 | 18.8 ms | **11.5×** |
+| Ed25519 | 0.088 ms | 1.2× |
+| ML-DSA-44 | 16.2 ms | **16.0×** |
+| ML-DSA-87 | 33.8 ms | **8.0×** |
 
 ML-DSA rejection-samples until a candidate signature falls in bounds; the
 number of attempts depends on key and message. **Ed25519's 1.2× spread is the
-control** — it establishes that the machine was quiet, so ML-DSA-44's 11.5×
-cannot be dismissed as system noise. This is a secret-dependent timing channel
-and it is why this backend is unsuitable for an online signing service; see
+control** — it establishes the machine was quiet, so the ML-DSA spreads cannot
+be dismissed as system noise. This is a secret-dependent timing channel and it
+is why this backend is unsuitable for an online signing service; see
 [`THREAT-MODEL.md`](THREAT-MODEL.md).
+
+The variance is large enough to matter methodologically: at `--reps 50` an
+earlier run produced an ML-DSA-65 median *above* ML-DSA-87, which is physically
+impossible and was pure noise at 0.13 standard errors. The harness now notes
+such inversions rather than passing them silently, and these figures are from
+`--reps 250`, where the ladder holds.
 
 ---
 

@@ -6,10 +6,11 @@ Task 8 of the Phase II memo. Three questions:
 2. How does that cost scale with the size of a real model?
 3. Do the entropy sources behave the way the pipeline assumes?
 
-**Measured 2026-07-28** on Windows 11, Intel Core i7-13xxx (32 threads),
-CPython 3.13.14 in a clean virtualenv, `cryptography` 49.0.0, `dilithium-py`
-from PyPI. Full machine details are recorded in `results/bench.json` alongside
-every figure.
+**Measured 2026-07-30** on Windows 11, CPython 3.13.14, `--reps 250`, hybrid
+and scaling at `ml-dsa-87` (the shipped default). Full machine details are
+recorded in `results/bench.json` alongside every figure. §5's entropy results
+are from the 2026-07-28 collection and are unaffected by the signing
+configuration.
 
 Regenerate with:
 
@@ -34,41 +35,43 @@ exists to prevent.
 
 ## 1. Primitives
 
-Median of 40 repetitions, **each over a different message**. That detail is not
+Median of 250 repetitions, **each over a different message**. That detail is not
 incidental — see "The trap in benchmarking ML-DSA" below.
 
 | algorithm | keygen | sign | verify | signature | public key | secret key |
 |---|---|---|---|---|---|---|
-| Ed25519 | 0.025 ms | **0.044 ms** | 0.068 ms | **64 B** | 32 B | 32 B |
-| ML-DSA-44 | 4.23 ms | **18.82 ms** | 4.70 ms | **2,420 B** | 1,312 B | 2,560 B |
-| ML-DSA-65 | 7.05 ms | 30.52 ms | 7.79 ms | 3,309 B | 1,952 B | 4,032 B |
-| ML-DSA-87 | 11.08 ms | 42.97 ms | 11.38 ms | 4,627 B | 2,592 B | 4,896 B |
+| Ed25519 | 0.055 ms | **0.088 ms** | 0.134 ms | **64 B** | 32 B | 32 B |
+| ML-DSA-44 | 3.635 ms | 16.198 ms | 4.371 ms | 2,420 B | 1,312 B | 2,560 B |
+| ML-DSA-65 | 6.001 ms | 27.878 ms | 6.695 ms | 3,309 B | 1,952 B | 4,032 B |
+| **ML-DSA-87** | **9.318 ms** | **33.845 ms** | **10.202 ms** | **4,627 B** | 2,592 B | 4,896 B |
 
-**Ed25519 signs 428× faster and produces a signature 37.8× smaller.** That is
-the headline cost of the transition, and it is not a small one.
+ML-DSA-87 is the shipped default (see [`OPEN-QUESTIONS.md`](OPEN-QUESTIONS.md)
+§7), so it is the row that matters: **Ed25519 signs 383× faster and produces a
+signature 72.3× smaller.** That is the headline cost of CNSA 2.0 alignment, and
+it is not a small one.
 
-Two qualifications, both of which cut in the same direction:
+Two qualifications, both cutting the same way:
 
 - **This is pure Python.** `dilithium-py` is a readable reference
   implementation, not an optimised one. liboqs' C implementation is one to two
-  orders of magnitude faster. Nothing here should be read as the cost of ML-DSA;
-  it is the cost of *this* implementation.
-- **Ed25519 here is OpenSSL.** The comparison is optimised C against interpreted
-  Python, so the 428× ratio flatters the classical side considerably.
+  orders of magnitude faster. Nothing here is the cost of ML-DSA; it is the cost
+  of *this* implementation.
+- **Ed25519 here is OpenSSL.** Optimised C against interpreted Python, so the
+  383× ratio flatters the classical side considerably.
 
-### Signing time varies by a factor of eleven
+### Signing time varies by up to sixteen-fold
 
 | algorithm | sign p25 | median | p75 | max/min |
 |---|---|---|---|---|
-| Ed25519 | 0.043 ms | 0.044 ms | 0.045 ms | 1.2× |
-| ML-DSA-44 | 11.0 ms | 18.8 ms | 26.9 ms | **11.5×** |
-| ML-DSA-65 | 23.6 ms | 30.5 ms | 45.4 ms | **7.8×** |
-| ML-DSA-87 | 30.7 ms | 43.0 ms | 61.3 ms | **7.2×** |
+| Ed25519 | 0.088 ms | 0.088 ms | 0.089 ms | 1.2× |
+| ML-DSA-44 | 12.068 ms | 16.198 ms | 24.066 ms | **16.0×** |
+| ML-DSA-65 | 17.935 ms | 27.878 ms | 45.803 ms | **10.0×** |
+| ML-DSA-87 | 24.810 ms | 33.845 ms | 50.993 ms | **8.0×** |
 
 **Ed25519's 1.2× spread is the control.** A constant-time implementation over a
 fixed-size input should show almost none, and it doesn't — so the machine was
-quiet and the harness is measuring what it claims to. Against that baseline,
-ML-DSA-44's **11.5×** cannot be attributed to system noise.
+quiet and the harness measures what it claims to. Against that baseline, the
+ML-DSA spreads cannot be attributed to system noise.
 
 ML-DSA signing rejects candidate signatures until one falls within bounds, and
 the number of attempts depends on the key and the message. It is the same
@@ -76,84 +79,89 @@ secret-dependent variation that makes this backend unsuitable for an online
 signing service — see [`THREAT-MODEL.md`](THREAT-MODEL.md). Reporting a mean
 would hide it.
 
+**This variance is large enough to break the parameter-set ladder at low
+repetition counts.** An earlier run at `--reps 50` produced an ML-DSA-65 median
+*above* ML-DSA-87 — physically impossible, since the larger set does strictly
+more work — at 0.13 standard errors, i.e. pure noise. `check_invariants` now
+emits a note when the sign ladder inverts, precisely because the published
+table is what a reviewer reads. The figures above are from `--reps 250`, where
+the ladder holds: 16.2 < 27.9 < 33.8 ms.
+
 ---
 
 ## 2. Scaling with artefact size
 
 | artefact | digest | total sign | signature only | digest share | throughput |
 |---|---|---|---|---|---|
-| 1 MiB | 10.3 ms | 29.8 ms | 19.6 ms | 35% | 97 MB/s |
-| 10 MiB | 34.3 ms | 54.3 ms | 20.0 ms | 63% | 291 MB/s |
-| 100 MiB | 295.5 ms | 314.5 ms | 19.0 ms | **94%** | 338 MB/s |
+| 1 MiB | 3.9 ms | 39.1 ms | 35.2 ms | 10.1% | 253 MB/s |
+| 10 MiB | 21.8 ms | 56.2 ms | 34.4 ms | 38.8% | 459 MB/s |
+| 100 MiB | 213.9 ms | 250.0 ms | 36.1 ms | **85.6%** | 468 MB/s |
 
-**The signature cost is flat — 19–20 ms at every size — while the digest grows
-linearly.** That is the whole result in one line. Throughput climbs with size
-because per-call overhead amortises; it settles around 338 MB/s.
+**The signature cost is flat — 34-36 ms at every size, a 1.05× spread — while
+the digest grows linearly.** That is the whole result in one line, and it is a
+property of the construction rather than of the machine: you sign a digest, so
+the artefact's size cannot reach the signature. Throughput climbs with size as
+per-call overhead amortises, settling around 468 MB/s.
 
-Extrapolating:
+Extrapolating from the 100 MiB throughput:
 
 | model | digest | signature | signature share |
 |---|---|---|---|
-| 1 GB | 3.0 s | 0.019 s | 0.62% |
-| **7 GB** | **21.2 s** | **0.019 s** | **0.09%** |
-| 70 GB | 211.8 s | 0.019 s | 0.009% |
+| 1 GB | 2.2 s | 0.036 s | 1.62% |
+| **7 GB** | **15.3 s** | **0.036 s** | **0.235%** |
+| 70 GB | 153.3 s | 0.036 s | 0.024% |
 
-For any artefact worth signing, the cost is the hash, not the cryptography — and
-the share *falls* as models grow. The objection that post-quantum signatures are
-too slow is true of the primitive in isolation and false of the operation anyone
-actually performs.
+For any artefact worth signing, the cost is the hash, not the cryptography —
+and the share *falls* as models grow. The objection that post-quantum
+signatures are too slow is true of the primitive in isolation and false of the
+operation anyone actually performs.
 
 ---
 
 ## 3. Hybrid overhead
 
-Over a 1 MiB artefact, so the digest is common to all three rows:
+Over a 1 MiB artefact, so the digest is common to all three rows. **Measured at
+`ed25519+ml-dsa-87`, the shipped default** — the parameter set is recorded in
+`results/bench.json` as `hybrid_overhead.hybrid_level`, so this table cannot be
+silently reinterpreted as describing a configuration it did not measure.
 
 | configuration | sign | verify | signature bytes |
 |---|---|---|---|
-| Ed25519 only | 6.68 ms | 6.20 ms | 64 |
-| **hybrid** | **27.89 ms** | **12.01 ms** | **2,484** |
-| ML-DSA-44 only | 27.61 ms | 11.38 ms | 2,420 |
+| Ed25519 only | 3.25 ms | 3.10 ms | 64 |
+| **hybrid** | **37.26 ms** | **13.61 ms** | **4,691** |
+| ML-DSA-87 only | 36.95 ms | 13.44 ms | 4,627 |
 
-Adopting the hybrid over Ed25519 alone costs **21.2 ms (4.2×) and 2,420 bytes**.
+Adopting the hybrid over Ed25519 alone costs **34.0 ms (11.5×) and 4,627
+bytes**.
 
-The more useful comparison is the third row: **the hybrid costs only 0.28 ms
-more than ML-DSA alone.** Once you are paying for a post-quantum signature, the
-Ed25519 half — and therefore backward compatibility with every verifier that
-exists today — is essentially free. That is the strongest practical argument for
-the hybrid over a straight ML-DSA migration.
+The more useful comparison is the third row: **the hybrid costs only 0.31 ms
+more than ML-DSA alone**, and exactly 64 bytes more. Once you are paying for a
+post-quantum signature, the Ed25519 half — and therefore backward compatibility
+with every verifier that exists today — is essentially free. That is the
+strongest practical argument for the hybrid over a straight ML-DSA migration.
 
-### These figures are the ML-DSA-44 configuration, which is no longer the default
+### The result replicates across parameter sets
 
-**The shipped default is now `ed25519+ml-dsa-87`** (see
-[`OPEN-QUESTIONS.md`](OPEN-QUESTIONS.md) §7). The table above was measured
-against `ed25519+ml-dsa-44` and is left exactly as measured rather than
-rescaled, because a rescaled number is not a measurement.
+This measurement was made independently at two parameter sets, on different
+days:
 
-What transfers to the default configuration, and what does not:
-
-| | -44 (measured) | -87 (default) |
+| | ML-DSA-44 (2026-07-28) | ML-DSA-87 (2026-07-30) |
 |---|---|---|
-| cost of adding the Ed25519 half | +0.28 ms, +64 B | **+64 B exactly**; time increment unchanged in kind |
-| hybrid signature size | 2,484 B | **4,691 B** (4,627 + 64), exact — sizes are spec-fixed |
-| hybrid sign time over 1 MiB | 27.89 ms measured | **~52 ms, extrapolated, not measured** |
+| hybrid − ML-DSA alone, time | +0.28 ms | **+0.31 ms** |
+| hybrid − ML-DSA alone, bytes | +64 B | **+64 B** |
 
-The size row is exact because FIPS 204 fixes signature lengths. **The time row
-is an extrapolation** — 27.89 ms plus the 24.15 ms primitive difference between
--44 and -87 — and is labelled as such because nobody ran it. Re-run
-`scripts/bench/latency.py` with the hybrid configured for -87 before quoting a
-measured figure for the default.
-
-The *argument* survives the change unaltered, and that is the point worth
-keeping: the Ed25519 half costs 64 bytes and a fraction of a millisecond
-whatever the ML-DSA parameter set, so backward compatibility remains close to
-free at CNSA 2.0 strength. What changes is the absolute post-quantum cost, and
-the reason to accept it is compliance, not performance.
+The byte figure is exact and could not differ — an Ed25519 signature is 64
+bytes by definition. The *time* agreeing to within 0.03 ms across a run where
+the ML-DSA half more than doubled in cost is the informative part: the cost of
+the classical half is independent of the post-quantum parameter set, which is
+what makes "backward compatibility is nearly free" a structural claim rather
+than a fact about one configuration.
 
 The ordering is checked automatically: the hybrid computes the ML-DSA signature
-*and* an Ed25519 one, so it cannot be faster than either component. `latency.py`
-asserts this, along with the parameter-set ladder and the specification's fixed
-signature sizes, and refuses to report results that violate them.
+*and* an Ed25519 one, so it cannot be faster than either component.
+`latency.py` asserts this, along with the parameter-set ladder and the
+specification's fixed signature sizes, and refuses to report results that
+violate them.
 
 ---
 
@@ -161,15 +169,15 @@ signature sizes, and refuses to report results that violate them.
 
 | | median |
 |---|---|
-| interpreter startup (`python -c pass`) | 45.4 ms |
-| `qresp sign` | 244.7 ms |
-| `qresp verify` | 205.4 ms |
+| interpreter startup (`python -c pass`) | 55.2 ms |
+| `qresp sign` | 302.7 ms |
+| `qresp verify` | 244.5 ms |
 
-Startup is 19% of an invocation; the rest is import time for `cryptography`,
+Startup is 18% of an invocation; the rest is import time for `cryptography`,
 `dilithium-py` and the CLI framework. Note that **`qresp sign` on a 1 MiB
-artefact takes 245 ms against 28 ms for the same work through the API** — nearly
-90% of a one-shot invocation is process and import overhead, not signing.
-Anyone signing a thousand artefacts should loop inside one process.
+artefact takes 303 ms against 37 ms for the same work through the API** —
+roughly 88% of a one-shot invocation is process and import overhead, not
+signing. Anyone signing a thousand artefacts should loop inside one process.
 
 ---
 

@@ -222,7 +222,12 @@ def check_primitives(doc: str, bench: dict[str, Any], report: Report) -> None:
                     report.figure(f"{name} {label}", value,
                                   float(entry[field]), cells[index], exact=True)
 
-    ed, ml = primitives.get("ed25519"), primitives.get("ml-dsa-44")
+    # The headline compares Ed25519 against the SHIPPED DEFAULT parameter set,
+    # not against -44. Hardcoding -44 here made the checker report a false drift
+    # the moment the default moved to -87 -- it was checking a claim the
+    # document no longer makes. Take the level from the run itself.
+    level = bench.get("hybrid_overhead", {}).get("hybrid_level", "ml-dsa-44")
+    ed, ml = primitives.get("ed25519"), primitives.get(level)
     if ed and ml:
         speed = _find(doc, r"signs \*?\*?([\d.]+)[x×] faster", report, "headline speed claim")
         if speed:
@@ -274,6 +279,8 @@ def check_scaling(doc: str, bench: dict[str, Any], report: Report) -> None:
     label_for = {"1MB": "1 MiB", "10MB": "10 MiB", "100MB": "100 MiB"}
     signature_costs = []
     for key, entry in scaling.items():
+        if not isinstance(entry, dict):     # "signed_with" marker
+            continue
         cells = _row_in(_table_with(doc, "artefact", "digest", "throughput"),
                         label_for.get(key, key))
         signature_costs.append(entry["signature_only_ms"])
@@ -329,8 +336,14 @@ def check_hybrid(doc: str, bench: dict[str, Any], report: Report) -> None:
         report.missing("hybrid comparison rows")
         return
 
+    # The ML-DSA-only row is labelled with whichever parameter set was
+    # benchmarked. Hardcoding "-44" here would silently stop checking that row
+    # the moment the default moved, which is exactly the failure this file
+    # exists to prevent.
+    level = hybrid.get("hybrid_level", "ml-dsa-44")
+    ml_label = f"{DOC_NAME.get(level, level)} only"
     for label, entry in (("Ed25519 only", ed_only), ("hybrid", combined),
-                         ("ML-DSA-44 only", ml_only)):
+                         (ml_label, ml_only)):
         cells = _row_in(_table_with(doc, "configuration", "sign", "verify"), label)
         if cells is None:
             report.missing(f"hybrid table row for {label}")

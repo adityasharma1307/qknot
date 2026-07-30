@@ -82,7 +82,15 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
 ALGORITHMS = ["ed25519", "ml-dsa-44", "ml-dsa-65", "ml-dsa-87"]
-HYBRID = ["ed25519", "ml-dsa-44"]
+
+# The hybrid section measures ONE parameter set, and which one is a choice that
+# has to travel with the numbers. It used to be hardcoded to ml-dsa-44 while the
+# shipped default moved to ml-dsa-87, which left docs/BENCHMARKS.md describing a
+# configuration nobody ships -- the numbers were right and the label was wrong,
+# and check_docs.py could not catch it because it compares figures, not meaning.
+# So: default to whatever the package actually ships, and record the choice in
+# the output.
+DEFAULT_HYBRID_LEVEL = "ml-dsa-87"
 
 
 # ---------------------------------------------------------------------------
@@ -253,8 +261,13 @@ def _make_tree(root: Path, total_bytes: int, files: int = 8) -> Path:
     return root
 
 
-def bench_scaling(reps: int, sizes_mb: list[int]) -> dict[str, Any]:
+def bench_scaling(reps: int, sizes_mb: list[int],
+                  level: str = DEFAULT_HYBRID_LEVEL) -> dict[str, Any]:
     """Separate the digest cost from the signature cost.
+
+    Signs with the same parameter set as the hybrid section so the two are
+    comparable; `level` is recorded in the output for the same reason it is
+    there.
 
     For a real model the digest dominates by orders of magnitude, which is the
     single most useful fact in this whole file: the post-quantum signature is
@@ -264,8 +277,8 @@ def bench_scaling(reps: int, sizes_mb: list[int]) -> dict[str, Any]:
     from qresp.signing.digest import digest_artefact
     from qresp.signing.sign import keygen, sign
 
-    keys = keygen(suite=HYBRID, seed=bytes(range(32)))
-    results: dict[str, Any] = {}
+    keys = keygen(suite=["ed25519", level], seed=bytes(range(32)))
+    results: dict[str, Any] = {"signed_with": level}
 
     with tempfile.TemporaryDirectory() as tmp:
         for size_mb in sizes_mb:
@@ -294,8 +307,13 @@ def bench_scaling(reps: int, sizes_mb: list[int]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # 3. Hybrid overhead
 # ---------------------------------------------------------------------------
-def bench_hybrid_overhead(reps: int) -> dict[str, Any]:
-    """What does adopting the hybrid actually cost over Ed25519 today?"""
+def bench_hybrid_overhead(reps: int, level: str = DEFAULT_HYBRID_LEVEL) -> dict[str, Any]:
+    """What does adopting the hybrid actually cost over Ed25519 today?
+
+    `level` selects the ML-DSA parameter set for both the hybrid and the
+    ML-DSA-only comparison row, so the two stay comparable. It is recorded in
+    the result so a reader never has to infer it from the signature size.
+    """
     from qresp.signing.backends import Exposure
     from qresp.signing.sign import VerifyMode, keygen, sign, verify
 
@@ -304,8 +322,8 @@ def bench_hybrid_overhead(reps: int) -> dict[str, Any]:
         out: dict[str, Any] = {}
 
         for label, suite in (("ed25519_only", ["ed25519"]),
-                             ("hybrid", HYBRID),
-                             ("ml_dsa_only", ["ml-dsa-44"])):
+                             ("hybrid", ["ed25519", level]),
+                             ("ml_dsa_only", [level])):
             keys = keygen(suite=suite, seed=bytes(range(32)))
             signed = sign(root, keys, exposure=Exposure.OFFLINE,
                           subject_name="bench", deterministic=True)
@@ -332,6 +350,8 @@ def bench_hybrid_overhead(reps: int) -> dict[str, Any]:
             "note": "over a 1 MiB artefact; the digest is common to both, so the "
                     "difference is the ML-DSA signature and nothing else",
         }
+        out["hybrid_level"] = level
+        out["overhead"]["hybrid_level"] = level
     return out
 
 
@@ -422,6 +442,8 @@ def report(results: dict[str, Any]) -> None:
         print(f"{'size':>8} {'digest ms':>12} {'total ms':>12} {'signature ms':>14} "
               f"{'digest %':>10} {'MB/s':>8}")
         for size, data in results["scaling"].items():
+            if not isinstance(data, dict):      # e.g. "signed_with"
+                continue
             print(f"{size:>8} {data['digest']['median_ms']:>12.1f} "
                   f"{data['sign_total']['median_ms']:>12.1f} "
                   f"{data['signature_only_ms']:>14.1f} "
@@ -468,6 +490,27 @@ def check_invariants(results: dict[str, Any]) -> tuple[list[str], list[str]]:
 
     if "hybrid_overhead" in results:
         h = results["hybrid_overhead"]
+
+        # Did we benchmark what the package actually ships? Measuring a
+        # non-default parameter set is legitimate -- that is what
+        # --hybrid-level is for -- but it must be visible, because the
+        # resulting table is easy to read as describing the default when it
+        # does not. That exact mismatch already reached docs/BENCHMARKS.md once.
+        level = h.get("hybrid_level")
+        try:
+            from qresp.signing.backends import DEFAULT_SUITE
+            shipped = [a for a in DEFAULT_SUITE if a.startswith("ml-dsa")]
+            if level and shipped and level != shipped[0]:
+                notes.append(
+                    f"hybrid section measured {level}, but the shipped default "
+                    f"suite uses {shipped[0]}. This is fine if deliberate -- "
+                    f"label the table with the parameter set, do not call it "
+                    f"'the default'."
+                )
+        except Exception:                        # pragma: no cover
+            notes.append("could not import DEFAULT_SUITE to confirm the "
+                         "benchmarked hybrid level matches the shipped one")
+
         hybrid = h["hybrid"]["sign"]
         for weaker in ("ed25519_only", "ml_dsa_only"):
             other = h[weaker]["sign"]
@@ -505,6 +548,26 @@ def check_invariants(results: dict[str, Any]) -> tuple[list[str], list[str]]:
                     problems.append(
                         f"{higher} {op} is faster than {lower} {op}; the larger "
                         f"parameter set does strictly more work")
+
+            # `sign` is excluded above because rejection sampling makes it too
+            # variable to order reliably -- treating an inversion as a violation
+            # would cry wolf. But silence is also wrong: the primitives TABLE is
+            # what gets published, and a table showing ml-dsa-65 slower than
+            # ml-dsa-87 is a physical impossibility a reviewer will spot even
+            # though the underlying cause is only noise. Note it, so the author
+            # knows not to present the ladder as if it held on this run.
+            lo, hi = prims[lower]["sign"], prims[higher]["sign"]
+            if hi["median_ms"] < lo["median_ms"]:
+                se = math.sqrt(lo["stdev_ms"] ** 2 / lo["n"]
+                               + hi["stdev_ms"] ** 2 / hi["n"])
+                sigma = abs(lo["median_ms"] - hi["median_ms"]) / se if se else float("inf")
+                notes.append(
+                    f"{higher} sign median ({hi['median_ms']:.2f} ms) is BELOW "
+                    f"{lower} ({lo['median_ms']:.2f} ms) -- physically impossible, "
+                    f"and at {sigma:.2f} sigma it is noise, not a result. Do not "
+                    f"publish this ordering: raise --reps until the ladder holds, "
+                    f"or report the sign column with its spread and say so."
+                )
         # Signature and key sizes are fixed by the standard.
         expected = {"ed25519": 64, "ml-dsa-44": 2420, "ml-dsa-65": 3309,
                     "ml-dsa-87": 4627}
@@ -515,7 +578,8 @@ def check_invariants(results: dict[str, Any]) -> tuple[list[str], list[str]]:
                     f"bytes, expected {size} from the specification")
 
     if "scaling" in results:
-        sizes = list(results["scaling"].items())
+        sizes = [(k, v) for k, v in results["scaling"].items()
+                 if isinstance(v, dict)]
         for (label_a, a), (label_b, b) in zip(sizes, sizes[1:], strict=False):
             if b["digest"]["median_ms"] < a["digest"]["median_ms"]:
                 problems.append(
@@ -537,6 +601,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--skip", nargs="+", default=[],
                         choices=["primitives", "scaling", "hybrid", "cli"],
                         help="Benchmarks to omit.")
+    parser.add_argument("--hybrid-level", default=DEFAULT_HYBRID_LEVEL,
+                        choices=["ml-dsa-44", "ml-dsa-65", "ml-dsa-87"],
+                        help="ML-DSA parameter set for the hybrid section "
+                             f"(default: {DEFAULT_HYBRID_LEVEL}, the shipped "
+                             "default suite).")
     parser.add_argument("--out", type=Path, default=None,
                         help="Write the full results as JSON here.")
     args = parser.parse_args(argv)
@@ -548,9 +617,9 @@ def main(argv: list[str] | None = None) -> int:
     if "primitives" not in args.skip:
         results["primitives"] = bench_primitives(reps)
     if "scaling" not in args.skip:
-        results["scaling"] = bench_scaling(reps, sizes)
+        results["scaling"] = bench_scaling(reps, sizes, args.hybrid_level)
     if "hybrid" not in args.skip:
-        results["hybrid_overhead"] = bench_hybrid_overhead(reps)
+        results["hybrid_overhead"] = bench_hybrid_overhead(reps, args.hybrid_level)
     if "cli" not in args.skip:
         results["cli"] = bench_cli(reps)
 

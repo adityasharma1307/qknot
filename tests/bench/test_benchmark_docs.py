@@ -93,17 +93,34 @@ def test_the_checker_fails_when_a_figure_is_wrong(tmp_path: Path) -> None:
         pytest.skip("BENCHMARKS.md missing")
 
     original = doc.read_text(encoding="utf-8")
-    if "**2,420 B**" not in original:
-        pytest.skip("the ML-DSA-44 signature-size cell has been reformatted")
+
+    # Find any signature-size cell to corrupt, rather than naming one. The
+    # literal "**2,420 B**" was hardcoded here and silently stopped matching
+    # when the default moved to ML-DSA-87 and the bolding moved with it -- so
+    # this test skipped, and the proof that the checker can fail quietly
+    # stopped running. A test whose job is to detect a silent no-op must not
+    # itself become one.
+    sizes = {"2,420": "2,410", "4,627": "4,617", "3,309": "3,299"}
+    target = next((k for k in sizes if f"**{k} B**" in original), None)
+    if target is None:
+        target = next((k for k in sizes if f"| {k} B |" in original), None)
+        if target is None:
+            pytest.fail(
+                "no signature-size cell found in BENCHMARKS.md to corrupt; this "
+                "test can no longer prove the checker detects size drift"
+            )
+        before, after = f"| {target} B |", f"| {sizes[target]} B |"
+    else:
+        before, after = f"**{target} B**", f"**{sizes[target]} B**"
 
     backup = tmp_path / "BENCHMARKS.md.orig"
     backup.write_text(original, encoding="utf-8")
     try:
-        doc.write_text(original.replace("**2,420 B**", "**2,410 B**", 1), encoding="utf-8")
+        doc.write_text(original.replace(before, after, 1), encoding="utf-8")
         result = _run()
         assert result.returncode != 0, (
-            "the checker passed a document whose ML-DSA-44 signature size had "
-            "been altered by ten bytes. It is not checking sizes."
+            f"the checker passed a document whose {target}-byte signature "
+            f"size had been altered. It is not checking sizes."
         )
         assert "exact" in result.stdout, (
             "a signature size drifted but was not reported as an exact-value "
