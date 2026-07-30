@@ -84,12 +84,45 @@ __all__ = [
 # byte strings are both accepted as the same structure, an attacker gains a
 # degree of freedom in something meant to be exactly comparable.
 #
-# Run `python scripts/verify/probe_tsa.py` to check candidates before editing
-# this tuple, and prefer two authorities run by DIFFERENT organisations --
-# two endpoints belonging to one company are a single source of trust.
+# MEASURED, not chosen from documentation. Probed 2026-07-30 against eight
+# public authorities (scripts/verify/probe_tsa.py):
+#
+#     freetsa.org/tsr          OK
+#     tsa.swisssign.net        OK
+#     ts.ssl.com               OK
+#     timestamp.digicert.com   non-canonical DER
+#     timestamp.apple.com      non-canonical DER
+#     rfc3161.ai.moda          non-canonical DER
+#     timestamp.sectigo.com    connection reset
+#     timestamp.entrust.net    connection reset
+#
+# Three of the eight -- including DigiCert and Apple -- emit a CMS
+# `SignedData::certificates` SET that is not sorted in DER order. RFC 5652
+# types that field as a `SET OF`, and DER requires the elements of a SET OF to
+# be sorted by their encoding, so `rfc3161-client` rejects the response with
+# `InvalidSetOrdering`. sigstore-python verifies with the same parser, so this
+# is an ecosystem fact rather than anything peculiar to this project: strict
+# DER parsing rules out a large part of the commercial TSA population.
+#
+# The response is NOT to relax the parser. Accepting non-canonical DER in a
+# verification path is how signature-malleability bugs start: if two distinct
+# byte strings are both accepted as the same structure, an attacker gains a
+# degree of freedom in something meant to be exactly comparable.
+#
+# All three below are run by different organisations in different
+# jurisdictions, which is what makes the threshold mean anything -- two
+# endpoints belonging to one company are one source of trust wearing two hats.
+# All three are listed rather than the required two so that one authority being
+# down does not block signing; `establish_time` still requires
+# VERIFIED_TIME_THRESHOLD of them to verify.
+#
+# Re-run the probe before editing this tuple. Two of these entries were
+# previously set from documentation without testing, and both turned out to be
+# unusable.
 DEFAULT_TSA_URLS: tuple[str, ...] = (
-    "http://timestamp.sectigo.com",
-    "http://rfc3161.ai.moda",
+    "http://tsa.swisssign.net",     # SwissSign, Switzerland
+    "http://ts.ssl.com",            # SSL.com, United States
+    "http://freetsa.org/tsr",       # FreeTSA, community-run, Germany
 )
 
 # How many INDEPENDENT verified times an artefact must carry.

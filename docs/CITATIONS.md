@@ -317,6 +317,44 @@ fell?" is exactly what nobody could answer about Flame at the time.
 
 ---
 
+## 4b. Measured: strict DER rules out most commercial TSAs
+
+Not a citation but a measurement, recorded here because it is the kind of
+concrete deployment fact a paper section on ecosystem friction can use.
+
+Probed 2026-07-30, eight public RFC 3161 authorities, one request each
+(`scripts/verify/probe_tsa.py`):
+
+| authority | result |
+|---|---|
+| `tsa.swisssign.net` | ✅ parses |
+| `ts.ssl.com` | ✅ parses |
+| `freetsa.org/tsr` | ✅ parses |
+| `timestamp.digicert.com` | ❌ non-canonical DER |
+| `timestamp.apple.com/ts01` | ❌ non-canonical DER |
+| `rfc3161.ai.moda` | ❌ non-canonical DER |
+| `timestamp.sectigo.com` | connection reset |
+| `timestamp.entrust.net` | connection reset |
+
+**Three of eight — including DigiCert and Apple — emit a CMS
+`SignedData::certificates` SET that is not sorted in DER order.** RFC 5652
+types that field as a `SET OF`; DER requires the elements of a SET OF to be
+sorted by encoding. `rfc3161-client` enforces this and rejects the whole
+response with `InvalidSetOrdering`.
+
+⚠️ **`sigstore-python` verifies with the same parser**, so this is not
+peculiar to QResP: a strict-DER verifier cannot consume timestamps from a large
+share of the commercial TSA population, including two of the most widely
+deployed. Worth stating carefully in the paper — the claim is *these responses
+are not canonical DER*, not *these TSAs are broken*; they are widely trusted and
+interoperate fine with lenient parsers.
+
+The point for the paper is the gap itself: specification conformance and
+deployed practice have diverged far enough that a correct verifier is the one
+that struggles. Loosening the parser would trade a real property — that a
+signed structure has exactly one valid encoding — for compatibility, which is
+the trade this project exists to argue against.
+
 ## 5. Newly identified sources — related work, not requested
 
 Four uploads were not in the task memo. Two are directly load-bearing.
