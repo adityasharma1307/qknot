@@ -1,0 +1,11 @@
+{
+  "generated": "2026-07-30T23:15:54+0530",
+  "frame_size": 860900,
+  "frame_sha256": "04e92dd695e004bcde34deea0e1fce994b97b2f471054f616fd91d92549c4e5a",
+  "head_size": 10000,
+  "tail_size": 10000,
+  "seed": 20260730,
+  "ranking_url": "https://hugovk.github.io/top-pypi-packages/top-pypi-packages.min.json",
+  "ranking_size": 15000,
+  "unit_of_analysis": "per-project, any release ever attested"
+}

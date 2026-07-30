@@ -17,10 +17,17 @@ of 2,938,109:
 
 **Not one carried a post-quantum signature. Not one.**
 
-That is the finding the rest of this document supports. It is not a claim that
-signing is rare — it is a claim that the signing which exists is, without
-exception in this sample, built on primitives a cryptographically relevant
-quantum computer breaks.
+And across a further **20,000 PyPI projects**, where signing is roughly sixty
+times more common — 3,189 attested, 2,869 distinct publishers — **not one
+either.** Every attestation is ECDSA P-256, read off the certificate rather
+than assumed.
+
+That pairing is the finding. On HuggingFace alone the result invites the reply
+that signing is simply rare there. PyPI removes it: **even in an ecosystem
+where attestation is routine, post-quantum attestation does not exist.** The
+claim is not that signing is uncommon; it is that the signing which exists is,
+without exception across two ecosystems and 40,000 artefacts, built on
+primitives a cryptographically relevant quantum computer breaks.
 
 ---
 
@@ -81,6 +88,80 @@ would be unauthorised access, and the finding does not require it. The full
 list lives in `security/leaked_token_repos.PRIVATE.txt`, which is gitignored
 and must not be committed or published. HuggingFace was notified and has not
 responded.
+
+---
+
+## 2b. PyPI: the same absence, in an ecosystem where signing is common
+
+Scanned 2026-07-30. Two strata of 10,000 from a frame of **860,900** projects:
+head by downloads from a published ranking, tail sampled at random
+(seed 20260730). Unit of analysis fixed in advance — per-project, any release
+ever attested.
+
+| | head | tail | ratio | Fisher exact |
+|---|---|---|---|---|
+| signed | 2,315 / 10,000 = **23.15%** | 874 / 10,000 = **8.74%** | 2.65× | **p = 1.6e-175** |
+| vulnerable | 2,315 | 874 | — | — |
+| **post-quantum** | **0** | **0** | n/a | — |
+| could not check | **0** | **0** | — | — |
+
+95% Wilson intervals: head 22.33–23.99%, tail 8.20–9.31%. Difference 14.41
+percentage points (95% CI 13.41–15.40).
+
+### This makes the post-quantum finding much stronger, not merely wider
+
+On HuggingFace the natural objection is that signing is so rare — 0.39% and
+0.10% — that the absence of post-quantum signatures says little. Perhaps
+nobody has adopted *anything*.
+
+PyPI removes that objection. **Signing here is roughly sixty times more common**
+than on HuggingFace, across 2,869 distinct publishers, and **every one of the
+3,189 attested projects uses ECDSA P-256. Not one uses a post-quantum
+algorithm.**
+
+The algorithm was not assumed from "PyPI uses Sigstore". It was read off the
+Fulcio certificate embedded in each provenance document, and an unrecognised
+key type would have been flagged for manual classification rather than
+defaulted to classical. Zero were flagged.
+
+So the claim is no longer "signing is rare, and what exists is classical". It is
+**"even where signing is normal, post-quantum signing does not exist"** — which
+is the version of the finding that survives the obvious rebuttal.
+
+### Adoption is driven by mechanism, not by vendor
+
+The two ecosystems concentrate in completely different ways, and the contrast
+is more interesting than either number alone:
+
+| | HuggingFace | PyPI |
+|---|---|---|
+| signed repositories/projects | 49 | 3,189 |
+| distinct publishers | a handful | **2,869** |
+| concentration | **69% IBM** — one vendor | **96% GitHub** — one *mechanism* |
+
+HuggingFace signing is a single-vendor phenomenon: strip out IBM and Thireus
+and it approaches zero. PyPI signing is not concentrated in any publisher —
+the largest single repository accounts for 32 projects out of 3,189 — but
+**96% of it arrives through GitHub Actions**, with Google Cloud Build at 3.8%
+and GitLab at 0.1%.
+
+That difference has a plain reading. PyPI's attestations come free with Trusted
+Publishers: configure CI once, and every release is attested without a further
+decision. HuggingFace signing requires a deliberate act per publisher. **Where
+signing is a property of the pipeline, adoption is broad; where it is a
+property of the publisher, adoption is one vendor.**
+
+For a paper arguing that post-quantum provenance must be *deployable*, that is
+the more useful finding than the raw rates: it identifies what actually moves
+adoption, and it is the lever a post-quantum migration would have to pull.
+
+### Completeness
+
+**Zero errors across 20,000 projects.** Unlike the HuggingFace scan, which left
+three gated repositories unclassified, every project here was checked and
+classified — so the head and tail rates need no worst-case bounding. 812 ranked
+projects had been deleted from the index since the ranking was published and
+were skipped before sampling, which is recorded rather than silently absorbed.
 
 ---
 
