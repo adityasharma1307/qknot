@@ -443,19 +443,71 @@ recorded in the provenance, and the query they run is published.
 Sampling seed, frame digest and cursor are recorded exactly as for the
 HuggingFace long tail, so the sample is re-derivable.
 
-## Open question: how to define npm's head stratum
+## npm: what is settled, and what is not
 
-PyPI has a published downloads ranking. **npm does not.** Its downloads API is
-per-package (bulk requests cap at 128 names), so ranking a ~3.5M package frame
-would take on the order of 27,000 requests — hours of polling, and a load on a
-free public service that is hard to justify for a stratification detail.
+Probed 2026-07-30 against the live registry. Most of the plan's unknowns turned
+out to be answerable without asking anyone.
 
-Three options, none free of cost:
+### Settled — npm mirrors PyPI more closely than expected
 
-| option | cost |
+**Attestation presence is one request per package.** The abbreviated packument
+(`Accept: application/vnd.npm.install-v1+json`) returns every version with a
+`dist.attestations` field present or absent. Same shape as PyPI's Simple API,
+same cost — one request, not one per version.
+
+    sigstore         40 versions, 32 attested,  ~65 KB
+    @sigstore/sign   17 versions, 17 attested,  ~18 KB
+    express         288 versions,  0 attested, ~353 KB
+
+**Scoped packages work** with `%2f` encoding, in both the packument and the
+attestation URL.
+
+**The algorithm can be read off the certificate, exactly as on PyPI.** Fetching
+`/-/npm/v1/attestations/{pkg}@{version}` returns *two* attestations:
+
+| predicateType | verification material |
 |---|---|
-| third-party npm ranking | same provenance caveat as PyPI, but a less established source |
-| rank a random subsample rather than the frame | head is then "top of a sample", not "top of the ecosystem" — a different quantity |
-| drop npm's head/tail split; report one random sample | loses the popularity contrast that is the HF study's clearest finding |
+| `github.com/npm/attestation/.../publish/v0.1` | `publicKey` — npm's own registry key, by reference |
+| `slsa.dev/provenance/v1` | `certificate` — a **Fulcio** cert |
 
-Not yet decided. It must be, before npm collection runs.
+The SLSA one carries a real certificate: **ECDSA P-256**, with the signer
+identity in the SAN
+(`https://github.com/sigstore/sigstore-js/.github/workflows/release.yml@refs/heads/main`).
+So `key_algorithm_of_certificate` applies unchanged, and npm records can use the
+same `SigAlgorithm`/`QLabel` vocabulary as the other two ecosystems.
+
+Note the npm *publish* attestation references a key by ID rather than embedding
+a certificate. It must be classified separately or excluded deliberately —
+silently ignoring it would undercount, and silently folding it into the
+provenance figure would double-count.
+
+### Open — two questions, and only one is hard
+
+**1. Frame enumeration.** `replicate.npmjs.com/_all_docs` is unreachable from
+the development sandbox, so its behaviour is untested here: response size for
+~3.5M names, whether it must be paged, and what rate limits apply. Needs one
+trial run on a machine with open network. Not a design question — just unknown.
+
+**2. Head stratum definition.** npm publishes no downloads ranking, and its
+downloads API is per-package with a 128-name bulk cap, so ranking a 3.5M frame
+directly is ~27,000 requests.
+
+Ruled out by arithmetic: **rank a random subsample**. A sample of size n
+contains each true-top-10k package with probability n/N regardless of
+popularity, so a 100k subsample of 3.5M (2.9%) yields a "top 10,000" containing
+roughly 286 genuine top-10k packages and ~9,700 impostors. Heavy-tailedness
+protects download *share*, not rank *slots*. This is a different population, not
+a noisy version of the right one.
+
+Remaining candidates:
+
+| option | what it costs |
+|---|---|
+| **two-stage**: dependents-based candidate pool (~50k) → rank by real downloads via the bulk API (~390 requests) | keeps download-ranking, so all three ecosystems stay comparable; risks missing a package with high downloads and near-zero dependents |
+| **dependents ranking directly** (deps.dev) | one sentence of methods text, but npm's "head" then means something different from HF's and PyPI's, and head/tail ratios stop being comparable across ecosystems |
+| **drop the split**, one random sample | loses npm's popularity contrast; HF and PyPI keep theirs, and the paper says so |
+
+Preference is the two-stage option. It is the only one that preserves metric
+parity, and at ~390 requests the cost is trivial. Its dependency is a candidate
+source, which does not need to be authoritative — stage 2 does the real
+ranking, so stage 1 only has to avoid *losing* packages.
