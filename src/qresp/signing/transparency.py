@@ -62,6 +62,7 @@ __all__ = [
     "TimestampError",
     "TimestampToken",
     "TimestampUnavailableError",
+    "build_request",
     "establish_time",
     "request_timestamp",
     "verify_timestamp",
@@ -176,6 +177,30 @@ class TimestampToken:
         return stamped if stamped.tzinfo else stamped.replace(tzinfo=timezone.utc)
 
 
+def build_request(message: bytes) -> Any:
+    """Construct the RFC 3161 request. Pure computation, no I/O.
+
+    Split out of `request_timestamp` so it can be tested without a network.
+    It was not, and a wrong call shipped: `cert_request` is keyword-only in
+    `rfc3161-client`, so `.cert_request(True)` raised TypeError the first time
+    anyone pointed this at a real TSA. Twenty-seven tests passed, because every
+    one of them stopped at the network boundary and none touched the half of
+    this function that needs no network at all.
+
+    The lesson is narrow and worth keeping: "this needs the network" was true
+    of the round trip and false of building the request, and treating the whole
+    function as untestable left a pure function untested.
+    """
+    client = _require_client()
+    return (
+        client.TimestampRequestBuilder()
+        .data(message)
+        .nonce(nonce=True)                 # replay protection on this exchange
+        .cert_request(cert_request=True)   # ask the TSA to include its cert
+        .build()
+    )
+
+
 def request_timestamp(
     message: bytes,
     url: str,
@@ -190,14 +215,7 @@ def request_timestamp(
     to be pinned in time is the signature over it.
     """
     client = _require_client()
-
-    request = (
-        client.TimestampRequestBuilder()
-        .data(message)
-        .nonce(nonce=True)          # replay protection on this exchange
-        .cert_request(True)         # ask the TSA to include its certificate
-        .build()
-    )
+    request = build_request(message)
 
     if session is None:
         import requests

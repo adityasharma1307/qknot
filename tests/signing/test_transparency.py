@@ -34,6 +34,7 @@ from qresp.signing.transparency import (
     TimestampError,
     TimestampToken,
     TimestampUnavailableError,
+    build_request,
     establish_time,
 )
 
@@ -307,3 +308,78 @@ class TestSerialisation:
     def test_a_missing_response_is_refused(self):
         with pytest.raises(TimestampError, match="no 'response' field"):
             TimestampToken.from_dict({"kind": "rfc3161"})
+
+
+class TestTheRequestIsBuiltCorrectly:
+    """The half of the signing path that needs no network -- and shipped broken.
+
+    `request_timestamp` called `.cert_request(True)` positionally, but the
+    argument is keyword-only in `rfc3161-client`, so it raised TypeError the
+    first time it met a real TSA. All 27 tests passed: every one stopped at the
+    network boundary, and nobody had noticed that building the request is pure
+    computation testable offline.
+
+    "Needs the network" was true of the round trip and false of constructing
+    the request. These tests exist so that distinction cannot be lost again.
+    """
+
+    def test_a_request_can_be_built(self):
+        """This alone would have caught the shipped TypeError."""
+        assert len(build_request(b"signature-bytes").as_bytes()) > 0
+
+    def test_the_request_is_der_encoded(self):
+        """RFC 3161 requests are DER SEQUENCEs; anything else is not a request."""
+        assert build_request(b"signature-bytes").as_bytes()[0] == 0x30
+
+    def test_the_message_imprint_covers_the_message(self):
+        """The TSA timestamps a hash of OUR bytes, not something else.
+
+        If the imprint did not depend on the message, every request would be
+        identical and the resulting token would attest to nothing in particular.
+        """
+        import hashlib
+        message = b"the-signature"
+        request = build_request(message)
+        assert hashlib.sha512(message).digest() in request.as_bytes()
+
+    def test_the_imprint_uses_sha512_which_cnsa_2_0_requires(self):
+        """Pinned because it is a compliance property, not a library detail.
+
+        CNSA 2.0 specifies SHA-384/512. `rfc3161-client` happens to default to
+        SHA-512, which satisfies that -- but a default is someone else's choice,
+        and a future release moving it to SHA-256 would quietly drop this
+        project below the standard it claims to target, with every test still
+        green. So assert it here rather than inherit it.
+
+        (I assumed SHA-256 when writing the test above and was wrong; the
+        library was right. Finding that out is the reason this assertion now
+        exists.)
+        """
+        request = build_request(b"the-signature")
+        assert request.message_imprint.hash_algorithm.dotted_string == "2.16.840.1.101.3.4.2.3", (
+            "message imprint is no longer SHA-512; CNSA 2.0 requires SHA-384/512"
+        )
+
+    def test_different_messages_produce_different_requests(self):
+        a = build_request(b"signature-one").as_bytes()
+        b = build_request(b"signature-two").as_bytes()
+        assert a != b
+
+    def test_a_nonce_is_present_so_replays_are_detectable(self):
+        """Two requests over the SAME message must still differ.
+
+        The nonce is what lets the client tell a fresh response from a replayed
+        one. Without it an on-path attacker could return an old token for a
+        message it happens to match.
+        """
+        message = b"identical-signature"
+        assert build_request(message).as_bytes() != build_request(message).as_bytes()
+
+    def test_building_a_request_needs_no_network(self):
+        """Explicit, because assuming otherwise is what let the bug through.
+
+        conftest.py blocks sockets for every test, so this passing at all is the
+        assertion: if `build_request` ever grew an I/O call it would fail here
+        rather than in production.
+        """
+        assert build_request(b"x").as_bytes()
