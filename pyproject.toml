@@ -85,6 +85,13 @@ filterwarnings = ["ignore:The metaschema specified by .schema:DeprecationWarning
 pythonpath = ["src"]
 python_files = ["test_*.py"]
 addopts = "-v --strict-markers"
+markers = [
+    # tests/conftest.py closes the network for every test by default. Anything
+    # that genuinely needs a socket declares it here, so the dependency is
+    # visible in the source rather than implicit in whether CI has connectivity.
+    "allow_network: test genuinely requires network access",
+    "allow_sleeping: test genuinely needs real time.sleep",
+]
 
 [tool.mypy]
 python_version = "3.10"
