@@ -157,7 +157,7 @@ def keygen(
     harder to state, for no security gain.
 
     Args:
-        suite: algorithms to generate for. Defaults to ed25519 + ML-DSA-44.
+        suite: algorithms to generate for. Defaults to ed25519 + ML-DSA-87.
         seed: explicit seed. Mutually exclusive with `entropy_sources`.
         entropy_sources: entropy backends to mix. When given, the resulting
             attestation travels with the key set, so a bundle can record where

@@ -381,7 +381,7 @@ def sign_artefact(
                              help="Where to write the OMS-compatible bundle."),
     keys_out: Path | None = typer.Option(
         None, "--keys-out", help="Write the PUBLIC keys here (JSON)."),
-    suite: str = typer.Option("ed25519+ml-dsa-44", "--suite",
+    suite: str = typer.Option("ed25519+ml-dsa-87", "--suite",
                               help="Algorithms, '+'-separated."),
     name: str = typer.Option("artefact", "--name",
                              help="Subject name recorded in the statement."),

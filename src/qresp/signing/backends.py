@@ -217,7 +217,7 @@ class MlDsaBackend:
     quantum_resistant = True
     side_channel_resistant = False
 
-    def __init__(self, level: str = "ml-dsa-44", deterministic: bool = False):
+    def __init__(self, level: str = "ml-dsa-87", deterministic: bool = False):
         """
         Args:
             deterministic: FIPS 204 defines both a *hedged* and a *deterministic*
@@ -329,12 +329,12 @@ class LibOqsBackend:
     above, not something acquired by default.
     """
 
-    algorithm = "ml-dsa-44"
+    algorithm = "ml-dsa-87"
     quantum_resistant = True
     side_channel_resistant = False
-    signature_size = 2420
+    signature_size = 4627
 
-    def __init__(self, level: str = "ml-dsa-44") -> None:
+    def __init__(self, level: str = "ml-dsa-87") -> None:
         raise NotImplementedError(
             "LibOqsBackend is a documented contract, not an implementation. "
             "See the class docstring for what an implementation must establish."
@@ -394,7 +394,7 @@ _BACKENDS: dict[str, Any] = {
     "ml-dsa-87": lambda **kw: MlDsaBackend("ml-dsa-87", **kw),
 }
 
-DEFAULT_SUITE = ["ed25519", "ml-dsa-44"]
+DEFAULT_SUITE = ["ed25519", "ml-dsa-87"]
 
 
 def get_backend(algorithm: str, deterministic: bool = False) -> SignatureBackend:

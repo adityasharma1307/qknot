@@ -237,8 +237,20 @@ class TestHelpers:
         for algorithm in DEFAULT_SUITE:
             assert get_backend(algorithm) is not None
 
-    def test_default_suite_is_hybrid_with_ml_dsa_44(self):
-        assert DEFAULT_SUITE == ["ed25519", "ml-dsa-44"]
+    def test_default_suite_is_hybrid_at_cnsa_2_0_strength(self):
+        """Pinned literally, not derived from DEFAULT_SUITE.
+
+        Deriving the expected value from the thing under test would make this
+        assertion vacuous. The point is that changing the shipped default is a
+        deliberate act that has to update a test, because the default decides
+        what every user who passes no flags actually gets.
+
+        ML-DSA-87 because CNSA 2.0 names it specifically, and because software
+        signing must be exclusively CNSA 2.0 for US National Security Systems
+        from 2027-01-01. -44 and -65 remain selectable for bandwidth-sensitive
+        deployments; see docs/OPEN-QUESTIONS.md 7.
+        """
+        assert DEFAULT_SUITE == ["ed25519", "ml-dsa-87"]
 
     def test_unknown_algorithm_lists_the_available_ones(self):
         with pytest.raises(ValueError, match="ed25519"):

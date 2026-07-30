@@ -130,6 +130,11 @@ actually performs.
 | **hybrid** | **27.89 ms** | **2,484** |
 | ML-DSA-44 only | 27.61 ms | 2,420 |
 
+Measured against `ed25519+ml-dsa-44`. **The shipped default is now
+`ed25519+ml-dsa-87`**, whose hybrid signature is 4,691 bytes (exact) and whose
+sign time extrapolates to ~52 ms (not measured — see
+[`BENCHMARKS.md`](BENCHMARKS.md) §3).
+
 Adopting the hybrid over Ed25519 costs 21.2 ms and 2,420 bytes. But over
 ML-DSA **alone** it costs **0.28 ms and 64 bytes**. Once you are paying for a
 post-quantum signature, keeping every verifier that exists today working is

@@ -123,6 +123,33 @@ Ed25519 half — and therefore backward compatibility with every verifier that
 exists today — is essentially free. That is the strongest practical argument for
 the hybrid over a straight ML-DSA migration.
 
+### These figures are the ML-DSA-44 configuration, which is no longer the default
+
+**The shipped default is now `ed25519+ml-dsa-87`** (see
+[`OPEN-QUESTIONS.md`](OPEN-QUESTIONS.md) §7). The table above was measured
+against `ed25519+ml-dsa-44` and is left exactly as measured rather than
+rescaled, because a rescaled number is not a measurement.
+
+What transfers to the default configuration, and what does not:
+
+| | -44 (measured) | -87 (default) |
+|---|---|---|
+| cost of adding the Ed25519 half | +0.28 ms, +64 B | **+64 B exactly**; time increment unchanged in kind |
+| hybrid signature size | 2,484 B | **4,691 B** (4,627 + 64), exact — sizes are spec-fixed |
+| hybrid sign time over 1 MiB | 27.89 ms measured | **~52 ms, extrapolated, not measured** |
+
+The size row is exact because FIPS 204 fixes signature lengths. **The time row
+is an extrapolation** — 27.89 ms plus the 24.15 ms primitive difference between
+-44 and -87 — and is labelled as such because nobody ran it. Re-run
+`scripts/bench/latency.py` with the hybrid configured for -87 before quoting a
+measured figure for the default.
+
+The *argument* survives the change unaltered, and that is the point worth
+keeping: the Ed25519 half costs 64 bytes and a fraction of a millisecond
+whatever the ML-DSA parameter set, so backward compatibility remains close to
+free at CNSA 2.0 strength. What changes is the absolute post-quantum cost, and
+the reason to accept it is compliance, not performance.
+
 The ordering is checked automatically: the hybrid computes the ML-DSA signature
 *and* an Ed25519 one, so it cannot be faster than either component. `latency.py`
 asserts this, along with the parameter-set ladder and the specification's fixed

@@ -65,7 +65,7 @@ class TestSign:
     def test_it_reports_both_algorithms(self, artefact, tmp_path):
         result = runner.invoke(app, ["sign", str(artefact), "--out",
                                      str(tmp_path / "b.json"), "--seed", SEED])
-        assert "ed25519" in result.output and "ml-dsa-44" in result.output
+        assert "ed25519" in result.output and "ml-dsa-87" in result.output
 
     def test_it_says_secret_keys_were_not_written(self, artefact, tmp_path):
         """The single most important thing the command can tell a user."""
@@ -78,7 +78,7 @@ class TestSign:
         runner.invoke(app, ["sign", str(artefact), "--out", str(tmp_path / "b.json"),
                             "--keys-out", str(keys), "--seed", SEED])
         exported = json.loads(keys.read_text(encoding="utf-8"))
-        assert set(exported) == {"ed25519", "ml-dsa-44"}
+        assert set(exported) == {"ed25519", "ml-dsa-87"}
         assert "publicKey" in exported["ed25519"]
 
     def test_exported_keys_contain_no_secret_material(self, artefact, tmp_path):

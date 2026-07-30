@@ -104,7 +104,7 @@ one leaves the other attesting to its absence.
 
 | | |
 |---|---|
-| **Default suite** | Ed25519 + ML-DSA-44 (ML-DSA-65/87 available) |
+| **Default suite** | Ed25519 + ML-DSA-87 (CNSA 2.0; -44/-65 selectable) |
 | **Digest** | SHA3-256, with SHA-256 alongside for OMS conformance |
 | **Format** | OMS v1.0-compatible Sigstore bundle, validated against the published schemas |
 | **Entropy** | Sources mixed, never chosen between; quantum origin attested, never assumed |
