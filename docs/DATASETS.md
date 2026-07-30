@@ -481,33 +481,55 @@ a certificate. It must be classified separately or excluded deliberately —
 silently ignoring it would undercount, and silently folding it into the
 provenance figure would double-count.
 
-### Open — two questions, and only one is hard
+### Head stratum: DECIDED (2026-07-30) — two-stage
 
-**1. Frame enumeration.** `replicate.npmjs.com/_all_docs` is unreachable from
-the development sandbox, so its behaviour is untested here: response size for
-~3.5M names, whether it must be paged, and what rate limits apply. Needs one
-trial run on a machine with open network. Not a design question — just unknown.
+**Stage 1** produces a candidate pool from any popularity-ish source.
+**Stage 2** (`scripts/audit/rank_npm.py`) measures *real* last-month downloads
+over that pool — bulk for unscoped names, individually for scoped ones — and
+ranks by the measured counts.
 
-**2. Head stratum definition.** npm publishes no downloads ranking, and its
-downloads API is per-package with a 128-name bulk cap, so ranking a 3.5M frame
-directly is ~27,000 requests.
+This preserves download-ranking across all three ecosystems, so head-vs-tail
+ratios remain comparable.
 
-Ruled out by arithmetic: **rank a random subsample**. A sample of size n
-contains each true-top-10k package with probability n/N regardless of
-popularity, so a 100k subsample of 3.5M (2.9%) yields a "top 10,000" containing
-roughly 286 genuine top-10k packages and ~9,700 impostors. Heavy-tailedness
-protects download *share*, not rank *slots*. This is a different population, not
-a noisy version of the right one.
+#### The obstacle is scoping, not volume
 
-Remaining candidates:
+An earlier estimate here said ranking the full frame would take "hours of
+polling". Recomputed at the rate this project actually sustains (~20 req/s on
+the PyPI scan): 3.5M ÷ 128 per bulk request ≈ 27,000 requests ≈ **23 minutes**.
+Volume was never the problem.
 
-| option | what it costs |
-|---|---|
-| **two-stage**: dependents-based candidate pool (~50k) → rank by real downloads via the bulk API (~390 requests) | keeps download-ranking, so all three ecosystems stay comparable; risks missing a package with high downloads and near-zero dependents |
-| **dependents ranking directly** (deps.dev) | one sentence of methods text, but npm's "head" then means something different from HF's and PyPI's, and head/tail ratios stop being comparable across ecosystems |
-| **drop the split**, one random sample | loses npm's popularity contrast; HF and PyPI keep theirs, and the paper says so |
+The real obstacle is that npm's bulk endpoint **rejects scoped packages**, and
+`@babel/*`, `@types/*` and similar are a large share of the most popular names.
+Ranking only what the bulk endpoint accepts would bias the head towards
+unscoped packages rather than towards popular ones — so scoped names are
+queried individually, which is what makes a bounded candidate pool worth
+having.
 
-Preference is the two-stage option. It is the only one that preserves metric
-parity, and at ~390 requests the cost is trivial. Its dependency is a candidate
-source, which does not need to be authoritative — stage 2 does the real
-ranking, so stage 1 only has to avoid *losing* packages.
+#### What stage 1 must and must not do
+
+It does **not** need to rank well; stage 2 does the ranking. It only has to
+avoid *losing* genuinely popular packages, so it should err large — a 50,000
+pool for a 10,000 head leaves substantial slack.
+
+**Residual caveat, one sentence for the paper:** a package with very high
+downloads and near-zero presence in the candidate source would be missed. That
+is an edge case, not a systematic bias — which is exactly what distinguishes
+this from ranking a random subsample, where a 2.9% sample would have missed
+~97% of the true top 10,000 because sampling probability is independent of
+popularity.
+
+#### Unmeasured candidates are excluded, not ranked last
+
+A package the downloads API declines to answer for has **no** count, which is
+not a count of zero. Sorting it to the bottom would turn a collection failure
+into a claim about its popularity. `rank_npm.py` excludes them and reports how
+many.
+
+### Still open: frame enumeration
+
+`replicate.npmjs.com` is unreachable from the development sandbox, so response
+size, paging behaviour and rate limits for ~3.5M names are untested.
+`scripts/audit/fetch_npm_frame.py` is written defensively as a result — it
+pages, reports progress, and resumes from `--start-key` after a failure rather
+than restarting. This is an unknown to be measured on first run, not a decision
+to be made.
