@@ -254,3 +254,56 @@ class TestRateLimitFailuresAreNotSilentZeroes:
         """So the next person does not re-add the except clause."""
         text = NpmClient.single_downloads.__doc__ or ""
         assert "absent-versus-unchecked" in text
+
+
+class TestPermanentVersusTransientFailure:
+    """A 404 is npm answering. A 429 is npm declining. Retrying only helps one.
+
+    The second ranking run retried 404s six times each with exponential
+    backoff. On a rate-limited endpoint that is not merely wasted work: every
+    pointless retry spends budget a genuinely transient 429 needed, so
+    conflating the two actively worsens the throttling it is trying to survive.
+    """
+
+    class _Response:
+        def __init__(self, status: int, headers: dict[str, str] | None = None) -> None:
+            self.status_code = status
+            self.headers = headers or {}
+
+        def json(self) -> dict[str, Any]:
+            return {}
+
+    class _Session:
+        def __init__(self, response: Any) -> None:
+            self._response = response
+
+        def get(self, *_args: Any, **_kwargs: Any) -> Any:
+            return self._response
+
+    def test_a_404_is_marked_permanent(self):
+        client = NpmClient(session=self._Session(self._Response(404)))
+        with pytest.raises(NpmError) as caught:
+            client.single_downloads("@scope/never-published")
+        assert caught.value.is_permanent
+
+    def test_a_429_is_not_permanent(self):
+        client = NpmClient(session=self._Session(self._Response(429)))
+        with pytest.raises(NpmError) as caught:
+            client.single_downloads("@babel/core")
+        assert not caught.value.is_permanent
+
+    def test_a_server_stated_retry_after_is_preferred_to_a_guess(self):
+        """npm knows how long it wants us to wait better than our curve does."""
+        client = NpmClient(session=self._Session(
+            self._Response(429, {"Retry-After": "30"})))
+        with pytest.raises(NpmError) as caught:
+            client.single_downloads("@babel/core")
+        assert caught.value.retry_after == 30.0
+
+    def test_a_missing_or_garbled_retry_after_is_none_not_zero(self):
+        """Zero would mean 'retry immediately', the opposite of the instruction."""
+        client = NpmClient(session=self._Session(
+            self._Response(429, {"Retry-After": "soon"})))
+        with pytest.raises(NpmError) as caught:
+            client.single_downloads("@babel/core")
+        assert caught.value.retry_after is None

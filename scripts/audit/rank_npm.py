@@ -65,23 +65,38 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
-DEFAULT_RATE = 4.0          # requests/second, measured safe against api.npmjs.org
+DEFAULT_RATE = 4.0          # starting pace; AIMD lowers it if npm pushes back
 MAX_ATTEMPTS = 6
 MIN_MEASURED_FRACTION = 0.80
 
 
 class Throttle:
-    """A shared minimum interval between requests across all worker threads."""
+    """A shared request pace that SLOWS DOWN GLOBALLY when npm pushes back.
 
-    def __init__(self, per_second: float) -> None:
-        self._interval = 1.0 / per_second if per_second > 0 else 0.0
+    The first throttled version paced requests but let each thread back off
+    privately. That does not work: while one worker sleeps 32s on a 429, the
+    other three keep issuing requests at the full rate, so the server sees no
+    reduction and the 429s continue indefinitely. Backoff has to be a property
+    of the shared pace, not of the individual request.
+
+    So a 429 does two things here: it pauses *every* worker until the stated
+    (or estimated) retry time, and it multiplicatively widens the interval for
+    all future requests. Successes narrow it back gradually. This is ordinary
+    AIMD congestion control, which is what a rate limit calls for.
+    """
+
+    def __init__(self, per_second: float, floor_per_second: float = 0.4) -> None:
+        self._base = 1.0 / per_second if per_second > 0 else 0.0
+        self._interval = self._base
+        self._ceiling = 1.0 / floor_per_second if floor_per_second > 0 else 10.0
         self._lock = threading.Lock()
         self._next = 0.0
+        self.penalties = 0
 
     def wait(self) -> None:
-        if self._interval <= 0:
-            return
         with self._lock:
+            if self._interval <= 0:
+                return
             now = time.monotonic()
             due = max(now, self._next)
             self._next = due + self._interval
@@ -89,28 +104,57 @@ class Throttle:
         if delay > 0:
             time.sleep(delay)
 
+    def penalise(self, seconds: float) -> None:
+        """Pause every worker, and widen the interval for all future requests."""
+        with self._lock:
+            self.penalties += 1
+            self._next = max(self._next, time.monotonic() + seconds)
+            self._interval = min(self._interval * 1.5, self._ceiling)
+
+    def relax(self) -> None:
+        """Recover slowly after success, so one good reply is not a green light."""
+        with self._lock:
+            self._interval = max(self._base, self._interval * 0.999)
+
+    @property
+    def rate(self) -> float:
+        return 1.0 / self._interval if self._interval > 0 else float("inf")
+
 
 def with_retry(call, throttle: Throttle, describe: str,
                attempts: int = MAX_ATTEMPTS):
-    """Run `call`, backing off on failure. Raises only after `attempts` tries.
+    """Run `call`, backing off on TRANSIENT failure only.
 
-    Returning a sentinel on the first failure is what broke the previous run:
-    a transient 429 became a permanent "unmeasured", and the losses tracked the
-    request order rather than anything about the packages.
+    A 404 from the downloads API is npm answering the question: there is no
+    download record for this package. Retrying it five more times cannot change
+    that, and on a rate-limited endpoint each pointless retry spends budget a
+    genuinely transient 429 needed. Permanent failures raise immediately.
     """
-    delay = 2.0
+    from qresp.audit.npm_client import NpmError
+
+    delay = 4.0
     for attempt in range(1, attempts + 1):
         throttle.wait()
         try:
-            return call()
-        except Exception as exc:
+            result = call()
+        except NpmError as exc:
+            if exc.is_permanent:
+                raise
             if attempt == attempts:
                 raise
-            if attempt >= 3:
-                print(f"    retry {attempt}/{attempts} in {delay:.0f}s "
-                      f"({describe}): {str(exc)[:90]}")
+            pause = exc.retry_after if exc.retry_after else delay
+            throttle.penalise(pause)
+            time.sleep(min(pause, 60.0))
+            delay = min(delay * 2, 120.0)
+        except Exception:
+            if attempt == attempts:
+                raise
+            throttle.penalise(delay)
             time.sleep(delay)
-            delay = min(delay * 2, 60.0)
+            delay = min(delay * 2, 120.0)
+        else:
+            throttle.relax()
+            return result
     raise AssertionError("unreachable")
 
 
@@ -128,7 +172,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--rate", type=float, default=DEFAULT_RATE,
                         help="Requests per second, shared across workers.")
-    parser.add_argument("--workers", type=int, default=4)
+    parser.add_argument("--workers", type=int, default=3)
     parser.add_argument("--min-measured", type=float, default=MIN_MEASURED_FRACTION,
                         help="Fail rather than write a ranking built from less "
                              "than this fraction of candidates.")
@@ -175,20 +219,36 @@ def main(argv: list[str] | None = None) -> int:
             rate = index / max(time.time() - started, 1e-9)
             eta = (len(batches) - index) / max(rate, 1e-9) / 60
             print(f"  bulk {index:,}/{len(batches):,}  {rate:.1f}/s  "
-                  f"~{eta:.0f} min left  measured={len(counts):,}")
+                  f"~{eta:.0f} min left  measured={len(counts):,}  "
+                  f"pace={throttle.rate:.1f}/s throttled={throttle.penalties}")
 
     todo_scoped = [n for n in scoped if n not in counts]
     print(f"  scoped -> {len(todo_scoped):,} individual requests")
 
     from concurrent.futures import ThreadPoolExecutor
 
+    from qresp.audit.npm_client import NpmError
+
+    no_record = 0
+    lock = threading.Lock()
+
     def measure(name: str) -> tuple[str, int | None]:
+        nonlocal no_record
         try:
             return name, with_retry(lambda: client.single_downloads(name),
                                     throttle, name)
+        except NpmError as exc:
+            if exc.is_permanent:
+                # npm answered: no download record. Not a collection failure,
+                # and counted separately so the two are never conflated in the
+                # summary the way they would be if both just vanished.
+                with lock:
+                    no_record += 1
+            return name, None
         except Exception:
             return name, None
 
+    scoped_started = time.time()
     if todo_scoped:
         with ThreadPoolExecutor(max_workers=args.workers) as pool:
             for index, (name, value) in enumerate(
@@ -199,8 +259,12 @@ def main(argv: list[str] | None = None) -> int:
                     failed.append(name)
                 if index % 500 == 0 or index == len(todo_scoped):
                     partial_path.write_text(json.dumps(counts), encoding="utf-8")
+                    elapsed = max(time.time() - scoped_started, 1e-9)
+                    eta = (len(todo_scoped) - index) / (index / elapsed) / 60
                     print(f"  scoped {index:,}/{len(todo_scoped):,}  "
-                          f"measured={len(counts):,}")
+                          f"~{eta:.0f} min left  measured={len(counts):,}  "
+                          f"pace={throttle.rate:.1f}/s throttled={throttle.penalties}  "
+                          f"no-record={no_record}")
 
     # Unmeasured candidates are EXCLUDED, not sorted to the bottom. A missing
     # count is not a count of zero, and ranking them last would convert a
@@ -232,9 +296,14 @@ def main(argv: list[str] | None = None) -> int:
         "rows": [{"project": n, "download_count": c} for n, c in ranked],
     }, indent=2), encoding="utf-8")
 
+    if no_record:
+        print(f"  {no_record:,} returned 404 -- npm has no download record for "
+              f"them (answered, not failed)")
     if failed:
         print(f"  {len(set(failed)):,} exhausted retries and are EXCLUDED, "
               f"not ranked last")
+    print(f"  final pace {throttle.rate:.2f}/s after {throttle.penalties:,} "
+          f"throttle events")
     print(f"  top 5: {[n for n, _ in ranked[:5]]}")
     print(f"  -> {args.out}")
     return 0

@@ -74,7 +74,24 @@ PROVENANCE_PREDICATE = "https://slsa.dev/provenance/v1"
 
 
 class NpmError(Exception):
-    """An npm request failed in a way the caller must not read as 'absent'."""
+    """An npm request failed in a way the caller must not read as 'absent'.
+
+    Carries the HTTP status so callers can tell a PERMANENT answer from a
+    TRANSIENT one. Retrying a 404 is not merely wasted work: on a rate-limited
+    endpoint every pointless retry consumes budget that a genuinely transient
+    429 needed, so conflating the two makes the throttling worse.
+    """
+
+    def __init__(self, message: str, status: int | None = None,
+                 retry_after: float | None = None) -> None:
+        super().__init__(message)
+        self.status = status
+        self.retry_after = retry_after
+
+    @property
+    def is_permanent(self) -> bool:
+        """404 means npm answered: there is no download record. Do not retry."""
+        return self.status == 404
 
 
 def is_scoped(name: str) -> bool:
@@ -127,9 +144,18 @@ class NpmClient:
             raise NpmError(f"{url}: {exc}") from exc
 
         if response.status_code == 404:
-            raise NpmError(f"{url}: 404 not found")
+            raise NpmError(f"{url}: 404 not found", status=404)
         if response.status_code != 200:
-            raise NpmError(f"{url}: HTTP {response.status_code}")
+            # Honour Retry-After when npm sends it: a server-stated wait is
+            # better information than any backoff curve we invent.
+            header = getattr(response, "headers", {}) or {}
+            raw = header.get("Retry-After")
+            try:
+                retry_after = float(raw) if raw is not None else None
+            except (TypeError, ValueError):
+                retry_after = None
+            raise NpmError(f"{url}: HTTP {response.status_code}",
+                           status=response.status_code, retry_after=retry_after)
         try:
             return response.json()
         except Exception as exc:
