@@ -39,6 +39,14 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# RFC 3161 timestamping. Optional because signing works without it: what you
+# lose is the ability to establish an UPPER bound on signing time, and so the
+# ability to rescue a signature whose algorithm was later disallowed. Kept out
+# of the core dependencies for the same reason the audit extras are -- `qresp
+# sign` must not require anything it does not use.
+transparency = [
+    "rfc3161-client>=0.1",   # same implementation sigstore-python verifies with
+]
 analysis = [
     "pandas>=2.2",
     "matplotlib>=3.9",

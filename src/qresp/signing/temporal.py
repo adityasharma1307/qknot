@@ -129,6 +129,27 @@ class TimeEvidence:
                    bound=Bound.UPPER, reference=reference)
 
     @classmethod
+    def from_timestamp_authority(
+        cls, gen_time: str, reference: dict[str, Any] | None = None
+    ) -> TimeEvidence:
+        """A verified RFC 3161 timestamp fixes an UPPER bound.
+
+        Same direction as a transparency-log entry and for the same reason: the
+        TSA signed over bytes that must therefore have existed when it did so.
+        It is a *different* kind because the two are not interchangeable in
+        every respect -- a log entry is publicly discoverable, a timestamp is
+        evidence the holder must present -- and a reader of an attestation is
+        entitled to know which one they have.
+
+        Only construct this AFTER `transparency.verify_timestamp` has returned.
+        The constructor cannot check the signature, so calling it on an
+        unverified token would mint trusted evidence out of attacker-supplied
+        bytes.
+        """
+        return cls(kind="timestamp-authority", timestamp=gen_time, trusted=True,
+                   bound=Bound.UPPER, reference=reference)
+
+    @classmethod
     def self_asserted(cls, timestamp: str) -> TimeEvidence:
         """What the signer claims. Recorded, never relied on."""
         return cls(kind="self-asserted", timestamp=timestamp, trusted=False,
@@ -399,8 +420,29 @@ def evidence_from_attestation(attestation: Any) -> TimeEvidence | None:
         return (attestation.get(key) if isinstance(attestation, dict)
                 else getattr(attestation, key, None))
 
-    # An inclusion proof, if the caller recorded one, outranks the beacon: it is
-    # the stronger direction.
+    # Upper-bound evidence, if the caller recorded any, outranks the beacon:
+    # it is the stronger direction. `time_evidence` carries a `kind`
+    # discriminator so a reader can tell a timestamp from a log entry; the older
+    # `transparency_log` field is still recognised so bundles written before it
+    # existed keep verifying.
+    #
+    # NOTE: nothing here verifies anything. This function reads what a bundle
+    # CLAIMS. The trusted flag it sets means "this kind of evidence is capable
+    # of being trusted", not "this instance was checked" -- verification happens
+    # in `transparency.verify_timestamp`, against anchors the verifier supplies,
+    # and `verify(time_evidence=...)` is how a checked result gets in. A bundle
+    # that reaches `assess` unverified must not be able to rescue itself.
+    evidence = get("time_evidence") or get("timeEvidence")
+    if isinstance(evidence, dict):
+        kind = evidence.get("kind")
+        stamped = evidence.get("gen_time") or evidence.get("integrated_time")
+        if kind == "rfc3161" and stamped:
+            return TimeEvidence.from_timestamp_authority(
+                str(stamped), reference=evidence)
+        if kind in ("transparency-log", "rekor") and stamped:
+            return TimeEvidence.from_transparency_log(
+                str(stamped), reference=evidence)
+
     log_entry = get("transparency_log") or get("transparencyLog")
     if isinstance(log_entry, dict) and log_entry.get("integrated_time"):
         return TimeEvidence.from_transparency_log(
