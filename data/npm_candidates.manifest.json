@@ -1,0 +1,9 @@
+{
+  "generated": "2026-07-31T00:04:05+0530",
+  "source": "npm registry search API, popularity=1.0",
+  "seeds": 712,
+  "depth": 1000,
+  "total": 50104,
+  "scoped": 19527,
+  "role": "stage 1 candidate pool only; rank_npm.py does the ranking"
+}

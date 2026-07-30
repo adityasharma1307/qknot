@@ -1,0 +1,12 @@
+{
+  "generated": "2026-07-31T00:08:38+0530",
+  "frame_size": 4290079,
+  "frame_sha256": "6b5348e9f2aaab2a1c3cee2fe552cde2a3f4d16487a6082e56146c4adc24b593",
+  "head_size": 7030,
+  "tail_size": 10000,
+  "seed": 20260730,
+  "ranking_file": "data\\npm_ranking_2026-07-30.json",
+  "ranking_size": 7139,
+  "ranking_metric": "npm downloads, last-month (two-stage: candidate pool then measured counts)",
+  "unit_of_analysis": "per-project, any release ever attested"
+}

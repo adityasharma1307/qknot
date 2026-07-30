@@ -1,0 +1,8 @@
+{
+  "generated": "2026-07-31T00:01:06+0530",
+  "source": "npm:all-the-package-names@2.0.2517",
+  "tarball": "https://registry.npmjs.org/all-the-package-names/-/all-the-package-names-2.0.2517.tgz",
+  "total": 4290079,
+  "scoped": 1603659,
+  "note": "Pinned version makes this frame exactly reproducible; replicate.npmjs.com/_all_docs returns HTTP 400 and could not offer that property regardless."
+}

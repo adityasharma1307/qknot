@@ -564,3 +564,57 @@ That leaves two self-consistent designs, and one inconsistent one to avoid:
 Design C is the trap worth naming, because it is what happens by default if the
 bulk endpoint's limitation is worked around without noticing that it applies to
 only one stratum.
+
+
+## npm ranking, first run: a failure worth recording (2026-07-30)
+
+The first execution of `rank_npm.py` measured **7,139 of 50,104 candidates**
+and produced a file that looked like a clean ranking. It was not one.
+
+`api.npmjs.org` rate-limits far more aggressively than `registry.npmjs.org`,
+and began returning HTTP 429 at roughly batch 49 of 239. The script had no
+throttle, no retry, and recorded each failed batch as unmeasured on the first
+error.
+
+**The damage was not the volume lost. It was that the losses correlated with
+sort order.** The candidate pool is alphabetically sorted, so the batches that
+completed before the rate limit engaged were the early-alphabet ones:
+
+| first letter of measured name | count |
+|---|---|
+| c | 2,620 |
+| a | 1,828 |
+| b | 1,601 |
+| everything else | 1,090 |
+
+84% of survivors began with a, b or c. Scoped packages fared worse still: 228
+measured out of 19,527, because each is an individual request and nearly all of
+them fell after the limit engaged.
+
+An incomplete ranking is merely weak. **A ranking whose losses track the sort
+order is worse than a random subsample**, because the bias is invisible in the
+output — the artefact reads as a legitimate top-7,139 and nothing in it says
+"this is the top of the alphabet, not the top of npm." The top-20 confirms it:
+`balanced-match`, `ignore`, `argparse`, `braces`, `cookie` — plausible-looking,
+but with `semver`, `debug`, `chalk`, `tslib` and every `@types/*` absent.
+
+### Fixes
+
+1. **`single_downloads` now raises instead of returning `None`.** Swallowing
+   `NpmError` made a throttled request indistinguishable from a package with no
+   download data — the absent-versus-unchecked distinction, violated inside the
+   client itself.
+2. **Throttle** to a fixed shared rate (default 4 req/s) rather than firing as
+   fast as the pool allows.
+3. **Retry with exponential backoff**, so a 429 delays a batch rather than
+   destroying it.
+4. **Persist partial counts after every batch**, so a run resumes.
+5. **Abort rather than write** when the measured fraction falls below 80%. The
+   previous run's most dangerous property was that it produced a usable-looking
+   file; the collector now refuses to.
+
+The scan itself (`run_npm_audit.py`) behaved correctly throughout — 17,030
+packages at 15–20/s, 134 recorded as `error` rather than `unsigned`. Only the
+head stratum's *membership* was wrong, and it must be re-derived and re-scanned
+into a fresh output file, because head/tail labels were assigned from the
+broken ranking.

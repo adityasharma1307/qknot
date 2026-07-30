@@ -80,3 +80,15 @@ notebooks/cli.keys.json
 # citation record does not need the bytes -- it needs stable identifiers.
 # Superseded by references.bib with DOIs, which makes these redundant.
 docs/sources/
+
+# npm collection payloads only. These are large and EXACTLY re-derivable --
+# the frame is 4.29M names from a pinned all-the-package-names version, the
+# candidate pool from a recorded seed set, the ranking from the candidates.
+# The .manifest.json files beside them ARE the reproducibility record and stay
+# tracked. The HuggingFace and entropy datasets remain tracked as before: they
+# are small, and unlike these they cannot be regenerated on demand.
+data/npm_frame_*.txt
+data/npm_candidates.txt
+data/npm_ranking_*.json
+data/npm_*.jsonl
+data/npm_ranking_*.partial.json

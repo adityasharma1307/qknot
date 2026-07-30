@@ -182,11 +182,18 @@ class NpmClient:
         return out
 
     def single_downloads(self, name: str) -> int | None:
-        """Last-month downloads for one package. The only route for scoped names."""
-        try:
-            data = self._get(f"{_API}/downloads/point/last-month/{quote(name, safe='@/')}")
-        except NpmError:
-            return None
+        """Last-month downloads for one package. The only route for scoped names.
+
+        RAISES on failure rather than returning None. An earlier version
+        swallowed `NpmError` here and returned None, which silently converted
+        every rate-limited request into "no count" -- indistinguishable from a
+        package the API genuinely has no data for. That erased exactly the
+        absent-versus-unchecked distinction the scanners exist to preserve, and
+        it hid a 429 storm that cost 19,299 of 19,527 scoped measurements
+        before anyone noticed. The caller decides whether to retry; the client
+        does not get to decide the failure never happened.
+        """
+        data = self._get(f"{_API}/downloads/point/last-month/{quote(name, safe='@/')}")
         return data.get("downloads") if isinstance(data, dict) else None
 
 

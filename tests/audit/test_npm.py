@@ -213,3 +213,44 @@ class TestCrossEcosystemComparability:
         """Per-project, any version ever attested."""
         assert PackageVersions("p", 100, ["0.0.1"]).has_attestation
         assert not PackageVersions("p", 100, []).has_attestation
+
+
+class TestRateLimitFailuresAreNotSilentZeroes:
+    """The 429 storm that cost 86% of the first ranking run.
+
+    api.npmjs.org rate-limits far more aggressively than the registry. The
+    original client swallowed the resulting `NpmError` and returned None, which
+    made a throttled request indistinguishable from a package with no download
+    data -- and because the candidate pool is sorted, the losses tracked the
+    alphabet rather than anything about the packages.
+    """
+
+    class _Throttled:
+        status_code = 429
+
+        def json(self) -> dict[str, Any]:
+            return {}
+
+    class _Session:
+        def __init__(self, response: Any) -> None:
+            self._response = response
+            self.calls = 0
+
+        def get(self, *_args: Any, **_kwargs: Any) -> Any:
+            self.calls += 1
+            return self._response
+
+    def test_single_downloads_raises_on_429_rather_than_returning_none(self):
+        client = NpmClient(session=self._Session(self._Throttled()))
+        with pytest.raises(NpmError, match="429"):
+            client.single_downloads("@babel/core")
+
+    def test_bulk_downloads_raises_on_429_rather_than_reporting_no_counts(self):
+        client = NpmClient(session=self._Session(self._Throttled()))
+        with pytest.raises(NpmError, match="429"):
+            client.bulk_downloads(["express", "lodash"])
+
+    def test_the_docstring_records_why_swallowing_was_wrong(self):
+        """So the next person does not re-add the except clause."""
+        text = NpmClient.single_downloads.__doc__ or ""
+        assert "absent-versus-unchecked" in text
