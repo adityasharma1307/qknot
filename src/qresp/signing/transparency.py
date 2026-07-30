@@ -43,11 +43,15 @@ the bundle in hand.
 OFFLINE BY CONSTRUCTION
 =======================
 Obtaining a timestamp needs the network exactly once, at signing time.
-Verification never does: `verify_timestamp` takes trust anchors as an argument
-and performs no I/O. A verifier that must reach a server to decide whether a
-signature is valid has made availability a precondition of integrity, which is
-the wrong trade for an air-gapped release pipeline -- and would make this
-project's own offline verification claim false.
+Verification never does: `verify_timestamp` takes its trust input as an
+argument and performs no I/O. Note that what it enforces is *pinning of the
+TSA certificate*, not PKI path validation -- see that function's docstring,
+which records what was measured rather than what the API name suggests.
+
+A verifier that must reach a server to decide whether a signature is valid has
+made availability a precondition of integrity, which is the wrong trade for an
+air-gapped release pipeline -- and would make this project's own offline
+verification claim false.
 """
 from __future__ import annotations
 
@@ -70,19 +74,6 @@ __all__ = [
 
 
 # Two operators, deliberately. See `establish_time`.
-#
-# NOT every public TSA is usable, and the reason is worth knowing before
-# swapping one in. A response must survive a *strict DER* parse.
-# `timestamp.digicert.com` does not: its CMS `SignedData::certificates` SET is
-# not sorted in DER order, and since RFC 5652 types that field as a `SET OF`
-# -- whose elements DER requires to be sorted by encoding -- `rfc3161-client`
-# rejects the whole response with `InvalidSetOrdering`. sigstore-python uses
-# the same parser, so this is not peculiar to this project.
-#
-# The response is NOT to relax the parser. Accepting non-canonical DER in a
-# verification path is how signature-malleability bugs start: if two distinct
-# byte strings are both accepted as the same structure, an attacker gains a
-# degree of freedom in something meant to be exactly comparable.
 #
 # MEASURED, not chosen from documentation. Probed 2026-07-30 against eight
 # public authorities (scripts/verify/probe_tsa.py):
@@ -306,10 +297,34 @@ def verify_timestamp(
 ) -> datetime:
     """Verify a timestamp offline and return the time it establishes.
 
-    Performs no I/O. Trust anchors are arguments, so a verifier decides for
-    itself whom it trusts rather than inheriting whatever the bundle asserts --
-    a bundle that carried its own root certificate would be self-certifying, and
-    an attacker who can add a timestamp can add a root to go with it.
+    Performs no I/O. The trust decision is an argument, so a verifier decides
+    for itself whom it trusts rather than inheriting whatever the bundle
+    asserts.
+
+    WHAT IS ACTUALLY ENFORCED -- MEASURED, NOT ASSUMED
+    ==================================================
+    `tsa_certificate` is the security boundary. `rfc3161-client` requires the
+    certificate embedded in the response to equal the one supplied here, and
+    verifies the token's signature under that certificate's key over
+    `message`. Pass a different leaf and verification fails.
+
+    **`roots` and `intermediates` are NOT path-validated.** Verified against
+    real tokens on 2026-07-30: a SwissSign response verified while an SSL.com
+    CA was supplied as its root, with and without the correct intermediates.
+    The library accepts the arguments and does not build a chain to them.
+
+    So the property obtained is *certificate pinning*, not PKI path
+    validation: "this token was signed by the key in exactly this certificate,
+    over exactly these bytes". That is a sound basis for time evidence -- and
+    for a fixed set of known authorities it is arguably the more predictable
+    one, since it does not inherit the ambient trust store -- but it is a
+    different claim from the one this docstring previously made, and callers
+    must not assume a chain was checked.
+
+    A caller wanting real path validation must do it separately, with
+    `cryptography.x509.verification`, before trusting the leaf it passes here.
+    `roots`/`intermediates` are still forwarded so behaviour tracks the
+    library if it gains path validation later.
 
     `message` MUST be the bytes the caller independently expects to have been
     timestamped. This is the whole security property: a valid timestamp over
