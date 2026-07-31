@@ -493,3 +493,50 @@ concurrent benchmarking ever matters here, not pursued now.
   not supported in pyca/cryptography 48, but we've started working on it." No
   timeline. The defensive OID fallback therefore stays necessary regardless of
   ML-DSA progress.
+
+## Related work: Atlas (Spoczynski et al., Intel Labs, arXiv:2502.19567v2)
+
+The closest prior system, and the one a reviewer will reach for first. Read in
+full; the differentiation below is from the text, not from the abstract.
+
+**What Atlas does.** A Rust library and CLI capturing artifact measurements,
+**Intel TDX attestations** and digital signatures in **C2PA** format, with a
+sidecar collector hooking PyTorch to record training events, committing to a
+transparency log. It **extends Sigstore's Rekor** to accept C2PA-based model
+transformation attestations. The contribution is end-to-end lineage across the
+ML lifecycle, with metadata integrity rooted in trusted hardware.
+
+**The axes are orthogonal, and this is the sentence for the paper:** Atlas
+establishes *what happened* across a pipeline and attests it with hardware;
+QResP establishes *that the attestation will still verify* once its signature
+algorithm is deprecated. Atlas is about breadth of coverage; this work is about
+durability of the evidence. Neither substitutes for the other.
+
+**Measured, not asserted.** Searched the full text: `post-quantum`, `quantum`,
+`ML-DSA`, `Dilithium`, `PQC`, `algorithm agility`, `crypto-agility`,
+`deprecat*`, `expir*`, `rotation` — **zero occurrences of any of them.** Atlas
+does not engage algorithm lifetime at all.
+
+**Two specific interactions, stronger than generic differentiation:**
+
+1. **Atlas extends Rekor, and Rekor is where this project found the structural
+   gap.** Rekor v2 supports only `hashedrekord`, which requires an externalised
+   prehash; ML-DSA has no defined prehash. Atlas's own transparency substrate
+   therefore has no post-quantum path today — a limitation it inherits rather
+   than one it introduces, and one it does not discuss because algorithm
+   lifetime is outside its scope. That is a concrete, citable relationship
+   between the two systems.
+
+2. **Atlas's threat model explicitly trusts the transparency and verification
+   services** ("model users, transparency and verification services are trusted
+   in Atlas"), placing MLaaS providers, hubs and artefact producers outside the
+   trust boundary. QResP's temporal work operates precisely on what remains
+   provable when time evidence must itself be evaluated — bound direction as a
+   typed property. Different trust boundary, so different mechanism.
+
+**One claim to verify before submission:** Intel TDX/SGX DCAP attestation quotes
+are signed with ECDSA P-256, which would make Atlas's hardware root of trust
+quantum-vulnerable on the same timeline as the signatures above it. This is
+well established but is **not stated in the Atlas paper**, so cite the Intel
+DCAP specification directly rather than inferring it, and phrase it as an
+observation about the attestation ecosystem rather than a criticism of Atlas.

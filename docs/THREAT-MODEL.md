@@ -380,11 +380,25 @@ polynomials, which is precisely why this repository's own measurement separates
 two keys — not two messages — at 10 traces per key
 (`scripts/verify/measure_timing_leak.py`).
 
-Bronchain et al. (TCHES 2024) demonstrate belief-propagation attacks recovering
-secret-key bits from exactly this class of leakage, exploiting bias on
-secret-dependent target polynomials across **both accepted and rejected**
-signing attempts. An attacker distinguishing keys, or accumulating bias over
-many attempts, is not blocked by message-independence.
+Bronchain et al., *Exploiting Small-Norm Polynomial Multiplication with Physical
+Attacks* (ePrint 2023/1545, TCHES 2024), recover key polynomials by inserting or
+observing bias in the posterior distribution of sensitive variables and
+processing it with belief propagation. **Checked against the paper rather than
+against a summary of it**, because the two regimes it reports are very
+different and the difference matters:
+
+* **With accepted signatures** (§4): ≈ **4 traces** to recover a key polynomial
+  for Dilithium Level-2 at SNR = 100.
+* **Without accepted signatures** (§5): ≈ **6 × 10⁵ traces**, and — the part
+  worth being precise about — it assumes *the index of the rejected coefficient
+  leaks*, for instance through an early-abort strategy. That is a stronger
+  leakage assumption than iteration count alone.
+
+So the honest form of the objection is not "timing variance breaks ML-DSA". It
+is that iteration count is **secret-dependent**, that published attacks convert
+secret-dependent leakage in this primitive into key recovery at low trace
+counts once signatures are observed, and that a CoV figure cannot tell you
+which regime an implementation is in.
 
 In fairness, Shaw's own Limitations section states this correctly — "CoV is not
 a constant-time proof… cannot distinguish variation caused by secret-dependent
