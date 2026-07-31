@@ -143,14 +143,17 @@ def with_retry(call, throttle: Throttle, describe: str,
             if attempt == attempts:
                 raise
             pause = exc.retry_after if exc.retry_after else delay
+            # No sleep here. penalise() pushes the SHARED next-allowed time
+            # forward, and this thread's next throttle.wait() already blocks
+            # until then. Sleeping as well waited out the same penalty twice,
+            # which with six workers and a delay escalating to 120s is what
+            # made the run appear to stall.
             throttle.penalise(pause)
-            time.sleep(min(pause, 60.0))
             delay = min(delay * 2, 120.0)
         except Exception:
             if attempt == attempts:
                 raise
             throttle.penalise(delay)
-            time.sleep(delay)
             delay = min(delay * 2, 120.0)
         else:
             throttle.relax()
@@ -250,14 +253,24 @@ def main(argv: list[str] | None = None) -> int:
 
     scoped_started = time.time()
     if todo_scoped:
+        from concurrent.futures import as_completed
+
+        last_beat = time.time()
         with ThreadPoolExecutor(max_workers=args.workers) as pool:
-            for index, (name, value) in enumerate(
-                    pool.map(measure, todo_scoped), start=1):
+            futures = [pool.submit(measure, n) for n in todo_scoped]
+            # as_completed, not map: map yields IN SUBMISSION ORDER, so one
+            # package stuck in backoff hid the progress of every package that
+            # had already finished behind it. The run looked stopped when it
+            # was working.
+            for index, future in enumerate(as_completed(futures), start=1):
+                name, value = future.result()
                 if isinstance(value, int):
                     counts[name] = value
                 else:
                     failed.append(name)
-                if index % 500 == 0 or index == len(todo_scoped):
+                beat = time.time() - last_beat > 30
+                if index % 100 == 0 or index == len(todo_scoped) or beat:
+                    last_beat = time.time()
                     partial_path.write_text(json.dumps(counts), encoding="utf-8")
                     elapsed = max(time.time() - scoped_started, 1e-9)
                     eta = (len(todo_scoped) - index) / (index / elapsed) / 60

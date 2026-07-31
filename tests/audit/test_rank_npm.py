@@ -107,3 +107,45 @@ class TestBackoffIsGlobalNotPerThread:
         for _ in range(10_000):
             t.relax()
         assert t.rate <= 4.0 + 1e-9
+
+
+class TestAPenaltyIsWaitedOutOnce:
+    """The stall: penalise() pauses everyone, so sleeping again doubles it.
+
+    `throttle.penalise(p)` pushes the SHARED next-allowed time forward by `p`,
+    and the retrying thread's next `throttle.wait()` already blocks until then.
+    An additional `time.sleep(p)` in the retry loop waited out the same penalty
+    a second time. With six workers and a delay escalating to 120s, the run
+    produced no output for long enough to look hung.
+    """
+
+    def test_the_retry_loop_does_not_sleep_on_its_own(self, monkeypatch):
+        slept: list[float] = []
+        monkeypatch.setattr(rank_npm.time, "sleep", lambda s: slept.append(s))
+        throttle = rank_npm.Throttle(per_second=1000.0)
+        state = {"n": 0}
+
+        def call():
+            state["n"] += 1
+            if state["n"] < 3:
+                raise NpmError("HTTP 429", status=429)
+            return "ok"
+
+        assert rank_npm.with_retry(call, throttle, "x") == "ok"
+        # Whatever sleeping happens must come from Throttle.wait honouring the
+        # shared schedule, never from the retry loop adding its own delay.
+        assert all(s < 1.0 for s in slept), (
+            f"retry loop slept independently of the throttle: {slept}")
+
+    def test_the_penalty_still_reaches_the_shared_schedule(self):
+        """Removing the sleep must not remove the backoff."""
+        throttle = rank_npm.Throttle(per_second=1000.0)
+        before = throttle.rate
+
+        def call():
+            raise NpmError("HTTP 429", status=429)
+
+        with pytest.raises(NpmError):
+            rank_npm.with_retry(call, throttle, "x", attempts=2)
+        assert throttle.penalties >= 1
+        assert throttle.rate < before
