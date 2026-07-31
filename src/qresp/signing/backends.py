@@ -426,6 +426,65 @@ def get_backend(algorithm: str, deterministic: bool = False) -> SignatureBackend
     )
 
 
+def _assert_conforms(name: str, backend: Any) -> None:
+    """Check a backend really satisfies SignatureBackend, at registration time.
+
+    `Protocol` without `@runtime_checkable` is a static-analysis construct: it
+    binds nothing at runtime, and `get_backend` returned whatever the registry
+    held. Even `@runtime_checkable` would only check that method NAMES exist --
+    `isinstance` against a Protocol deliberately ignores signatures -- so a
+    backend whose `sign` grew a required argument would still pass and fail
+    later, at the call site, in whatever context first used it.
+
+    That is the expensive kind of failure: a second implementation of an
+    interface is exactly where drift appears, and this project is about to add
+    one. So the shape is checked explicitly and eagerly, and a mismatch is an
+    import-time error naming the offending member.
+    """
+    import inspect
+
+    cls = type(backend)
+    # Attributes are read from the INSTANCE: MlDsaBackend sets `algorithm` in
+    # __init__ because it varies by level, so checking the class would report a
+    # conforming backend as broken.
+    for attribute, expected in (("algorithm", str), ("quantum_resistant", bool),
+                                ("side_channel_resistant", bool),
+                                ("signature_size", int)):
+        if not hasattr(backend, attribute):
+            raise RuntimeError(
+                f"backend {name!r} ({cls.__name__}) is missing the required "
+                f"attribute {attribute!r} of SignatureBackend"
+            )
+        value = getattr(backend, attribute)
+        if not isinstance(value, expected):
+            raise RuntimeError(
+                f"backend {name!r} declares {attribute}={value!r}; "
+                f"SignatureBackend requires {expected.__name__}"
+            )
+
+    for method, params in (("keygen", ["seed"]),
+                           ("sign", ["secret_key", "message"]),
+                           ("verify", ["public_key", "message", "signature"]),
+                           ("describe", [])):
+        function = getattr(cls, method, None)
+        if function is None or not callable(function):
+            raise RuntimeError(
+                f"backend {name!r} ({cls.__name__}) does not implement "
+                f"{method}(), required by SignatureBackend"
+            )
+        actual = [p for p in inspect.signature(function).parameters
+                  if p not in ("self", "cls")]
+        # Positional names must match in order. A backend free to rename
+        # `message` to `data` would break every keyword call site, and the
+        # protocol is the thing that is supposed to make callers portable.
+        if actual[:len(params)] != params:
+            raise RuntimeError(
+                f"backend {name!r} ({cls.__name__}).{method} takes {actual!r}; "
+                f"SignatureBackend requires {params!r} first. Signature drift "
+                f"between backends is what this check exists to catch."
+            )
+
+
 def _assert_registry_agrees() -> None:
     """Fail loudly at import if a backend and the registry disagree.
 
@@ -435,7 +494,11 @@ def _assert_registry_agrees() -> None:
     the registry has never heard of. A mismatch here would make the two answers
     diverge silently at the point where it matters most.
     """
-    for name in _BACKENDS:
+    for name, factory in _BACKENDS.items():
+        # The registry holds factories, not classes, so conformance is checked
+        # against a real instance -- which is the thing get_backend hands out,
+        # and therefore the thing that has to satisfy the protocol.
+        _assert_conforms(name, factory(deterministic=False))
         spec = REGISTRY.get(name)
         if spec is None:
             raise RuntimeError(
