@@ -318,42 +318,188 @@ class MlDsaBackend:
 
 
 class LibOqsBackend:
-    """ML-DSA via liboqs. NOT IMPLEMENTED -- documented contract.
+    """ML-DSA via liboqs, through the `oqs` bindings.
 
-    The production path. liboqs' ML-DSA is written in C with constant-time
-    discipline, so it is the backend an online signing service needs.
+    The production path: liboqs' ML-DSA is C with constant-time discipline, and
+    it is roughly 330x faster than the pure-Python backend -- 0.046 ms against
+    15.2 ms for ML-DSA-44 -- which is what makes an online signing service
+    practical at all.
 
-    An implementation MUST:
-      * set `side_channel_resistant = True` only after confirming the liboqs
+    STATUS IS `UNKNOWN`, DELIBERATELY, AND MEASUREMENT DOES NOT CHANGE IT
+    ====================================================================
+    liboqs exposes no constant-time or build-configuration flag at runtime. Its
+    entire per-mechanism surface is `name`, `version`, `claimed_nist_level`,
+    `is_ind_cca` and the key and signature lengths -- probed, not assumed. So a
+    build's discipline cannot be established from inside this process.
+
+    A black-box timing measurement of this backend found no separation at 5,000
+    samples per key and 3,200 traces, while the same harness separates
+    dilithium-py from 10 traces (docs/TASK-D.md). That bounds a leak; it does
+    not prove the absence of one, and it is not a constant-time analysis. The
+    status therefore stays `UNKNOWN` and `check_exposure` keeps refusing online
+    use until a deployer supplies `SideChannelEvidence` from dudect, ctgrind or
+    Binsec/Rel against their specific build.
+
+    Our own favourable measurement is exactly the evidence it would be tempting
+    to promote to a guarantee, which is the reason the three states exist.
+    """
+
+    quantum_resistant = True
+    side_channel_resistant = False
     # UNKNOWN, and this is the honest default rather than a placeholder:
     # liboqs exposes NO constant-time or build-configuration flag at
     # runtime, so a build's discipline cannot be checked from here.
     side_channel_status = SideChannelStatus.UNKNOWN
-        build was compiled with its constant-time options and not with
-        optimisations that reintroduce data-dependent branches;
-      * record the liboqs version and build flags in `describe()`, since the
-        resistance claim is a property of the build, not of the API;
-      * pass the same FIPS 204 KATs as the pure-Python backend, so that
-        swapping backends cannot silently change signature semantics.
 
-    Note the class attribute below is False, not True. The dangerous default is
-    the permissive one: whoever fills in `__init__` inherits whatever is written
-    here, and a forgotten line would ship an unproven constant-time claim into
-    an ONLINE exposure -- exactly the failure `check_exposure` exists to stop.
-    Claiming resistance must be a deliberate edit, made after the verification
-    above, not something acquired by default.
-    """
+    #: qresp's lowercase names to liboqs' mechanism names.
+    _MECHANISMS = {"ml-dsa-44": "ML-DSA-44",
+                   "ml-dsa-65": "ML-DSA-65",
+                   "ml-dsa-87": "ML-DSA-87"}
 
-    algorithm = "ml-dsa-87"
-    quantum_resistant = True
-    side_channel_resistant = False
-    signature_size = 4627
+    def __init__(self, level: str = "ml-dsa-87", deterministic: bool = False):
+        level = level.lower()
+        if level not in self._MECHANISMS:
+            raise ValueError(
+                f"unknown ML-DSA level {level!r}; expected one of "
+                f"{sorted(self._MECHANISMS)}"
+            )
+        if deterministic:
+            # liboqs signs in FIPS 204 hedged mode and exposes no switch. The
+            # pure-Python backend accepts `deterministic` and honours it, so
+            # accepting it here and ignoring it would make two backends differ
+            # in behaviour while agreeing in signature -- the precise drift
+            # _assert_conforms exists to catch, arriving through a parameter
+            # value rather than a parameter name.
+            raise ValueError(
+                "liboqs signs in hedged mode only and exposes no deterministic "
+                "switch. Use the dilithium-py backend when byte-reproducible "
+                "signatures are the point, or drop deterministic=True."
+            )
 
-    def __init__(self, level: str = "ml-dsa-87") -> None:
-        raise NotImplementedError(
-            "LibOqsBackend is a documented contract, not an implementation. "
-            "See the class docstring for what an implementation must establish."
-        )
+        self.algorithm = level
+        self.deterministic = False
+        self.signature_size = ML_DSA_SIGNATURE_SIZES[level]
+        self.mechanism = self._MECHANISMS[level]
+        self._oqs = self._load()
+
+        enabled = self._oqs.get_enabled_sig_mechanisms()
+        if self.mechanism not in enabled:
+            raise BackendUnsuitable(
+                f"this liboqs build does not enable {self.mechanism}. Enabled "
+                f"ML-DSA mechanisms: "
+                f"{[m for m in enabled if 'ML-DSA' in m] or 'none'}. A build "
+                f"compiled without it cannot sign, and falling back silently "
+                f"would change the algorithm out from under the caller."
+            )
+
+    #: Cached across instances: see _load for why this is not an optimisation.
+    _module: Any = None
+    _load_error: str | None = None
+
+    @classmethod
+    def _load(cls) -> Any:
+        """Import `oqs` once, and survive the two ways it misbehaves.
+
+        `import oqs` CALLS sys.exit() when its build fails. SystemExit derives
+        from BaseException, not Exception, so an ordinary `except Exception`
+        does not catch it and the import terminates the host process -- a
+        signing service would die at startup because an OPTIONAL dependency
+        could not compile. Caught explicitly here.
+
+        It also downloads and compiles liboqs from source on first import,
+        which takes minutes. So the outcome is cached, including the failure:
+        without that, every construction re-runs the build, and a test suite
+        that touches this class a dozen times hangs rather than skipping.
+
+        Worth stating in the paper: the post-quantum library one would adopt to
+        strengthen supply-chain integrity fetches and builds its own C core at
+        import time, with no signature verification over what it downloaded,
+        and exits the process if that fails.
+        """
+        if cls._module is not None:
+            return cls._module
+        if cls._load_error is not None:
+            raise ImportError(cls._load_error)
+
+        try:
+            import oqs
+        except KeyboardInterrupt:
+            raise
+        except BaseException as exc:      # noqa: BLE001 -- SystemExit included
+            cls._load_error = (
+                f"liboqs is unavailable: {type(exc).__name__}: {exc}\n\n"
+                f"Install with `pip install liboqs-python`, which compiles "
+                f"liboqs from source and needs cmake, a C toolchain and "
+                f"OpenSSL headers. Note that it downloads and builds that "
+                f"source WITHOUT verifying a signature over it, and calls "
+                f"sys.exit() if the build fails.\n\n"
+                f"qresp does not need liboqs: get_backend() returns the "
+                f"pure-Python backend by default, which is suitable for "
+                f"offline release signing."
+            )
+            raise ImportError(cls._load_error) from None
+
+        cls._module = oqs
+        return oqs
+
+    def keygen(self, seed: bytes | None = None) -> tuple[bytes, bytes]:
+        """Generate a key pair. A seed is REFUSED rather than ignored.
+
+        The pure-Python backend derives a key deterministically from a seed so
+        that attested entropy actually reaches the key. liboqs' API generates
+        internally and offers no seeded path, so honouring the parameter is
+        impossible -- and ignoring it would produce a key unrelated to the
+        entropy the bundle attests to, which is worse than having no
+        attestation at all. It is the same failure as recording a signature
+        algorithm nobody parsed.
+        """
+        if seed is not None:
+            raise ValueError(
+                "liboqs generates keys internally and exposes no seeded "
+                "keygen, so the attested entropy cannot reach the key. Use "
+                "the dilithium-py backend when the entropy attestation must "
+                "bind to the key material; silently ignoring the seed would "
+                "make the attestation describe bytes that were never used."
+            )
+        signer = self._oqs.Signature(self.mechanism)
+        public_key: bytes = signer.generate_keypair()
+        secret_key: bytes = signer.export_secret_key()
+        return public_key, secret_key
+
+    def sign(self, secret_key: bytes, message: bytes) -> bytes:
+        with self._oqs.Signature(self.mechanism, secret_key) as signer:
+            signature: bytes = signer.sign(message)
+        return signature
+
+    def verify(self, public_key: bytes, message: bytes, signature: bytes) -> bool:
+        try:
+            with self._oqs.Signature(self.mechanism) as verifier:
+                return bool(verifier.verify(message, signature, public_key))
+        except Exception:
+            # A malformed signature is a failed verification, not a crash.
+            return False
+
+    def describe(self) -> dict[str, object]:
+        """What produced a signature, including what could NOT be established."""
+        with self._oqs.Signature(self.mechanism) as signer:
+            details = dict(signer.details)
+        return {
+            "algorithm": self.algorithm,
+            "implementation": f"liboqs {self._oqs.oqs_version()} "
+                              f"via liboqs-python {self._oqs.oqs_python_version()}",
+            "mechanism": self.mechanism,
+            "mechanismVersion": details.get("version"),
+            "claimedNistLevel": details.get("claimed_nist_level"),
+            "quantumResistant": self.quantum_resistant,
+            "sideChannelStatus": self.side_channel_status.value,
+            "sideChannelBasis": (
+                "liboqs exposes no constant-time or build-configuration flag at "
+                "runtime, so this build's discipline cannot be established from "
+                "within the process. See docs/TASK-D.md."
+            ),
+            "deterministic": False,
+            "signatureSize": self.signature_size,
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -470,7 +616,8 @@ _BACKENDS: dict[str, Any] = {
 DEFAULT_SUITE = ["ed25519", "ml-dsa-87"]
 
 
-def get_backend(algorithm: str, deterministic: bool = False) -> SignatureBackend:
+def get_backend(algorithm: str, deterministic: bool = False,
+                implementation: str | None = None) -> SignatureBackend:
     """Instantiate the backend for an algorithm.
 
     `deterministic` is accepted by every backend and meaningful only for ML-DSA;
@@ -484,6 +631,21 @@ def get_backend(algorithm: str, deterministic: bool = False) -> SignatureBackend
     unimplemented here.
     """
     algorithm = algorithm.lower()
+
+    if implementation is not None:
+        # Opt-in only. Installing liboqs must not silently change which
+        # implementation signs: a caller who never asked for it would get a
+        # different backend, a different side-channel status and no seeded
+        # keygen, none of which is visible at the call site.
+        if implementation == "liboqs":
+            return LibOqsBackend(algorithm, deterministic=deterministic)
+        if implementation in ("dilithium-py", "pure-python"):
+            return MlDsaBackend(algorithm, deterministic=deterministic)
+        raise ValueError(
+            f"unknown implementation {implementation!r}; "
+            f"expected 'liboqs' or 'dilithium-py'"
+        )
+
     if algorithm in _BACKENDS:
         made: SignatureBackend = _BACKENDS[algorithm](deterministic=deterministic)
         return made

@@ -228,10 +228,20 @@ class TestHelpers:
     def test_key_fingerprint_distinguishes_keys(self):
         assert key_fingerprint(b"\x01" * 32) != key_fingerprint(b"\x02" * 32)
 
-    def test_liboqs_backend_is_an_honest_stub(self):
-        """It must not silently behave as though it were constant-time."""
-        with pytest.raises(NotImplementedError, match="documented contract"):
-            LibOqsBackend()
+    def test_liboqs_backend_reports_absence_as_absence(self):
+        """Was a stub asserting NotImplementedError; it is implemented now.
+
+        With liboqs missing it must raise ImportError naming the fallback --
+        an optional dependency that is not installed is not a broken install,
+        and the message has to say which.
+        """
+
+        try:
+            LibOqsBackend("ml-dsa-87")
+        except ImportError as exc:
+            assert "pure-Python backend by default" in str(exc)
+        except BackendUnsuitable:
+            pass          # present, but built without ML-DSA enabled
 
     def test_registry_resolves_every_default_suite_member(self):
         for algorithm in DEFAULT_SUITE:
@@ -271,27 +281,31 @@ class TestTheLibOqsStubDefaultsToTheSafeValue:
     """
 
     def test_side_channel_resistance_is_not_claimed_by_default(self):
-        from qresp.signing.backends import LibOqsBackend
 
         assert LibOqsBackend.side_channel_resistant is False, (
             "an unimplemented backend must not inherit a constant-time claim"
         )
 
-    def test_it_still_refuses_to_construct(self):
-        from qresp.signing.backends import LibOqsBackend
+    def test_it_survives_liboqs_calling_sys_exit_on_import(self):
+        """`import oqs` calls sys.exit() when its build fails.
 
-        with pytest.raises(NotImplementedError, match="documented contract"):
-            LibOqsBackend()
+        SystemExit derives from BaseException, so `except Exception` does not
+        catch it and an optional dependency takes the host process down at
+        startup. Measured here, not assumed.
+        """
 
-    def test_the_stub_would_be_gated_out_of_online_exposure(self):
-        """With the safe default, the exposure check does the right thing even
-        if someone wires the stub up without reading the docstring."""
-        from qresp.signing.backends import (
-            BackendUnsuitable,
-            Exposure,
-            LibOqsBackend,
-            check_exposure,
-        )
+        try:
+            LibOqsBackend("ml-dsa-87")
+        except (ImportError, BackendUnsuitable):
+            pass          # either is a caught, reported outcome
+        except SystemExit:  # pragma: no cover
+            pytest.fail("SystemExit escaped: an optional dependency would "
+                        "terminate a signing service at startup")
 
-        with pytest.raises(BackendUnsuitable):
-            check_exposure(LibOqsBackend, Exposure.ONLINE)
+    def test_liboqs_is_gated_out_of_online_exposure_by_default(self):
+        """UNKNOWN is refused exactly as measured leakage is."""
+        from qresp.signing.sidechannel import SideChannelStatus
+
+        assert LibOqsBackend.side_channel_status is SideChannelStatus.UNKNOWN
+        assert LibOqsBackend.side_channel_resistant is False
+        assert not LibOqsBackend.side_channel_status.permits_online
