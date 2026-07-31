@@ -159,16 +159,21 @@ def main(argv: list[str] | None = None) -> int:
     print("-" * 72)
     for name, samples in (("key A", a), ("key B", b)):
         ordered = sorted(samples)
-        print(f"  {name}: min {ordered[0]:6.1f} | median "
-              f"{statistics.median(samples):6.1f} | max {ordered[-1]:6.1f} ms")
+        # Significant figures, not fixed decimals: liboqs signs in ~0.046 ms,
+        # which %.1f renders as "0.0". A table of zeroes is not a measurement,
+        # and it was the clock's floor being reported as the implementation's
+        # behaviour that this whole script had to be corrected for once already.
+        print(f"  {name}: min {ordered[0]:>9.4g} | median "
+              f"{statistics.median(samples):>9.4g} | max {ordered[-1]:>9.4g} ms")
     separation = abs(statistics.median(a) - statistics.median(b))
     spread = sorted(a)[-1] / sorted(a)[0]
-    print(f"\n  within-key spread : {spread:.1f}x  (rejection sampling)")
-    print(f"  between-key gap   : {separation:.1f} ms  <- the signal")
+    print(f"\n  within-key spread : {spread:.1f}x  (rejection sampling, plus "
+          f"scheduler noise)")
+    print(f"  between-key gap   : {separation:.4g} ms  <- the signal")
 
     print(f"\n2. Does adding {args.noise_ms:.0f} ms of random delay close it?")
     print("-" * 72)
-    print(f"  noise is ~{args.noise_ms / max(separation, 0.01):.0f}x the signal\n")
+    print(f"  noise is ~{args.noise_ms / max(separation, 1e-6):,.0f}x the signal\n")
     print(f"  {'traces/key':>11}   attacker accuracy (95% Wilson interval)")
     trend = []
     separated = None
