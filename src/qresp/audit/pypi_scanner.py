@@ -27,7 +27,12 @@ from datetime import datetime, timezone
 from typing import Any
 
 from .model import QLabel, SigAlgorithm, classify_algorithm
-from .pypi_client import PyPiClientProtocol, PyPiError, key_algorithm_of_certificate
+from .pypi_client import (
+    PostQuantumCertificate,
+    PyPiClientProtocol,
+    PyPiError,
+    key_algorithm_of_certificate,
+)
 
 __all__ = ["audit_project", "unavailable_project"]
 
@@ -115,6 +120,17 @@ def audit_project(client: PyPiClientProtocol, name: str,
 
     try:
         algorithm, key_size = key_algorithm_of_certificate(certificate)
+    except PostQuantumCertificate as exc:
+        # The result this study exists to detect. Recorded as a CLASSIFICATION,
+        # not as an error: cryptography rejects a post-quantum certificate at
+        # PARSE time, so before this branch existed the first such attestation
+        # in any ecosystem would have been filed alongside corrupt data, and
+        # the headline "we found zero" would have been describing the detector
+        # rather than the ecosystem.
+        record["sig_algorithm"] = exc.algorithm.value
+        record["q_label"] = classify_algorithm(exc.algorithm).value
+        record["notes"] = f"POST-QUANTUM FINDING (oid {exc.oid}): {exc}"
+        return record
     except PyPiError as exc:
         # An unrecognised key type might be a post-quantum one, which would be
         # the single most interesting result this scan could produce. Record it

@@ -28,7 +28,11 @@ from .npm_client import (
     predicate_types,
     provenance_certificate,
 )
-from .pypi_client import PyPiError, key_algorithm_of_certificate
+from .pypi_client import (
+    PostQuantumCertificate,
+    PyPiError,
+    key_algorithm_of_certificate,
+)
 
 __all__ = ["audit_package", "unavailable_package"]
 
@@ -103,6 +107,16 @@ def audit_package(client: NpmClientProtocol, name: str,
 
     try:
         algorithm, key_size = key_algorithm_of_certificate(certificate)
+    except PostQuantumCertificate as exc:
+        # The result this study exists to detect. Recorded as a CLASSIFICATION,
+        # not as an error: filing it under `error` would put the first
+        # post-quantum attestation in any ecosystem in the same bucket as
+        # corrupt data, and the headline "we found zero" would be reporting the
+        # detector rather than the ecosystem.
+        record["sig_algorithm"] = exc.algorithm.value
+        record["q_label"] = classify_algorithm(exc.algorithm).value
+        record["notes"] = f"POST-QUANTUM FINDING (oid {exc.oid}): {exc}"
+        return record
     except PyPiError as exc:
         record["notes"] = f"UNRECOGNISED KEY TYPE -- classify by hand: {exc}"
         return record

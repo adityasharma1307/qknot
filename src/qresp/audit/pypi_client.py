@@ -37,6 +37,7 @@ __all__ = [
     "PyPiClientProtocol",
     "PyPiError",
     "ProjectFiles",
+    "PostQuantumCertificate",
     "key_algorithm_of_certificate",
 ]
 
@@ -130,6 +131,28 @@ class PyPiClient:
         return result
 
 
+class PostQuantumCertificate(PyPiError):  # noqa: N818 -- not an error
+    """A certificate carrying a FIPS 204/205 algorithm OID.
+
+    Deliberately NOT named `...Error`. It travels on the exception channel
+    because that is where the parse failure already was, but it reports a
+    finding: the ruff rule wants a name that would misdescribe it, so the rule
+    is suppressed rather than the name bent to fit.
+
+    Subclasses PyPiError deliberately: every existing handler already catches
+    it, so no scanner can crash on a post-quantum certificate while this is
+    being wired through. But it is a distinct type, so a scanner that wants to
+    record a finding rather than an error can, and the distinction is available
+    from the moment the first one appears rather than after someone notices the
+    error counts moved.
+    """
+
+    def __init__(self, message: str, algorithm: Any, oid: str) -> None:
+        super().__init__(message)
+        self.algorithm = algorithm
+        self.oid = oid
+
+
 def key_algorithm_of_certificate(certificate_b64: str) -> tuple[Any, int | None]:
     """Read the signing algorithm off a Fulcio certificate.
 
@@ -149,13 +172,48 @@ def key_algorithm_of_certificate(certificate_b64: str) -> tuple[Any, int | None]
     from cryptography.hazmat.primitives.asymmetric import ec, ed25519, rsa
 
     from .model import SigAlgorithm
+    from .pqc_oid import postquantum_oid_in
+
+    raw = base64.b64decode(certificate_b64)
 
     try:
-        certificate = x509.load_der_x509_certificate(base64.b64decode(certificate_b64))
+        certificate = x509.load_der_x509_certificate(raw)
     except Exception as exc:
+        # A post-quantum certificate lands HERE, not in the unrecognised-key
+        # branch below. `cryptography` rejects an algorithm OID it does not
+        # implement at LOAD time, so `public_key()` is never reached and the
+        # "this may be post-quantum" message down there is unreachable for the
+        # case it was written for. Reporting this as a plain parse error would
+        # file the one artefact this study exists to detect alongside corrupt
+        # data -- making "we found zero" and "we cannot represent one" the same
+        # number.
+        found = postquantum_oid_in(raw)
+        if found is not None:
+            algorithm, dotted = found
+            raise PostQuantumCertificate(
+                f"POST-QUANTUM KEY DETECTED: this certificate carries the "
+                f"{algorithm.value} algorithm OID ({dotted}) and cryptography "
+                f"cannot parse it. This is a FINDING, not an error. Record it "
+                f"and inspect the certificate by hand.",
+                algorithm=algorithm, oid=dotted,
+            ) from exc
         raise PyPiError(f"certificate does not parse: {exc}") from exc
 
-    public_key = certificate.public_key()
+    try:
+        public_key = certificate.public_key()
+    except Exception as exc:
+        # The other order: parsed, but the key type is unsupported. Same
+        # question asked again, because which of the two paths a given library
+        # version takes is not something to rely on.
+        found = postquantum_oid_in(raw)
+        if found is not None:
+            algorithm, dotted = found
+            raise PostQuantumCertificate(
+                f"POST-QUANTUM KEY DETECTED: {algorithm.value} ({dotted}). "
+                f"This is a FINDING, not an error.",
+                algorithm=algorithm, oid=dotted,
+            ) from exc
+        raise PyPiError(f"public key unreadable: {exc}") from exc
 
     if isinstance(public_key, ec.EllipticCurvePublicKey):
         by_curve = {"secp256r1": SigAlgorithm.ECDSA_P256,
@@ -173,6 +231,14 @@ def key_algorithm_of_certificate(certificate_b64: str) -> tuple[Any, int | None]
     if isinstance(public_key, ed25519.Ed25519PublicKey):
         return SigAlgorithm.ED25519, 256
 
+    found = postquantum_oid_in(raw)
+    if found is not None:
+        algorithm, dotted = found
+        raise PostQuantumCertificate(
+            f"POST-QUANTUM KEY DETECTED: {algorithm.value} ({dotted}), key type "
+            f"{type(public_key).__name__}. This is a FINDING, not an error.",
+            algorithm=algorithm, oid=dotted,
+        )
     raise PyPiError(
         f"unrecognised public key type {type(public_key).__name__}. This may be "
         f"a post-quantum key, which would be a finding rather than an error -- "
