@@ -62,8 +62,22 @@ def load(path: Path) -> dict[str, int]:
             f"A partial written while a run was killed mid-write can be "
             f"truncated; re-run the collector, which resumes."
         ) from None
-    if isinstance(data, dict) and "rows" in data:
-        return {r["project"]: r["download_count"] for r in data["rows"]}
+    # Detect the format by SHAPE, not by key presence. `"rows" in data` looked
+    # like a safe discriminator and is not: `rows` is a real npm package, and
+    # so are `metric`, `generated` and `measured` -- every marker in the
+    # manifest schema is also a name the ranking might contain. A finished
+    # ranking has `rows` as a LIST; a partial is a flat name -> count mapping
+    # in which `rows` maps to an int.
+    #
+    # This only surfaced once the run's alphabetical frontier passed `r`, which
+    # is the worst way for a format bug to arrive: it worked on every earlier
+    # invocation of the same command against the same file.
+    if not isinstance(data, dict):
+        raise SystemExit(f"{path}: expected a JSON object, got {type(data).__name__}")
+
+    rows = data.get("rows")
+    if isinstance(rows, list):
+        return {r["project"]: r["download_count"] for r in rows}
     return {k: v for k, v in data.items() if isinstance(v, int)}
 
 
