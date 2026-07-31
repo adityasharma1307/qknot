@@ -457,17 +457,47 @@ Shaw is a general-purpose library-and-benchmark contribution. There is no
 audit of deployed artefacts in it, which is where this project's empirical
 result lives.
 
-**Cited critically, not only differentiated.** See `docs/THREAT-MODEL.md` —
-§VI-D's "not a side-channel" conclusion about ML-DSA-65's 51.5% CoV sits in
-tension with Bronchain et al. (TCHES 2024), and with this project's own paired
-measurement. Shaw's Limitations section hedges it correctly; the Conclusion
-does not.
+**Cited critically, and the criticism narrowed after reading it.** The paper is
+*more careful than a summary suggests*: immediately before the CoV discussion it
+states CoV is "a necessary, not sufficient, condition for constant-time
+behaviour", and Limitations says plainly that it "cannot distinguish variation
+caused by secret-dependent branching from variation caused by cache effects on
+public data", pointing at dudect and ct-verif. Characterising this as an
+unhedged overclaim would be unfair, and the earlier draft of this entry did.
+
+What remains, and it is narrower and sharper: the section asserts the variation
+is **"Input-independent: The signing key does not influence how many rejection
+iterations are needed."** That is a claim about the *key*, not only the
+message, and it is stronger than the literature supports — ML-DSA's rejection
+check is against the secret polynomials. This project's paired harness
+separates **two keys on identical messages** at 10 traces each; if the
+iteration count were key-independent, that result could not exist. See
+`docs/THREAT-MODEL.md`, which quotes the passage rather than paraphrasing it.
+
+**Corroboration worth citing, not just contesting:** Shaw's environment section
+pins **liboqs 0.15.0** built with `-DOQS_DIST_BUILD=ON`, and reports 4.9%
+throughput degradation at 5,000 concurrent users, "confirming that liboqs
+releases the Python GIL during C-level operations". Independent support for the
+Task D backend choice, and a useful fact if concurrent signing is ever
+benchmarked here.
 
 ### Shaw, *Quantum-Safe Auditor (QSA)* (arXiv:2604.00560, preprint)
 
-Static analysis detecting classical-crypto usage in Python source, reporting
-71.98% precision / 100% recall against a labelled CVE dataset, with a "VQE"
-threat-scoring scheme.
+Full title: *Quantum-Safe Code Auditing: **LLM-Assisted** Static Analysis and
+Quantum-Aware Risk Scoring for Post-Quantum Cryptography Migration* — the
+LLM-assisted element is central and belongs in any characterisation of it.
+
+Three stages: regex detection of 15 classes of quantum-vulnerable primitive,
+LLM-assisted contextual enrichment for usage and severity, then risk scoring
+via a Variational Quantum Eigensolver in Qiskit 2.x with qubit-cost estimates.
+
+**The figures, stated precisely:** 71.98% precision, 100% recall, F1 83.71% —
+on a **stratified sample of 602 labelled instances** drawn from 5,775 findings
+across five libraries (python-rsa, python-ecdsa, python-jose,
+node-jsonwebtoken, Bouncy Castle Java). Not a CVE dataset, and the sample is
+the unit the figures describe, which is worth stating accurately since 100%
+recall on a stratified subsample is a different claim from 100% recall on the
+full corpus.
 
 **Complementary, not competing, and the distinction is the unit of analysis:**
 QSA audits *source code* for crypto that will break; QResP audits *deployed

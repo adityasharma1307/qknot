@@ -368,12 +368,25 @@ this project provides.
 
 ## Coefficient of variation is a screening signal, not an all-clear
 
-Shaw (*quantum-safe*, arXiv, 2026) §VI-D reports a coefficient of variation of
-**51.5%** for ML-DSA-65 signing and concludes it is "not a side-channel",
-reasoning that rejection-sampling iteration count is input-independent and so
-does not depend on the message.
+Shaw (*quantum-safe*, arXiv:2605.17061) reports CoV = **51.5%** and a
+p95/median ratio of 2.4 for ML-DSA-65 signing, under the heading "High CoV Is
+Not a Side-Channel". The argument, quoted rather than paraphrased, is that the
+variation is:
 
-The reasoning is right about the message and does not settle the question. The
+> 1) **Input-independent:** The signing key does not influence how many
+> rejection iterations are needed. […] 3) **Not exploitable:** An attacker who
+> measures signing time learns the number of rejection iterations, which
+> depends only on fresh randomness, not on the key or message.
+
+**Point 1 is the one to engage, and it is stated more strongly than the
+literature supports.** It says the *signing key* does not influence the
+iteration count — not merely that the message does not. ML-DSA rejection
+sampling restarts when the candidate response `z` falls outside bounds, and
+that check is against the secret polynomials: whether a given masking vector
+survives depends on the key. This project measured the consequence directly —
+the paired harness separates **two keys**, on identical messages, from 10
+traces per key (`scripts/verify/measure_timing_leak.py`). If iteration count
+were key-independent, that separation could not exist. The
 iteration count is **secret-dependent even when it is message-independent**:
 whether a candidate signature falls within bounds is a function of the secret
 polynomials, which is precisely why this repository's own measurement separates
