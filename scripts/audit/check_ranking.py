@@ -70,25 +70,50 @@ def main(argv: list[str] | None = None) -> int:
                   "does not actually contain\n            enough popular "
                   "packages -- the failure mode of the search pool.")
 
-    print("\nbellwethers:")
-    missing = []
+    # The frame is sorted, so an in-flight run has an alphabetical frontier.
+    # "Not reached yet" and "reached and missing" are different facts, and
+    # only the second is a problem -- the same absent-versus-unchecked
+    # distinction the scanners draw, applied to progress monitoring.
+    frontier = max(counts, default="")
+
+    print(f"\nbellwethers  (frontier: highest name measured is {frontier!r})")
+    missing, unreached = [], []
     for name in BELLWETHERS:
         if name in order:
-            print(f"   ok      {name:16} rank {order[name]:>7,}  "
+            print(f"   ok        {name:16} rank {order[name]:>7,}  "
                   f"{counts[name]:>15,}")
+        elif name > frontier:
+            unreached.append(name)
+            print(f"   pending   {name:16} sorts after the frontier")
         else:
             missing.append(name)
-            print(f"   ABSENT  {name}")
+            print(f"   MISSING   {name:16} sorts BEFORE the frontier "
+                  f"-- should have been measured")
+
+    if unreached:
+        print(f"\n{len(unreached)} bellwether(s) not yet reached: {unreached}")
 
     if missing:
-        print(f"\n{len(missing)} of {len(BELLWETHERS)} bellwethers absent: "
-              f"{missing}")
+        print(f"\n{len(missing)} bellwether(s) MISSING despite sorting before "
+              f"the frontier: {missing}")
+        print("These should have been measured already. This is not a matter "
+              "of waiting.")
         if args.partial:
-            print("(--partial: run still in flight, so absence is not yet a "
-                  "verdict)")
-            return 0
+            # Still fails: a name the run has passed and does not have is a
+            # real gap whether or not the run is finished.
+            return 1
         print("A ranking of npm that omits these is not measuring npm. Do not "
               "build a head stratum on it.")
+        return 1
+
+    if unreached and args.partial:
+        print("\nHealthy so far: every absence sorts after the frontier, which "
+              "is what a\nsorted frame in progress looks like. Re-check without "
+              "--partial when done.")
+        return 0
+    if unreached:
+        print(f"\nINCOMPLETE: {len(unreached)} bellwether(s) never reached. "
+              f"The run did not finish.")
         return 1
 
     print(f"\nall {len(BELLWETHERS)} bellwethers present and ranked.")
