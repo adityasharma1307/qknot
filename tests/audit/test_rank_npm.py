@@ -163,3 +163,51 @@ class TestAPenaltyIsWaitedOutOnce:
             rank_npm.with_retry(call, throttle, "x", attempts=2)
         assert throttle.penalties >= 1
         assert throttle.rate < before
+
+
+class TestTheThrottleIsAControlLoopNotARatchet:
+    """Observed live: 12 events drove 8 req/s to the floor and it never returned.
+
+    ETA climbed 208 -> 328 -> 403 minutes across three progress lines, which is
+    the signature of a pace that can only fall.
+    """
+
+    def test_recovery_is_additive_and_actually_recovers(self):
+        t = rank_npm.Throttle(per_second=8.0, floor_per_second=1.5)
+        for _ in range(12):
+            t.penalise(0.0)
+        assert t.rate == pytest.approx(1.5, rel=1e-6), "should reach the floor"
+        for _ in range(60):
+            t.relax()
+        assert t.rate > 3.0, (
+            "multiplicative recovery needed ~400 successes per event, which at a "
+            "throttled pace never arrive; a fixed step must recover in bounded time")
+
+    def test_recovery_reaches_the_requested_pace_but_not_past_it(self):
+        t = rank_npm.Throttle(per_second=8.0, floor_per_second=1.5)
+        t.penalise(0.0)
+        for _ in range(1_000):
+            t.relax()
+        assert t.rate == pytest.approx(8.0, rel=1e-6)
+
+    def test_one_congestion_event_seen_by_six_workers_widens_once(self):
+        """Six simultaneous 429s are one push-back, not six.
+
+        Compounding them grew the interval by 1.5^6 -- about 11x -- for what
+        the server experienced as a single event.
+        """
+        t = rank_npm.Throttle(per_second=8.0, floor_per_second=0.1)
+        t.penalise(30.0)
+        once = t.rate
+        for _ in range(5):
+            t.penalise(30.0)
+        assert t.rate == pytest.approx(once, rel=1e-6)
+        assert t.penalties == 6, "still counted, so the log stays honest"
+
+    def test_a_later_independent_event_does_widen_again(self):
+        """Collapsing concurrent reports must not disable backoff entirely."""
+        t = rank_npm.Throttle(per_second=8.0, floor_per_second=0.1)
+        t.penalise(0.0)          # zero-length pause: not still in effect
+        first = t.rate
+        t.penalise(0.0)
+        assert t.rate < first

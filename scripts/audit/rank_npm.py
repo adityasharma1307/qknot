@@ -85,12 +85,13 @@ class Throttle:
     AIMD congestion control, which is what a rate limit calls for.
     """
 
-    def __init__(self, per_second: float, floor_per_second: float = 0.4) -> None:
+    def __init__(self, per_second: float, floor_per_second: float = 1.5) -> None:
         self._base = 1.0 / per_second if per_second > 0 else 0.0
         self._interval = self._base
         self._ceiling = 1.0 / floor_per_second if floor_per_second > 0 else 10.0
         self._lock = threading.Lock()
         self._next = 0.0
+        self._penalty_until = 0.0
         self.penalties = 0
 
     def wait(self) -> None:
@@ -105,16 +106,48 @@ class Throttle:
             time.sleep(delay)
 
     def penalise(self, seconds: float) -> None:
-        """Pause every worker, and widen the interval for all future requests."""
+        """Pause every worker, and widen the interval -- once per congestion event.
+
+        TWO BUGS LIVED HERE, AND TOGETHER THEY RATCHETED THE RUN TO A HALT.
+
+        First: with six workers in flight, a single burst of rate limiting
+        produces six near-simultaneous 429s. Widening on each of them treats one
+        congestion event as six, so the interval grew by 1.5^6 -- about 11x --
+        for what the server experienced as one push-back. Penalties that arrive
+        while the pause they caused is still in effect are therefore counted but
+        NOT compounded; the congestion is already being paid for.
+
+        Second, and worse, is in relax(): recovery was multiplicative and tiny,
+        so the pace could only ever ratchet downwards. Observed live: 12
+        throttle events drove 8 req/s to the 0.4 req/s floor, where it stayed --
+        an ETA of 403 minutes and climbing. Multiplicative decrease needs
+        ADDITIVE increase to be a control loop rather than a one-way valve.
+        """
         with self._lock:
+            now = time.monotonic()
             self.penalties += 1
-            self._next = max(self._next, time.monotonic() + seconds)
-            self._interval = min(self._interval * 1.5, self._ceiling)
+            # Compare against a dedicated penalty deadline, NOT against _next.
+            # `wait()` always leaves _next a little in the future as ordinary
+            # pacing, so testing `now < _next` read every penalty as concurrent
+            # and disabled backoff altogether -- caught by the gate, which is
+            # the first time it has been in a position to catch anything.
+            concurrent = now < self._penalty_until
+            self._penalty_until = max(self._penalty_until, now + seconds)
+            self._next = max(self._next, now + seconds)
+            if not concurrent:
+                self._interval = min(self._interval * 1.5, self._ceiling)
 
     def relax(self) -> None:
-        """Recover slowly after success, so one good reply is not a green light."""
+        """Additive increase: give back a fixed slice of the base interval.
+
+        Was `interval * 0.999`, which after a 1.5x penalty needed roughly 400
+        consecutive successes to undo one event -- and at a throttled pace those
+        successes arrive too slowly to ever catch up. A fixed step recovers in a
+        bounded number of successes regardless of how far the pace has fallen,
+        which is what makes this AIMD rather than a ratchet.
+        """
         with self._lock:
-            self._interval = max(self._base, self._interval * 0.999)
+            self._interval = max(self._base, self._interval - self._base * 0.05)
 
     @property
     def rate(self) -> float:
