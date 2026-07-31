@@ -365,3 +365,41 @@ That is the structural fix for the asymmetry above and it is **explicitly out of
 scope here**, consistent with how this document treats hardware attestation
 elsewhere. It is recorded as future work rather than gestured at as a mitigation
 this project provides.
+
+## Coefficient of variation is a screening signal, not an all-clear
+
+Shaw (*quantum-safe*, arXiv, 2026) §VI-D reports a coefficient of variation of
+**51.5%** for ML-DSA-65 signing and concludes it is "not a side-channel",
+reasoning that rejection-sampling iteration count is input-independent and so
+does not depend on the message.
+
+The reasoning is right about the message and does not settle the question. The
+iteration count is **secret-dependent even when it is message-independent**:
+whether a candidate signature falls within bounds is a function of the secret
+polynomials, which is precisely why this repository's own measurement separates
+two keys — not two messages — at 10 traces per key
+(`scripts/verify/measure_timing_leak.py`).
+
+Bronchain et al. (TCHES 2024) demonstrate belief-propagation attacks recovering
+secret-key bits from exactly this class of leakage, exploiting bias on
+secret-dependent target polynomials across **both accepted and rejected**
+signing attempts. An attacker distinguishing keys, or accumulating bias over
+many attempts, is not blocked by message-independence.
+
+In fairness, Shaw's own Limitations section states this correctly — "CoV is not
+a constant-time proof… cannot distinguish variation caused by secret-dependent
+branching from variation caused by cache effects." It is the Conclusion's flat
+framing that outruns it.
+
+**The position this project takes**, which is sharper than either source alone:
+
+> Coefficient of variation is a useful production-level screening signal — a
+> high CoV is grounds for suspicion and a low one is weak reassurance — but the
+> published attack literature shows rejection-sampling timing variance in
+> ML-DSA is not unconditionally safe to dismiss. Neither a CoV figure nor a
+> black-box null result is a constant-time analysis.
+
+This is the same distinction the backend tri-state encodes: our own liboqs null
+at 5,000 samples does not make it `ASSERTED` either. A measurement that fails to
+find a leak and an analysis that establishes there is none are different
+claims, and only the second licenses an online exposure.

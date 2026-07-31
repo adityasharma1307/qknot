@@ -43,6 +43,42 @@ def _openssl_version() -> str | None:
         return None
 
 
+def _describe(keys: bool, issuable: bool, slh_dsa: bool) -> str:
+    """Generated from what was measured, never asserted as prose.
+
+    The first version hardcoded "certificate issuance is FALSE even where keys
+    work". That was true on cryptography 48.0.0 and FALSE on 49.0.0, measured
+    the same day on two machines -- so a fixed sentence in the output was
+    contradicting the numbers beside it. Third instance in this file's short
+    history of a claim being written rather than measured.
+    """
+    parts = [
+        "Probed functionally -- keys are generated and signed with, not merely "
+        "imported, because a module can be present and non-functional when the "
+        "linked OpenSSL lacks the primitive."
+    ]
+    if keys and issuable:
+        parts.append(
+            "This build can both use ML-DSA keys and issue ML-DSA "
+            "certificates, so a post-quantum certificate is classifiable "
+            "through the structured path.")
+    elif keys:
+        parts.append(
+            "ML-DSA keys work but CertificateBuilder refuses them, so no "
+            "Python here can mint a post-quantum certificate to test against; "
+            "fixtures must splice an algorithm OID instead.")
+    else:
+        parts.append(
+            "ML-DSA is unusable in this build, so nothing post-quantum can be "
+            "classified through the structured path at all.")
+    if not slh_dsa:
+        parts.append(
+            "SLH-DSA (FIPS 205) is absent: a FIPS 205 signature would reach "
+            "the structured parser and fail. Only the OID fallback in "
+            "audit/pqc_oid.py records it, as a finding rather than an error.")
+    return " ".join(parts)
+
+
 def _mldsa_module() -> Any:
     """The module is `mldsa`, NOT `ml_dsa`. That mistake cost a false negative.
 
@@ -132,17 +168,7 @@ def pqc_parsing_capability() -> dict[str, Any]:
         "slhDsaAvailable": slh_dsa,
         "opensslIsAtLeast350": openssl_350,
         "oidFallbackActive": True,
-        "note": (
-            "mlDsaKeysUsable is probed by generating and signing, not by "
-            "importing: a module can be present and non-functional when the "
-            "linked OpenSSL lacks the primitive. mlDsaCertificatesIssuable is "
-            "reported separately because it is FALSE even where keys work -- "
-            "CertificateBuilder refuses non-classical public keys -- so no "
-            "Python here can mint a post-quantum certificate to test against. "
-            "slhDsaAvailable False means a FIPS 205 signature could not be "
-            "classified through the structured path at all; the OID fallback "
-            "in audit/pqc_oid.py still records it as a finding."
-        ),
+        "note": _describe(ml_dsa_works, can_issue, slh_dsa),
     }
 
 

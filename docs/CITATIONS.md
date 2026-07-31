@@ -433,3 +433,63 @@ poisoning example, and note it is a non-peer-reviewed preprint.
 6. **❓ Masked-implementation references still missing** — Migliore 2019,
    Coron 2023/2024, named in the task memo for the liboqs-over-hand-rolling
    argument, are not among the uploads.
+
+## Related work: PQC library and tooling papers (added 2026-07-31)
+
+### Shaw, *quantum-safe: Bridging the Post-Quantum Production Gap with a Hybrid-by-Default Python Cryptography Library* (arXiv, 2026)
+
+**Overlap, stated plainly rather than minimised.** Shaw's Principle P1,
+"hybrid by default", is the same design stance Phase II embodies. This should
+be named directly in Related Work; a reviewer will find it, and understating it
+reads worse than owning it.
+
+**Where the contributions separate**, on reading rather than on the abstract:
+
+| | Shaw | QResP |
+|---|---|---|
+| empirical registry measurement | none | stratified HF/PyPI/npm adoption at scale |
+| transparency logs / Rekor | not addressed | bound direction as a typed property |
+| algorithm-deprecation rescue | not addressed | the core mechanism |
+| entropy attestation | not addressed | keys bound to attested entropy |
+| X.509 hybrid certs | Ounsworth composite-signatures draft, general PKI | OMS-compatible model-registry signing |
+
+Shaw is a general-purpose library-and-benchmark contribution. There is no
+audit of deployed artefacts in it, which is where this project's empirical
+result lives.
+
+**Cited critically, not only differentiated.** See `docs/THREAT-MODEL.md` —
+§VI-D's "not a side-channel" conclusion about ML-DSA-65's 51.5% CoV sits in
+tension with Bronchain et al. (TCHES 2024), and with this project's own paired
+measurement. Shaw's Limitations section hedges it correctly; the Conclusion
+does not.
+
+### Shaw, *Quantum-Safe Auditor (QSA)* (arXiv:2604.00560, preprint)
+
+Static analysis detecting classical-crypto usage in Python source, reporting
+71.98% precision / 100% recall against a labelled CVE dataset, with a "VQE"
+threat-scoring scheme.
+
+**Complementary, not competing, and the distinction is the unit of analysis:**
+QSA audits *source code* for crypto that will break; QResP audits *deployed
+signed artefacts* in registries for signatures that will break. A project could
+score perfectly under QSA and still publish classically-signed releases — which
+is the gap this study measures.
+
+### Incidental corroboration for Task D
+
+Both papers use liboqs as their reference backend (Shaw pins 0.15.0), which is
+mild independent support for the choice made in `docs/TASK-D.md`. Shaw also
+notes liboqs releases the GIL during C-level operations — potentially useful if
+concurrent benchmarking ever matters here, not pursued now.
+
+### pyca/cryptography timeline — resolved
+
+* ML-DSA **raw signing**: version 49.0.0 (2026-06-12), requiring AWS-LC/BoringSSL
+  or OpenSSL 3.5.0+ for the official wheels.
+* ML-DSA **X.509 loading**: exact release not pinned from changelog text.
+  Resolved empirically instead — `mlDsaCertificatesIssuable` measured **false**
+  on 48.0.0 and **true** on 49.0.0, same day, two machines.
+* **SLH-DSA: still unsupported**, per Trail of Bits (2026-06-30): "SLH-DSA is
+  not supported in pyca/cryptography 48, but we've started working on it." No
+  timeline. The defensive OID fallback therefore stays necessary regardless of
+  ML-DSA progress.
