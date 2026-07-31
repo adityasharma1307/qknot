@@ -70,25 +70,64 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--trials", type=int, default=200,
                         help="Repetitions per trace count when estimating accuracy.")
     parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument("--backend", default="dilithium-py",
+                        choices=("dilithium-py", "liboqs"),
+                        help="Which implementation to measure. The protocol, "
+                             "trace counts and statistics are identical for "
+                             "both, so the two runs are directly comparable -- "
+                             "which is the entire point: a paired result is "
+                             "stronger than either measurement alone.")
     args = parser.parse_args(argv)
 
-    try:
-        from dilithium_py.ml_dsa import ML_DSA_44
-    except ImportError:
-        raise SystemExit(
-            "dilithium-py is required: pip install dilithium-py"
-        ) from None
+    if args.backend == "liboqs":
+        try:
+            import oqs
+        except Exception as exc:                        # noqa: BLE001
+            raise SystemExit(
+                f"liboqs is not available here: {exc}\n\n"
+                f"That is a reportable outcome, not a failure of this script. "
+                f"See docs/TASK-D.md: no runtime mechanism exists to establish "
+                f"liboqs' constant-time status either, so 'we could not "
+                f"establish this' is the finding."
+            ) from None
+
+        class _Signer:
+            """Adapter so both backends present the same sign(sk, msg) shape."""
+
+            def __init__(self) -> None:
+                self.mech = "ML-DSA-44"
+
+            def keygen(self) -> tuple[bytes, object]:
+                signer = oqs.Signature(self.mech)
+                return signer.generate_keypair(), signer
+
+            @staticmethod
+            def sign(signer: object, message: bytes) -> bytes:
+                return signer.sign(message)          # type: ignore[attr-defined]
+
+        impl = _Signer()
+        keygen, sign_fn = impl.keygen, impl.sign
+        label = f"liboqs {getattr(oqs, 'oqs_version', lambda: '?')()}"
+    else:
+        try:
+            from dilithium_py.ml_dsa import ML_DSA_44
+        except ImportError:
+            raise SystemExit(
+                "dilithium-py is required: pip install dilithium-py"
+            ) from None
+        keygen, sign_fn = ML_DSA_44.keygen, ML_DSA_44.sign
+        label = "pure-Python dilithium-py"
 
     rng = random.Random(args.seed)
 
     print("ML-DSA-44 timing side channel")
     print("=" * 72)
-    print(f"{args.samples} signatures per key, pure-Python dilithium-py\n")
+    print(f"{args.samples} signatures per key, {label}\n")
 
-    pk_a, sk_a = ML_DSA_44.keygen()
-    pk_b, sk_b = ML_DSA_44.keygen()
-    a = collect(ML_DSA_44.sign, sk_a, args.samples)
-    b = collect(ML_DSA_44.sign, sk_b, args.samples)
+    _, sk_a = keygen()
+    _, sk_b = keygen()
+    a = collect(sign_fn, sk_a, args.samples)
+    b = collect(sign_fn, sk_b, args.samples)
 
     print("1. Is there a leak?")
     print("-" * 72)
