@@ -1,37 +1,30 @@
-"""Stage 1: a candidate pool for the npm head ranking, from npm's own search.
+"""SUPERSEDED. Kept only so the failure is reproducible from the repo.
 
-    python scripts/audit/build_npm_candidates.py --out data/npm_candidates.txt
+This swept npm search with letter and digram seeds. It produced a pool
+missing 25 of 30 unmistakably top-tier packages -- lodash, chalk, debug,
+express, webpack, eslint, @types/node, @babel/core among them -- whose
+10,000th-ranked member had 157 downloads/month.
 
-WHY npm's SEARCH AND NOT A THIRD PARTY
-======================================
-The plan expected a third-party popularity source (deps.dev or similar). npm's
-own search API turns out to serve the purpose better:
+Two causes:
 
-* it ranks by **popularity** directly (`popularity=1.0`),
-* it **includes scoped packages** -- 141 of 250 results for one probe query --
-  which is the whole reason stage 1 exists, since 37.4% of npm is scoped and
-  the bulk downloads endpoint refuses those,
-* it is **npm's own infrastructure**, so the provenance tier is better than any
-  external ranker.
+1. `--target` stopped the sweep at request ~1,400 of 2,848, partway through
+   the seed list, so only seeds `a`..`ma` ran. That is also why the first
+   ranking's survivors skewed alphabetically.
 
-WHAT THIS STAGE MUST AND MUST NOT DO
-====================================
-It does **not** rank. `rank_npm.py` does that, from measured download counts.
-This stage only has to avoid *losing* genuinely popular packages, so it errs
-large: many seed queries, deduplicated, aiming well above the head size.
+2. Fatally: **npm search does not rank by downloads.** Probed directly,
+   `text=lo&popularity=1.0` returns `lo`, `lodash._objecttypes`,
+   `lodash._shimkeys`, `lodash._basebind` -- deprecated micro-packages --
+   and never `lodash`. Fixing the early stop would not have fixed this.
 
-Because search is text-relevance filtered, no single query sees the whole
-namespace. The pool is therefore built from many seeds -- single letters and
-common digrams -- each paged in popularity order. A package popular enough to
-belong in the head is overwhelmingly likely to match at least one seed and rank
-highly within it.
+Replaced by:
+  * unscoped -- no pool at all; `rank_npm.py --frame` ranks all ~2.69M
+    exhaustively through the bulk endpoint.
+  * scoped   -- `build_scoped_pool.py`, from the dependencies of top-ranked
+    unscoped packages, which is a real popularity signal.
 
-**The residual caveat, one sentence for the paper:** a package with very high
-downloads that matches no seed and is returned by no query would be missed. It
-is an edge case rather than a systematic bias -- unlike ranking a random
-subsample, where a 2.9% sample would miss ~97% of the true top 10,000 because
-sampling probability is independent of popularity.
+Do not use this to build a pool. It is retained as evidence.
 """
+
 from __future__ import annotations
 
 import argparse

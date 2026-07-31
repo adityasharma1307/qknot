@@ -204,7 +204,17 @@ def load_partial(path: Path) -> dict[str, int]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--candidates", type=Path, required=True)
+    parser.add_argument("--candidates", type=Path, default=None,
+                        help="One name per line. Omit when using --frame.")
+    parser.add_argument("--frame", type=Path, default=None,
+                        help="Rank EVERY unscoped name in the frame, exhaustively. "
+                             "No candidate pool and no stage 1: the bulk endpoint "
+                             "takes 128 names per request, so all of unscoped npm "
+                             "is ~21,000 requests. Scoped names are skipped -- they "
+                             "cannot use the bulk endpoint and need --candidates.")
+    parser.add_argument("--merge", type=Path, default=None,
+                        help="A previously written ranking to fold in, so the "
+                             "unscoped and scoped passes compose into one file.")
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--rate", type=float, default=DEFAULT_RATE,
                         help="Requests per second, shared across workers.")
@@ -216,9 +226,17 @@ def main(argv: list[str] | None = None) -> int:
 
     from qresp.audit.npm_client import BULK_LIMIT, NpmClient, is_scoped
 
-    raw = args.candidates.read_text(encoding="utf-8").strip()
-    names = json.loads(raw) if raw.startswith("[") else [
-        line.strip() for line in raw.splitlines() if line.strip()]
+    if args.frame:
+        all_names = args.frame.read_text(encoding="utf-8").split()
+        names = [n for n in all_names if not is_scoped(n)]
+        print(f"frame: {len(all_names):,} names -> {len(names):,} unscoped "
+              f"(exhaustive; no candidate pool involved)")
+    elif args.candidates:
+        raw = args.candidates.read_text(encoding="utf-8").strip()
+        names = json.loads(raw) if raw.startswith("[") else [
+            line.strip() for line in raw.splitlines() if line.strip()]
+    else:
+        parser.error("one of --frame or --candidates is required")
     names = list(dict.fromkeys(names))
 
     unscoped = [n for n in names if not is_scoped(n)]
@@ -315,8 +333,16 @@ def main(argv: list[str] | None = None) -> int:
     # Unmeasured candidates are EXCLUDED, not sorted to the bottom. A missing
     # count is not a count of zero, and ranking them last would convert a
     # collection failure into a claim about popularity.
+    merged: dict[str, int] = {}
+    if args.merge and args.merge.exists():
+        prior = json.loads(args.merge.read_text(encoding="utf-8"))
+        merged = {r["project"]: r["download_count"] for r in prior.get("rows", [])}
+        print(f"  merging {len(merged):,} rows from {args.merge}")
+
     measured = {n: c for n, c in counts.items() if n in set(names)}
-    fraction = len(measured) / max(len(names), 1)
+    fraction_own = len(measured) / max(len(names), 1)
+    measured = {**merged, **measured}
+    fraction = fraction_own
     ranked = sorted(measured.items(), key=lambda kv: kv[1], reverse=True)
 
     print(f"\n  measured {len(measured):,} / {len(names):,} ({fraction:.1%})")
