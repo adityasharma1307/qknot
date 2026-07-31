@@ -24,6 +24,7 @@ TWO EXPERIMENTS
 from __future__ import annotations
 
 import argparse
+import math
 import random
 import statistics
 import sys
@@ -31,14 +32,38 @@ import time
 
 
 def collect(sign, secret_key, n: int) -> list[float]:
-    """Time n signatures in milliseconds."""
+    """Time n signatures in milliseconds, measured at nanosecond resolution.
+
+    `perf_counter_ns` rather than `perf_counter`: liboqs signs ML-DSA-44 in
+    roughly 0.1 ms, so a float-seconds clock reports medians of `0.0` and a
+    between-key gap of `0.0`. That is the measurement hitting its own floor,
+    not evidence of constant-time behaviour, and reporting it as the latter
+    would be exactly the inference-from-insufficient-evidence this project
+    keeps finding elsewhere.
+    """
     timings = []
     for i in range(n):
         message = i.to_bytes(8, "big")
-        start = time.perf_counter()
+        start = time.perf_counter_ns()
         sign(secret_key, message)
-        timings.append((time.perf_counter() - start) * 1000)
+        timings.append((time.perf_counter_ns() - start) / 1e6)
     return timings
+
+
+def wilson(successes: int, n: int, z: float = 1.96) -> tuple[float, float]:
+    """95% Wilson interval, as used throughout the ecosystem audits.
+
+    An accuracy without an interval cannot distinguish "no leak" from "not
+    enough trials to see one". 56.5% at 3,200 traces looks like a signal and is
+    indistinguishable from chance at this sample size; the interval says so.
+    """
+    if n == 0:
+        return (0.0, 1.0)
+    phat = successes / n
+    denominator = 1 + z * z / n
+    centre = (phat + z * z / (2 * n)) / denominator
+    margin = z * math.sqrt(phat * (1 - phat) / n + z * z / (4 * n * n)) / denominator
+    return (max(0.0, centre - margin), min(1.0, centre + margin))
 
 
 def attack_accuracy(a: list[float], b: list[float], traces: int,
@@ -57,7 +82,8 @@ def attack_accuracy(a: list[float], b: list[float], traces: int,
             t + rng.uniform(0, noise_ms) for t in rng.choices(b, k=traces))
         if (mean_a < mean_b) == truth:
             correct += 1
-    return 100 * correct / trials
+    low, high = wilson(correct, trials)
+    return 100 * correct / trials, 100 * low, 100 * high
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -143,26 +169,50 @@ def main(argv: list[str] | None = None) -> int:
     print(f"\n2. Does adding {args.noise_ms:.0f} ms of random delay close it?")
     print("-" * 72)
     print(f"  noise is ~{args.noise_ms / max(separation, 0.01):.0f}x the signal\n")
-    print(f"  {'traces/key':>11}   attacker identifies the key correctly")
+    print(f"  {'traces/key':>11}   attacker accuracy (95% Wilson interval)")
     trend = []
+    separated = None
     for traces in (1, 10, 50, 200, 800, 3200):
-        accuracy = attack_accuracy(a, b, traces, args.noise_ms, args.trials, rng)
+        accuracy, low, high = attack_accuracy(a, b, traces, args.noise_ms,
+                                              args.trials, rng)
         trend.append(accuracy)
+        # "Above chance" means the INTERVAL clears 50%, not the point estimate.
+        # 56.5% with 200 trials does not; reading it as a signal is how a
+        # null result gets written up as a positive one.
+        above = low > 50.0
+        if above and separated is None:
+            separated = traces
         bar = "#" * int((accuracy - 50) / 2.5) if accuracy > 50 else ""
-        print(f"  {traces:>11}   {accuracy:5.1f}%  {bar}")
+        flag = "  <- above chance" if above else ""
+        print(f"  {traces:>11}   {accuracy:5.1f}%  [{low:4.1f}, {high:4.1f}]"
+              f"  {bar}{flag}")
 
     print("\n" + "=" * 72)
-    if trend[-1] > trend[0] + 5:
-        print("Accuracy rises with the number of traces. The noise is being")
-        print("averaged away while the secret-dependent signal remains.")
+    if separated is not None:
+        print(f"The attacker is above chance from {separated:,} traces per key,")
+        print("with the interval clear of 50%. Noise is averaged away while the")
+        print("secret-dependent signal remains.")
         print()
         print("Random delay raises the attacker's cost by a constant factor.")
         print("It does not close the channel, and claiming otherwise would be")
-        print("worse than claiming nothing. The countermeasure is to bound the")
-        print("exposure: see docs/THREAT-MODEL.md.")
+        print("worse than claiming nothing. Bound the exposure instead:")
+        print("see docs/THREAT-MODEL.md.")
         return 0
-    print("Accuracy did not rise measurably. Increase --samples or --trials;")
-    print("with too few samples the estimate is dominated by its own noise.")
+
+    print("NO SEPARATION DETECTED at any tested trace count: every interval")
+    print("includes 50%. Two readings are consistent with this and they are")
+    print("not the same claim:")
+    print()
+    print("  * the implementation does not leak through this channel, or")
+    print("  * the leak is below what this measurement can resolve.")
+    print()
+    print(f"Signing took a median of {statistics.median(a):.4f} ms. A black-box")
+    print("timing test bounds the leak; it does not prove its absence, and it")
+    print("is not a constant-time analysis. Per docs/TASK-D.md this result")
+    print("does NOT raise a backend to ASSERTED -- that needs dudect, ctgrind")
+    print("or Binsec/Rel against the specific build, recorded as")
+    print("SideChannelEvidence. The status stays UNKNOWN, which is the")
+    print("distinction the three states exist to keep.")
     return 0
 
 
