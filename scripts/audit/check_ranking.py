@@ -33,7 +33,35 @@ BELLWETHERS = [
 
 
 def load(path: Path) -> dict[str, int]:
-    data = json.loads(path.read_text(encoding="utf-8"))
+    """Read a ranking or a partial, and say plainly when it is not there.
+
+    The finished file only appears when the run completes, so pointing this at
+    it mid-run is the ordinary mistake, not an exotic one. It used to raise a
+    bare FileNotFoundError traceback, which says where the code failed and not
+    what to do -- and a checking tool that reports its own failure badly is a
+    poor advertisement for the checks it performs.
+    """
+    if not path.exists():
+        partial = path.with_suffix(".partial.json")
+        hint = ""
+        if partial.exists():
+            size = partial.stat().st_size / 1e6
+            hint = (f"\n\nA partial IS present: {partial} ({size:.0f} MB).\n"
+                    f"The finished file is written only when the run "
+                    f"completes, so this most likely means it is still going. "
+                    f"Check progress with:\n\n"
+                    f"    python {Path(__file__).name} --ranking {partial} "
+                    f"--partial")
+        raise SystemExit(f"{path} does not exist.{hint}")
+
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise SystemExit(
+            f"{path} is not valid JSON ({exc}).\n"
+            f"A partial written while a run was killed mid-write can be "
+            f"truncated; re-run the collector, which resumes."
+        ) from None
     if isinstance(data, dict) and "rows" in data:
         return {r["project"]: r["download_count"] for r in data["rows"]}
     return {k: v for k, v in data.items() if isinstance(v, int)}
