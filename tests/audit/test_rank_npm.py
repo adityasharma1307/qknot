@@ -120,9 +120,23 @@ class TestAPenaltyIsWaitedOutOnce:
     """
 
     def test_the_retry_loop_does_not_sleep_on_its_own(self, monkeypatch):
+        """Neutralise the throttle entirely; any remaining sleep is the loop's.
+
+        A first version of this test asserted that no sleep exceeded a second,
+        which failed for the right reason: `Throttle.wait` legitimately sleeps
+        out the penalty it was just given. Distinguishing the two by DURATION
+        cannot work when both wait the same interval -- that is precisely the
+        double-wait being tested for. So the throttle is stubbed out instead,
+        and any sleep that survives came from the retry loop.
+        """
         slept: list[float] = []
         monkeypatch.setattr(rank_npm.time, "sleep", lambda s: slept.append(s))
-        throttle = rank_npm.Throttle(per_second=1000.0)
+
+        class Recording(rank_npm.Throttle):
+            def wait(self) -> None:      # the schedule, neutralised
+                return None
+
+        throttle = Recording(per_second=1000.0)
         state = {"n": 0}
 
         def call():
@@ -132,10 +146,10 @@ class TestAPenaltyIsWaitedOutOnce:
             return "ok"
 
         assert rank_npm.with_retry(call, throttle, "x") == "ok"
-        # Whatever sleeping happens must come from Throttle.wait honouring the
-        # shared schedule, never from the retry loop adding its own delay.
-        assert all(s < 1.0 for s in slept), (
-            f"retry loop slept independently of the throttle: {slept}")
+        assert slept == [], (
+            f"retry loop slept on its own; the shared throttle had already "
+            f"scheduled the same wait: {slept}")
+        assert throttle.penalties == 2, "the penalty must still be applied"
 
     def test_the_penalty_still_reaches_the_shared_schedule(self):
         """Removing the sleep must not remove the backoff."""
