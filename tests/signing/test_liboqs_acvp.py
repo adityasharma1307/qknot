@@ -54,7 +54,30 @@ def _keygen_cases():
                    bytes.fromhex(want["sk"]), bytes.fromhex(want["pk"]))
 
 
-CASES = list(_keygen_cases())
+ALL_CASES = list(_keygen_cases())
+
+
+def _sample(per_set: int = 4):
+    """The first `per_set` cases of EACH parameter set.
+
+    `ALL_CASES[:12]` was the first attempt and it silently tested ML-DSA-44
+    only: the vectors are grouped by parameter set, so a leading slice never
+    reaches 65 or 87. Sampling has to be stratified when the source is ordered
+    by the very thing being sampled across -- the same reason the npm ranking
+    could not be built from whichever batches happened to finish first.
+    """
+    taken: dict[str, int] = {}
+    out = []
+    for case in ALL_CASES:
+        param = case[0]
+        if taken.get(param, 0) >= per_set:
+            continue
+        taken[param] = taken.get(param, 0) + 1
+        out.append(case)
+    return out
+
+
+CASES = _sample()
 
 
 def _liboqs(level: str):
@@ -68,8 +91,8 @@ def _liboqs(level: str):
 class TestLiboqsAcceptsNistKeyMaterial:
     """The key-import path, which cross-validation never exercises."""
 
-    @pytest.mark.parametrize("param,tc_id,sk,pk", CASES[:12],
-                             ids=[f"{p}-{t}" for p, t, _, _ in CASES[:12]])
+    @pytest.mark.parametrize("param,tc_id,sk,pk", CASES,
+                             ids=[f"{p}-{t}" for p, t, _, _ in CASES])
     def test_liboqs_signs_with_a_nist_secret_key(self, param, tc_id, sk, pk):
         """A private-key encoding mismatch would be invisible elsewhere.
 
@@ -84,8 +107,8 @@ class TestLiboqsAcceptsNistKeyMaterial:
         assert MlDsaBackend(LEVELS[param]).verify(pk, message, signature), (
             "dilithium-py rejected a liboqs signature over NIST key material")
 
-    @pytest.mark.parametrize("param,tc_id,sk,pk", CASES[:12],
-                             ids=[f"{p}-{t}" for p, t, _, _ in CASES[:12]])
+    @pytest.mark.parametrize("param,tc_id,sk,pk", CASES,
+                             ids=[f"{p}-{t}" for p, t, _, _ in CASES])
     def test_the_key_pair_is_consistent_across_implementations(self, param,
                                                                tc_id, sk, pk):
         """dilithium-py signs with the NIST key; liboqs must accept it."""
@@ -94,9 +117,21 @@ class TestLiboqsAcceptsNistKeyMaterial:
         message = f"acvp-reverse-{tc_id}".encode()
         assert backend.verify(pk, message, pure.sign(sk, message))
 
-    def test_the_vectors_cover_every_parameter_set(self):
-        """Otherwise this passes while testing one level."""
-        assert {p for p, _, _, _ in CASES} == set(LEVELS)
+    def test_the_parametrised_cases_cover_every_parameter_set(self):
+        """Asserts over CASES -- what the tests actually run.
+
+        The first version of this checked the full vector list instead, so it
+        passed while the parametrised tests, fed a leading slice, exercised
+        ML-DSA-44 alone. A coverage assertion over a collection nothing uses is
+        worse than none: it reports assurance that does not exist.
+        """
+        assert {p for p, _, _, _ in CASES} == set(LEVELS), (
+            f"parametrised cases cover {sorted({p for p, _, _, _ in CASES})}, "
+            f"not {sorted(LEVELS)}")
+
+    def test_every_parameter_set_gets_more_than_one_case(self):
+        counts = {p: sum(1 for c in CASES if c[0] == p) for p in LEVELS}
+        assert all(n >= 2 for n in counts.values()), counts
 
 
 @pytest.mark.allow_network
