@@ -43,39 +43,105 @@ def _openssl_version() -> str | None:
         return None
 
 
-def pqc_parsing_capability() -> dict[str, Any]:
-    """Which post-quantum schemes this environment's X.509 stack understands.
+def _mldsa_module() -> Any:
+    """The module is `mldsa`, NOT `ml_dsa`. That mistake cost a false negative.
 
-    Probes for the modules rather than reading a version number, because the
-    version does not determine the answer: the same `cryptography` release
-    exposes these or does not, depending on the OpenSSL it was built against.
-    A probe is a measurement; a version comparison would be an inference from
-    convention, which is the failure mode this project has now found three
-    times.
+    The first version of this probe imported
+    `cryptography.hazmat.primitives.asymmetric.ml_dsa`, found nothing, and
+    reported "ML-DSA certificates not parseable" on two independent machines.
+    The real module is `mldsa` and it was present and working on both. Absence
+    of a name I guessed is not absence of a capability -- which is the exact
+    error this module was written to stop, committed inside the fix for it.
     """
-    schemes: dict[str, bool] = {}
-    for name in ("ml_dsa", "slh_dsa", "ml_kem"):
+    try:
+        from cryptography.hazmat.primitives.asymmetric import mldsa
+    except Exception:
+        return None
+    return mldsa
+
+
+def pqc_parsing_capability() -> dict[str, Any]:
+    """What this environment can actually do with post-quantum certificates.
+
+    FUNCTIONAL, not nominal: it generates a key and signs with it rather than
+    asking whether an import succeeded. A module can be importable and
+    non-functional when the linked OpenSSL lacks the primitive, and the whole
+    point of this file is that the version does not decide the answer.
+
+    Measured on cryptography 48.0.0 / OpenSSL 4.0.0 and 49.0.0 / OpenSSL 4.0.1,
+    which behaved identically:
+
+      * ML-DSA keys: generate and sign work, all three parameter sets.
+      * ML-DSA certificate ISSUANCE: refused. `CertificateBuilder.public_key()`
+        raises TypeError listing only classical key types, so no Python code
+        here can mint one -- which is why the fixtures in
+        tests/audit/test_postquantum_detection.py splice an OID instead.
+      * SLH-DSA: absent entirely. No `slhdsa` module at all.
+    """
+    mldsa = _mldsa_module()
+
+    ml_dsa_works = False
+    if mldsa is not None:
+        try:
+            key = mldsa.MLDSA87PrivateKey.generate()
+            ml_dsa_works = len(key.sign(b"capability-probe")) > 0
+        except Exception:
+            ml_dsa_works = False
+
+    slh_dsa = False
+    for name in ("slhdsa", "slh_dsa"):
         try:
             __import__(f"cryptography.hazmat.primitives.asymmetric.{name}")
-            schemes[name] = True
+            slh_dsa = True
+            break
         except Exception:
-            schemes[name] = False
+            continue
+
+    can_issue = False
+    if ml_dsa_works:
+        try:
+            import datetime
+
+            from cryptography import x509
+            from cryptography.x509.oid import NameOID
+
+            key = mldsa.MLDSA87PrivateKey.generate()
+            name_obj = x509.Name(
+                [x509.NameAttribute(NameOID.COMMON_NAME, "probe")])
+            now = datetime.datetime.now(datetime.timezone.utc)
+            (x509.CertificateBuilder().subject_name(name_obj)
+                 .issuer_name(name_obj).public_key(key.public_key())
+                 .serial_number(1)
+                 .not_valid_before(now - datetime.timedelta(days=1))
+                 .not_valid_after(now + datetime.timedelta(days=1))
+                 .sign(key, None))
+            can_issue = True
+        except Exception:
+            can_issue = False
+
+    try:
+        from cryptography.hazmat.bindings._rust import openssl as rust
+
+        openssl_350 = bool(rust.CRYPTOGRAPHY_OPENSSL_350_OR_GREATER)
+    except Exception:
+        openssl_350 = False
 
     return {
-        "mlDsaCertificatesParseable": schemes["ml_dsa"],
-        "slhDsaCertificatesParseable": schemes["slh_dsa"],
-        "mlKemAvailable": schemes["ml_kem"],
-        # The fallback is what actually caught a post-quantum certificate in
-        # this repository, and it works regardless of the above.
+        "mlDsaKeysUsable": ml_dsa_works,
+        "mlDsaCertificatesIssuable": can_issue,
+        "slhDsaAvailable": slh_dsa,
+        "opensslIsAtLeast350": openssl_350,
         "oidFallbackActive": True,
         "note": (
-            "A False here means this environment's cryptography build cannot "
-            "parse such certificates through the structured path. qresp still "
-            "detects them by algorithm OID (audit/pqc_oid.py) and records them "
-            "as findings rather than parse errors -- but a scan run in an "
-            "environment where these are False could not have CLASSIFIED one "
-            "through the normal path, and any negative result must be read "
-            "with that in mind."
+            "mlDsaKeysUsable is probed by generating and signing, not by "
+            "importing: a module can be present and non-functional when the "
+            "linked OpenSSL lacks the primitive. mlDsaCertificatesIssuable is "
+            "reported separately because it is FALSE even where keys work -- "
+            "CertificateBuilder refuses non-classical public keys -- so no "
+            "Python here can mint a post-quantum certificate to test against. "
+            "slhDsaAvailable False means a FIPS 205 signature could not be "
+            "classified through the structured path at all; the OID fallback "
+            "in audit/pqc_oid.py still records it as a finding."
         ),
     }
 

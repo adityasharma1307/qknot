@@ -74,15 +74,43 @@ class TestTheGapItself:
         with pytest.raises(Exception):        # noqa: B017 -- any parse failure
             x509.load_der_x509_certificate(raw)
 
-    def test_the_environment_reports_its_own_pq_parsing_capability(self):
+    def test_the_environment_reports_its_own_pq_capability(self):
         """A negative result needs the detector's competence on the record."""
         from qresp.audit.capability import pqc_parsing_capability
 
         capability = pqc_parsing_capability()
-        assert set(capability) >= {"mlDsaCertificatesParseable",
-                                   "slhDsaCertificatesParseable",
-                                   "oidFallbackActive"}
+        assert set(capability) >= {"mlDsaKeysUsable", "mlDsaCertificatesIssuable",
+                                   "slhDsaAvailable", "oidFallbackActive"}
         assert capability["oidFallbackActive"] is True
+
+    def test_the_probe_uses_the_real_module_name(self):
+        """`mldsa`, not `ml_dsa`. The first probe guessed and reported a false
+        negative on two machines where the module was present and working."""
+        import importlib.util
+
+        from qresp.audit.capability import _mldsa_module
+        expected = importlib.util.find_spec(
+            "cryptography.hazmat.primitives.asymmetric.mldsa") is not None
+        assert (_mldsa_module() is not None) is expected
+
+    def test_capability_is_functional_not_nominal(self):
+        """Importable and working are different claims."""
+        from qresp.audit.capability import _mldsa_module, pqc_parsing_capability
+
+        if _mldsa_module() is None:
+            pytest.skip("no mldsa module in this environment")
+        assert pqc_parsing_capability()["mlDsaKeysUsable"] is True
+
+    def test_a_directly_parsed_ml_dsa_key_is_a_finding(self):
+        """Where cryptography CAN parse it, classification must not depend on
+        the OID fallback -- builds differ and a scan should not depend on
+        which path it got."""
+        from qresp.audit.capability import _mldsa_module
+
+        mldsa = _mldsa_module()
+        if mldsa is None:
+            pytest.skip("no mldsa module in this environment")
+        assert hasattr(mldsa, "MLDSA87PublicKey")
 
     def test_capability_is_probed_not_inferred_from_a_version(self):
         """Measured: cryptography 48.0.0 on OpenSSL 4.0.0 -- well past the
@@ -93,7 +121,7 @@ class TestTheGapItself:
 
         environment = scan_environment()
         assert "openssl" in environment
-        assert isinstance(environment["pqcParsing"]["mlDsaCertificatesParseable"], bool)
+        assert isinstance(environment["pqcParsing"]["mlDsaKeysUsable"], bool)
 
     def test_the_model_has_pq_labels_that_were_unreachable(self):
         """They existed all along; nothing could return them."""

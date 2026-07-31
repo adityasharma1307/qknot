@@ -231,6 +231,25 @@ def key_algorithm_of_certificate(certificate_b64: str) -> tuple[Any, int | None]
     if isinstance(public_key, ed25519.Ed25519PublicKey):
         return SigAlgorithm.ED25519, 256
 
+    # Where the environment CAN parse ML-DSA, classify from the key type
+    # directly rather than falling through to the OID search. Both paths must
+    # exist: builds differ, and a scan should not depend on which one it got.
+    try:
+        from cryptography.hazmat.primitives.asymmetric import mldsa
+    except Exception:
+        mldsa = None                                    # type: ignore[assignment]
+    if mldsa is not None:
+        for key_class, algorithm in (
+                (mldsa.MLDSA44PublicKey, SigAlgorithm.ML_DSA_44),
+                (mldsa.MLDSA65PublicKey, SigAlgorithm.ML_DSA_65),
+                (mldsa.MLDSA87PublicKey, SigAlgorithm.ML_DSA_87)):
+            if isinstance(public_key, key_class):
+                raise PostQuantumCertificate(
+                    f"POST-QUANTUM KEY DETECTED: {algorithm.value}, parsed "
+                    f"directly by cryptography. This is a FINDING.",
+                    algorithm=algorithm, oid="parsed-from-key-type",
+                )
+
     found = postquantum_oid_in(raw)
     if found is not None:
         algorithm, dotted = found
