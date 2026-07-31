@@ -108,6 +108,7 @@ def main(argv: list[str] | None = None) -> int:
                         help="Stop after N projects. For a smoke test.")
     args = parser.parse_args(argv)
 
+    from qresp.audit.capability import scan_environment
     from qresp.audit.npm_client import NpmClient
     from qresp.audit.npm_scanner import audit_package
 
@@ -150,6 +151,7 @@ def main(argv: list[str] | None = None) -> int:
         "ranking_size": len(ranking),
         "ranking_metric": "npm downloads, last-month (two-stage: candidate "
                           "pool then measured counts)",
+        "environment": scan_environment(),
         "unit_of_analysis": "per-project, any release ever attested",
     }, indent=2), encoding="utf-8")
     print(f"  manifest -> {manifest_path}")

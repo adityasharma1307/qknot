@@ -117,6 +117,7 @@ def main(argv: list[str] | None = None) -> int:
                         help="Stop after N projects. For a smoke test.")
     args = parser.parse_args(argv)
 
+    from qresp.audit.capability import scan_environment
     from qresp.audit.pypi_client import PyPiClient
     from qresp.audit.pypi_scanner import audit_project
 
@@ -158,6 +159,7 @@ def main(argv: list[str] | None = None) -> int:
         "seed": args.seed,
         "ranking_url": args.ranking_url,
         "ranking_size": len(ranking),
+        "environment": scan_environment(),
         "unit_of_analysis": "per-project, any release ever attested",
     }, indent=2), encoding="utf-8")
     print(f"  manifest -> {manifest_path}")

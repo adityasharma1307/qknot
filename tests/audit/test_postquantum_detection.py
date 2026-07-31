@@ -56,11 +56,44 @@ def _certificate_with_oid(dotted: str) -> str:
 
 
 class TestTheGapItself:
-    def test_cryptography_rejects_a_pq_certificate_at_parse_time(self):
-        """The premise. If this ever stops being true, revisit the whole fix."""
+    def test_cryptography_rejects_this_certificate_at_parse_time(self):
+        """Narrower than it first appears, and the narrowing matters.
+
+        The spliced certificate carries EC key material under an ML-DSA OID, so
+        it is malformed whatever the library supports. This therefore shows
+        that the OID-fallback path is REACHED, not that cryptography lacks
+        ML-DSA support -- an earlier version of this docstring claimed the
+        latter, which was an overclaim.
+
+        The real question, "could this environment have parsed a genuine ML-DSA
+        certificate?", is not answerable by a fixture: it depends on the
+        installed wheel's OpenSSL. `capability.pqc_parsing_capability()` probes
+        it, and every scan manifest records the answer.
+        """
         raw = base64.b64decode(_certificate_with_oid("2.16.840.1.101.3.4.3.19"))
         with pytest.raises(Exception):        # noqa: B017 -- any parse failure
             x509.load_der_x509_certificate(raw)
+
+    def test_the_environment_reports_its_own_pq_parsing_capability(self):
+        """A negative result needs the detector's competence on the record."""
+        from qresp.audit.capability import pqc_parsing_capability
+
+        capability = pqc_parsing_capability()
+        assert set(capability) >= {"mlDsaCertificatesParseable",
+                                   "slhDsaCertificatesParseable",
+                                   "oidFallbackActive"}
+        assert capability["oidFallbackActive"] is True
+
+    def test_capability_is_probed_not_inferred_from_a_version(self):
+        """Measured: cryptography 48.0.0 on OpenSSL 4.0.0 -- well past the
+        3.5.0 the release notes name -- still exposes no ml_dsa module, because
+        the bundled-wheel build decides it. A version comparison would have
+        reported support that is not there."""
+        from qresp.audit.capability import scan_environment
+
+        environment = scan_environment()
+        assert "openssl" in environment
+        assert isinstance(environment["pqcParsing"]["mlDsaCertificatesParseable"], bool)
 
     def test_the_model_has_pq_labels_that_were_unreachable(self):
         """They existed all along; nothing could return them."""
