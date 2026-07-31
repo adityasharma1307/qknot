@@ -43,7 +43,7 @@ def ml_dsa():
 class TestExposureGating:
     def test_pure_python_ml_dsa_is_refused_online(self, ml_dsa):
         """The configuration where the timing leak becomes exploitable."""
-        with pytest.raises(BackendUnsuitable, match="not constant-time"):
+        with pytest.raises(BackendUnsuitable, match="MEASURED to leak"):
             check_exposure(ml_dsa, Exposure.ONLINE)
 
     def test_ml_dsa_is_permitted_offline(self, ml_dsa):

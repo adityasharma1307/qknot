@@ -209,7 +209,7 @@ class TestExposureReachesSign:
     def test_online_signing_with_pure_python_ml_dsa_is_refused(self, artefact, keys):
         from qresp.signing.backends import BackendUnsuitable
 
-        with pytest.raises(BackendUnsuitable, match="not constant-time"):
+        with pytest.raises(BackendUnsuitable, match="MEASURED to leak"):
             sign(artefact, keys, exposure=Exposure.ONLINE)
 
     def test_the_refusal_happens_before_any_signing(self, artefact, keys):

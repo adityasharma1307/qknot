@@ -60,6 +60,7 @@ from enum import Enum
 from typing import Any, Protocol
 
 from .algorithms import REGISTRY, implemented, is_known
+from .sidechannel import SideChannelEvidence, SideChannelStatus
 
 log = logging.getLogger(__name__)
 
@@ -96,6 +97,10 @@ class SignatureBackend(Protocol):
     algorithm: str
     quantum_resistant: bool
     side_channel_resistant: bool
+    """Derived from `side_channel_status`. Kept because every call site reads
+    it, but it is a projection of the three-state value, not the source of
+    truth: only ASSERTED maps to True."""
+    side_channel_status: SideChannelStatus
     signature_size: int
 
     def keygen(self, seed: bytes | None = None) -> tuple[bytes, bytes]: ...
@@ -140,6 +145,9 @@ class Ed25519Backend:
     algorithm = "ed25519"
     quantum_resistant = False
     side_channel_resistant = True
+    # Ed25519 in `cryptography` is OpenSSL's, which is constant-time by
+    # construction and continuously analysed. Not a claim about ML-DSA.
+    side_channel_status = SideChannelStatus.ASSERTED
     signature_size = 64
 
     def __init__(self) -> None:
@@ -216,6 +224,9 @@ class MlDsaBackend:
 
     quantum_resistant = True
     side_channel_resistant = False
+    # MEASURED, not suspected: ~10-85 ms variance with the key, and 79.5%
+    # key identification at 1,600 traces. See docs/THREAT-MODEL.md.
+    side_channel_status = SideChannelStatus.KNOWN_LEAKY
 
     def __init__(self, level: str = "ml-dsa-87", deterministic: bool = False):
         """
@@ -314,6 +325,10 @@ class LibOqsBackend:
 
     An implementation MUST:
       * set `side_channel_resistant = True` only after confirming the liboqs
+    # UNKNOWN, and this is the honest default rather than a placeholder:
+    # liboqs exposes NO constant-time or build-configuration flag at
+    # runtime, so a build's discipline cannot be checked from here.
+    side_channel_status = SideChannelStatus.UNKNOWN
         build was compiled with its constant-time options and not with
         optimisations that reintroduce data-dependent branches;
       * record the liboqs version and build flags in `describe()`, since the
@@ -351,17 +366,75 @@ def check_exposure(backend: SignatureBackend, exposure: Exposure) -> None:
     and the service would ship: the consequence of ignoring it is a leaked
     signing key, and nothing about that failure is visible until it is used.
     """
-    if exposure is Exposure.ONLINE and not backend.side_channel_resistant:
+    status = getattr(backend, "side_channel_status", None)
+    if status is None:                      # a backend predating the tri-state
+        status = (SideChannelStatus.ASSERTED if backend.side_channel_resistant
+                  else SideChannelStatus.KNOWN_LEAKY)
+
+    if exposure is Exposure.ONLINE and not status.permits_online:
+        # UNKNOWN and KNOWN_LEAKY gate identically -- introducing the third
+        # state changed no decision, only the reason given for it. What it
+        # stops is the bundle asserting a fact nobody established.
+        if status is SideChannelStatus.UNKNOWN:
+            why = (f"whether {backend.algorithm} via this backend is "
+                   f"constant-time HAS NOT BEEN ESTABLISHED, and no runtime "
+                   f"mechanism exists to establish it: liboqs exposes no "
+                   f"constant-time or build-configuration flag. Unknown is "
+                   f"refused exactly as measured leakage is, because an "
+                   f"unverified claim is not a weaker guarantee -- it is none")
+        else:
+            why = (f"{backend.algorithm} via this backend is MEASURED to leak "
+                   f"timing and must not sign in an ONLINE exposure, where an "
+                   f"attacker can submit messages and time the responses")
         raise BackendUnsuitable(
-            f"{backend.algorithm} via this backend is not constant-time and "
-            f"must not sign in an ONLINE exposure, where an attacker can "
-            f"submit messages and time the responses.\n\n"
+            f"{why}.\n\n"
             f"  Offline release signing: pass exposure=Exposure.OFFLINE.\n"
-            f"  Signing service: use a constant-time backend (liboqs).\n\n"
+            f"  Signing service: use a constant-time backend (liboqs) whose "
+            f"build\n    you have verified, and attach SideChannelEvidence to "
+            f"raise it to\n    ASSERTED. Note that installing liboqs does not "
+            f"by itself establish\n    anything: it exposes no constant-time "
+            f"flag at runtime.\n\n"
             f"Adding random delay does not fix this. Averaging removes "
             f"zero-mean noise while the secret-dependent signal remains; see "
             f"docs/THREAT-MODEL.md for the measurement."
         )
+
+
+def attest_constant_time(backend: Any, evidence: SideChannelEvidence) -> Any:
+    """Record a deployer's verification of THIS build, raising it to ASSERTED.
+
+    The only route out of UNKNOWN, and deliberately a manual one. Nothing here
+    inspects the build -- there is nothing to inspect, since liboqs exposes no
+    constant-time or build-configuration flag at runtime. What this does is
+    attach a structured, attributed claim so a downstream verifier can evaluate
+    it, which is the whole reason ASSERTED is distinguishable from True.
+
+    Refuses to raise a backend that is MEASURED to leak. dilithium-py's timing
+    variance is a property of the implementation, not of anyone's build, so no
+    evidence about a build can overturn it -- and permitting that would make
+    the state machine a formality.
+    """
+    status = getattr(backend, "side_channel_status", None)
+    if status is SideChannelStatus.KNOWN_LEAKY:
+        raise BackendUnsuitable(
+            f"{backend.algorithm} via {type(backend).__name__} is MEASURED to "
+            f"leak timing; evidence about a build cannot overturn a property "
+            f"of the implementation. See docs/THREAT-MODEL.md."
+        )
+    if not isinstance(evidence, SideChannelEvidence):
+        raise TypeError(
+            "attest_constant_time requires SideChannelEvidence, not a free "
+            "string: an assertion nobody downstream can evaluate is exactly "
+            "what the three states exist to prevent."
+        )
+    backend.side_channel_status = SideChannelStatus.ASSERTED
+    backend.side_channel_resistant = True
+    backend.side_channel_evidence = evidence
+    logging.getLogger(__name__).warning(
+        "backend %s raised to ASSERTED on %s's evidence (%s %s, report %s)",
+        backend.algorithm, evidence.asserted_by, evidence.tool,
+        evidence.tool_version, evidence.report_sha256[:16])
+    return backend
 
 
 def constant_time_compare(a: bytes, b: bytes) -> bool:
@@ -461,6 +534,17 @@ def _assert_conforms(name: str, backend: Any) -> None:
                 f"backend {name!r} declares {attribute}={value!r}; "
                 f"SignatureBackend requires {expected.__name__}"
             )
+
+    status = getattr(backend, "side_channel_status", None)
+    if status is not None and backend.side_channel_resistant != status.permits_online:
+        raise RuntimeError(
+            f"backend {name!r} declares side_channel_resistant="
+            f"{backend.side_channel_resistant} but side_channel_status="
+            f"{status.value}, which permits_online="
+            f"{status.permits_online}. The bool is a projection of the "
+            f"three-state value; if they disagree, whichever a caller happens "
+            f"to read decides whether a leaky backend signs online."
+        )
 
     for method, params in (("keygen", ["seed"]),
                            ("sign", ["secret_key", "message"]),

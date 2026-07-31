@@ -126,7 +126,7 @@ class TestSign:
                                      str(tmp_path / "b.json"), "--seed", SEED,
                                      "--exposure", "online"])
         assert result.exit_code == 1
-        assert "not constant-time" in result.output
+        assert "MEASURED to leak" in result.output
 
     def test_a_bad_exposure_is_rejected(self, artefact, tmp_path):
         result = runner.invoke(app, ["sign", str(artefact), "--out",
