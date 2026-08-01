@@ -146,11 +146,43 @@ class TestStratifiedWeighting:
                 "vulnerable": 1_000, "safe": 0, "mixed": 0, "error": 0}
         tail = {"n": 10_000, "signed": 0, "unsigned": 10_000,
                 "vulnerable": 0, "safe": 0, "mixed": 0, "error": 0}
-        st.print_combined(head, tail, tail_population=1_990_000)
+        st.print_combined(head, tail, tail_population=2_000_000)
         out = capsys.readouterr().out
-        # head weight = 10k / 2M = 0.005, so combined signed rate ~= 0.05%
+        # tail_population IS the whole registry, so N = 2,000,000, N_h = 10,000,
+        # N_t = 1,990,000. head weight = 10k / 2M = 0.005 exactly; combined
+        # signed rate = 0.005 * 0.10 = 0.050%. If N_t were the raw registry
+        # size (the double-count bug), N would be 2,010,000 and the weight
+        # 0.004975 -- a different number.
         assert "0.050%" in out
         assert "census" in out or "no sampling" in out
+
+    def test_head_and_tail_partition_the_registry(self, capsys):
+        """The bug this replaces: N_t used the full frame while the tail was
+        drawn from frame - head, double-counting the head's 10,000 in both
+        strata. The reported registry N must equal the frame size, not
+        frame + head.
+        """
+        head = {"n": 10_000, "signed": 100, "unsigned": 9_900,
+                "vulnerable": 100, "safe": 0, "mixed": 0, "error": 0}
+        tail = {"n": 10_000, "signed": 0, "unsigned": 10_000,
+                "vulnerable": 0, "safe": 0, "mixed": 0, "error": 0}
+        st.print_combined(head, tail, tail_population=4_290_079)
+        out = capsys.readouterr().out
+        assert "4,290,079" in out, "registry N must be the frame size exactly"
+        assert "4,300,079" not in out, "frame + head is the double-count bug"
+
+    def test_a_partial_head_census_is_flagged(self, capsys):
+        """The broken npm run audited only 7,030 of the 10,000-package head.
+        The 'no sampling variance' claim assumes a full census; a short head
+        must warn rather than silently understate the head's variance.
+        """
+        head = {"n": 7_030, "signed": 100, "unsigned": 6_930,
+                "vulnerable": 100, "safe": 0, "mixed": 0, "error": 0}
+        tail = {"n": 10_000, "signed": 0, "unsigned": 10_000,
+                "vulnerable": 0, "safe": 0, "mixed": 0, "error": 0}
+        st.print_combined(head, tail, tail_population=4_290_079)
+        out = capsys.readouterr().out
+        assert "WARNING" in out and "7,030" in out
 
     def test_zero_counts_report_a_one_sided_bound(self, capsys):
         head = {"n": 10_000, "signed": 0, "unsigned": 10_000,

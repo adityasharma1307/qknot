@@ -1,9 +1,10 @@
 {
-  "generated": "2026-08-01T10:10:43+0530",
+  "generated": "2026-08-01T10:28:54+0530",
   "source": "direct dependencies of top-ranked unscoped npm packages",
   "ranking": "data\\npm_ranking_unscoped.json",
   "seed_count": 20000,
-  "seeds_with_no_readable_deps": 6841,
+  "seeds_with_no_dependencies": 6841,
+  "seeds_unfetchable": 0,
   "scoped_candidates": 5160,
   "role": "stage 1 candidate pool only; rank_npm.py does the ranking",
   "replaces": "npm search seed sweep, which returned lodash._objecttypes but not lodash and omitted 25 of 30 top-tier packages"

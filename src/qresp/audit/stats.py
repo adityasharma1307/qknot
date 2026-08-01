@@ -254,9 +254,25 @@ def print_combined(head: dict, tail: dict, tail_population: int) -> None:
     # satisfy a linter would make the code harder to check against the
     # textbook formulae it implements.
     n_h, n_t = head["n"], tail["n"]
-    N_h, N_t = HEAD_POPULATION, tail_population  # noqa: N806
-    N = N_h + N_t  # noqa: N806
+    # `tail_population` is the FULL frame size from the manifest, but the tail
+    # was drawn from `frame - head` (see run_*_audit.py). So the tail stratum's
+    # population is the frame minus the head, and the head and tail PARTITION
+    # the registry: N = frame_size, not frame_size + head. Using the raw frame
+    # size as N_t double-counts the head's 10,000 in both strata -- a 0.23%
+    # error in the weights and in the reported N, which is small but wrong, and
+    # a measurement paper states these as exact.
+    N_h = HEAD_POPULATION  # noqa: N806
+    N = tail_population  # noqa: N806  -- the whole registry
+    N_t = N - N_h  # noqa: N806
     w_h, w_t = N_h / N, N_t / N
+
+    if n_h != N_h:
+        print(f"  WARNING: the head stratum is defined as a census of "
+              f"{N_h:,} but the head file holds {n_h:,}. The 'no sampling "
+              f"variance' claim below assumes a full census; with {n_h:,} it "
+              f"is a partial one and the head DOES carry variance the "
+              f"finite-population correction here understates. Re-audit the "
+              f"head to a full {N_h:,} before quoting these intervals.\n")
 
     title = "BLOCK 3 -- COMBINED WEIGHTED ESTIMATE (whole registry)"
     print(title)
