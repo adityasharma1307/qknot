@@ -354,3 +354,283 @@ def assess_registration(
     true one.
     """
     return assess([REGISTRATION_ALGORITHM], evidence=evidence, now=now)
+
+
+# ===========================================================================
+# DUAL-KEY (hybrid) registration -- the design in docs/REGISTRATION-SPEC.md.
+#
+# This is the durable-PQC-identity path: one identity vouches for BOTH a
+# classical key (Fulcio-attested) and a post-quantum key, over a single DSSE
+# envelope carrying two signatures. It lives alongside the single-key
+# KeyRegistration above rather than replacing it; the single-key path stays as
+# it was, and this is the one the verification algorithm (spec section 4) and
+# the CLI build target consume.
+# ===========================================================================
+
+HYBRID_REGISTRATION_PAYLOAD_TYPE = "application/vnd.qresp.hybrid-key-registration+json"
+
+
+@dataclass(frozen=True)
+class KeyRef:
+    """One key in a registration: its algorithm and its public bytes."""
+
+    algorithm: str
+    public_key: bytes
+
+    def __post_init__(self) -> None:
+        if self.algorithm not in REGISTRY:
+            raise RegistrationError(
+                f"unknown algorithm {self.algorithm!r}; a key on an algorithm "
+                f"the registry does not know cannot be judged against a "
+                f"disallow date"
+            )
+        if not self.public_key:
+            raise RegistrationError(f"empty public key for {self.algorithm}")
+
+    def to_dict(self) -> dict[str, str]:
+        import base64
+
+        return {"algorithm": self.algorithm,
+                "publicKey": base64.b64encode(self.public_key).decode("ascii")}
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> KeyRef:
+        import base64
+
+        try:
+            return cls(algorithm=data["algorithm"],
+                       public_key=base64.b64decode(data["publicKey"], validate=True))
+        except KeyError as exc:
+            raise RegistrationError(f"key reference missing {exc}") from exc
+
+
+@dataclass(frozen=True)
+class HybridRegistration:
+    """Identity X vouches for a classical key AND a post-quantum key.
+
+    `created` and `notAfter` are the signer's own clock. `created` is diagnostic
+    only, never evidence -- a forger writes a timestamp too, and trusted time
+    comes from the transparency log. `notAfter` is enforced (spec step 7.5) but
+    against the ARTEFACT's signing time, not the verifier's clock.
+    """
+
+    identity: str
+    issuer: str
+    classical_key: KeyRef
+    pqc_key: KeyRef
+    created: str
+    not_after: str | None = None
+    recovery_key: KeyRef | None = None
+
+    def __post_init__(self) -> None:
+        if not REGISTRY[self.pqc_key.algorithm].resists_shor:
+            raise RegistrationError(
+                f"pqcKey is {self.pqc_key.algorithm}, which does not resist "
+                f"Shor. This mechanism binds an identity to a LONG-TERM "
+                f"post-quantum key; a classical one would be identity theatre."
+            )
+        if REGISTRY[self.classical_key.algorithm].resists_shor:
+            raise RegistrationError(
+                f"classicalKey is {self.classical_key.algorithm}, which already "
+                f"resists Shor. The classical key is the deprecating anchor the "
+                f"PQC key is bootstrapped from; a post-quantum one there means "
+                f"the roles are confused."
+            )
+        for label, value in (("created", self.created),
+                             ("notAfter", self.not_after)):
+            if value is None:
+                continue
+            try:
+                datetime.fromisoformat(value.replace("Z", "+00:00"))
+            except ValueError as exc:
+                raise RegistrationError(
+                    f"{label} is not an RFC 3339 timestamp: {value!r}") from exc
+
+    def to_payload(self) -> bytes:
+        """Canonical JSON: sorted keys, no whitespace, so the signed bytes are
+        a function of the values alone."""
+        body: dict[str, Any] = {
+            "_type": "qresp-hybrid-key-registration/v1",
+            "identity": self.identity,
+            "issuer": self.issuer,
+            "classicalKey": self.classical_key.to_dict(),
+            "pqcKey": self.pqc_key.to_dict(),
+            "created": self.created,
+        }
+        if self.not_after is not None:
+            body["notAfter"] = self.not_after
+        if self.recovery_key is not None:
+            body["recoveryKey"] = self.recovery_key.to_dict()
+        return json.dumps(body, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+    @classmethod
+    def from_payload(cls, payload: bytes) -> HybridRegistration:
+        try:
+            data = json.loads(payload)
+        except Exception as exc:
+            raise RegistrationError(f"payload is not JSON: {exc}") from exc
+        if data.get("_type") != "qresp-hybrid-key-registration/v1":
+            raise RegistrationError(
+                f"unexpected payload type {data.get('_type')!r}; refusing to "
+                f"read a document of unknown shape as a hybrid registration"
+            )
+        try:
+            recovery = data.get("recoveryKey")
+            return cls(
+                identity=data["identity"],
+                issuer=data["issuer"],
+                classical_key=KeyRef.from_dict(data["classicalKey"]),
+                pqc_key=KeyRef.from_dict(data["pqcKey"]),
+                created=data["created"],
+                not_after=data.get("notAfter"),
+                recovery_key=KeyRef.from_dict(recovery) if recovery else None,
+            )
+        except KeyError as exc:
+            raise RegistrationError(f"registration is missing {exc}") from exc
+
+
+class NotYetRegistered(RegistrationError):  # noqa: N818 -- not a malformation
+    """A registration is valid but does not COVER this artefact (notAfter).
+
+    A distinct type, not a bare RegistrationError, because the caller must tell
+    "this registration does not apply to this artefact" from "this registration
+    is corrupt". The bundle stays validly logged and inspectable; it is ruled
+    inapplicable, not rejected as malformed.
+    """
+
+
+def check_not_after(registration: HybridRegistration, signing_time: datetime) -> None:
+    """Spec step 7.5. Enforce notAfter against the ARTEFACT's signing time.
+
+    Keyed to `signing_time`, never to the verifier's clock: every temporal
+    decision in this design reasons about when things happened, not about when
+    someone runs the verifier. A registration that expired last year still
+    covers an artefact signed the year before that.
+    """
+    if registration.not_after is None:
+        return
+    limit = datetime.fromisoformat(registration.not_after.replace("Z", "+00:00"))
+    if signing_time > limit:
+        raise NotYetRegistered(
+            f"the registration's notAfter is {registration.not_after}, but the "
+            f"artefact was signed at {signing_time.isoformat()}. The "
+            f"registration is validly logged and inspectable; it simply does "
+            f"not cover a signature made after it lapsed."
+        )
+
+
+@dataclass(frozen=True)
+class HybridSignedRegistration:
+    """The dual-signed DSSE envelope: one payload, two signatures.
+
+    The classical signature carries a Fulcio certificate (identity attestation);
+    the PQC signature is bare, because the PQC key is the thing being registered
+    and nothing vouches for it yet. Requiring BOTH is the proof of possession.
+    """
+
+    payload: bytes
+    classical_signature: bytes
+    classical_certificate_der: bytes      # Fulcio-issued, attests the classical key
+    pqc_signature: bytes
+
+    @property
+    def signed_bytes(self) -> bytes:
+        """Exactly what BOTH signatures cover: the PAE of the payload under the
+        hybrid registration payload type."""
+        return pae(HYBRID_REGISTRATION_PAYLOAD_TYPE, self.payload)
+
+    @property
+    def rekord_preimage(self) -> bytes:
+        """The bytes a hashedrekord entry commits to (spec section 2), via the
+        one shared function so the registration and artefact paths agree."""
+        from .dsse import rekord_preimage
+
+        return rekord_preimage(HYBRID_REGISTRATION_PAYLOAD_TYPE, self.payload)
+
+    def to_dict(self) -> dict[str, Any]:
+        import base64
+
+        return {
+            "payloadType": HYBRID_REGISTRATION_PAYLOAD_TYPE,
+            "payload": base64.b64encode(self.payload).decode("ascii"),
+            "classicalSignature": base64.b64encode(self.classical_signature).decode("ascii"),
+            "classicalCertificate": base64.b64encode(self.classical_certificate_der).decode("ascii"),
+            "pqcSignature": base64.b64encode(self.pqc_signature).decode("ascii"),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> HybridSignedRegistration:
+        import base64
+
+        if data.get("payloadType") != HYBRID_REGISTRATION_PAYLOAD_TYPE:
+            raise RegistrationError(
+                f"unexpected payloadType {data.get('payloadType')!r}")
+        try:
+            return cls(
+                payload=base64.b64decode(data["payload"], validate=True),
+                classical_signature=base64.b64decode(data["classicalSignature"], validate=True),
+                classical_certificate_der=base64.b64decode(data["classicalCertificate"], validate=True),
+                pqc_signature=base64.b64decode(data["pqcSignature"], validate=True),
+            )
+        except KeyError as exc:
+            raise RegistrationError(f"envelope missing {exc}") from exc
+        except Exception as exc:
+            raise RegistrationError(f"malformed envelope: {exc}") from exc
+
+
+def sign_hybrid_registration(
+    registration: HybridRegistration,
+    classical_secret: bytes,
+    pqc_secret: bytes,
+    classical_certificate_der: bytes,
+) -> HybridSignedRegistration:
+    """Produce the dual-signed envelope. Both signatures over the same PAE."""
+    from .backends import get_backend
+
+    payload = registration.to_payload()
+    signed = pae(HYBRID_REGISTRATION_PAYLOAD_TYPE, payload)
+    classical = get_backend(registration.classical_key.algorithm)
+    pqc = get_backend(registration.pqc_key.algorithm)
+    return HybridSignedRegistration(
+        payload=payload,
+        classical_signature=classical.sign(classical_secret, signed),
+        classical_certificate_der=classical_certificate_der,
+        pqc_signature=pqc.sign(pqc_secret, signed),
+    )
+
+
+def verify_proof_of_possession(envelope: HybridSignedRegistration) -> HybridRegistration:
+    """Both keys signed the same statement. Returns the parsed registration.
+
+    Steps 2 and 5 of the verification algorithm together: the classical
+    signature verifies under the key in the payload (identity side), and the
+    PQC signature verifies under the PQC key in the payload (possession side).
+    Neither alone is enough -- one lets an attacker register a key they do not
+    hold, the other lets them claim an identity they cannot prove.
+
+    This does NOT verify the Fulcio chain or the identity cross-check; those are
+    steps 3-4 and depend on trust roots supplied to the full verifier. It
+    establishes only that whoever built this envelope controls both private
+    keys.
+    """
+    from .backends import get_backend
+
+    registration = HybridRegistration.from_payload(envelope.payload)
+    signed = envelope.signed_bytes
+
+    classical = get_backend(registration.classical_key.algorithm)
+    if not classical.verify(registration.classical_key.public_key, signed,
+                            envelope.classical_signature):
+        raise RegistrationError(
+            "classical signature does not verify under the classicalKey in the "
+            "payload -- the identity side of the proof of possession fails")
+
+    pqc = get_backend(registration.pqc_key.algorithm)
+    if not pqc.verify(registration.pqc_key.public_key, signed,
+                     envelope.pqc_signature):
+        raise RegistrationError(
+            "PQC signature does not verify under the pqcKey in the payload -- "
+            "the possession side of the proof of possession fails. Whoever "
+            "built this does not hold the PQC private key.")
+
+    return registration
