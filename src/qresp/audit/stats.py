@@ -73,12 +73,21 @@ def load(path: Path) -> list[dict]:
     raw = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
     latest: dict[str, dict] = {}
     for rec in raw:
-        key = rec["model_id"]
+        # HuggingFace records key on `model_id`; PyPI and npm on `project`.
+        # Keying on model_id alone raised KeyError on the package ecosystems,
+        # which means this loader had NEVER successfully run on the PyPI or npm
+        # data -- the cross-ecosystem comparison the paper is built on could
+        # not have been produced through it. One identifier, whichever is
+        # present.
+        key = rec.get("model_id") or rec.get("project")
+        if key is None:
+            raise KeyError(
+                f"record has neither model_id nor project: {sorted(rec)[:6]}")
         if key not in latest or rec["audit_ts"] > latest[key]["audit_ts"]:
             latest[key] = rec
     if len(raw) != len(latest):
-        print(f"NOTE: {path} had {len(raw)} rows but {len(latest)} unique model_ids; "
-              f"deduped to the latest record per model.\n")
+        print(f"NOTE: {path} had {len(raw)} rows but {len(latest)} unique "
+              f"identifiers; deduped to the latest record each.\n")
     return list(latest.values())
 
 

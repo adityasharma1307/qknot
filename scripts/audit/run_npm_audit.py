@@ -73,7 +73,20 @@ def load_frame(path: Path) -> list[str]:
 
 
 def already_done(path: Path) -> set[str]:
-    """Names already recorded, so a resumed run does not repeat work."""
+    """Names with a USABLE record, so a resume neither repeats work nor
+    skips a retry.
+
+    A record whose q_label is `error` is NOT done: it was reached and could not
+    be classified, and the runner's own closing message tells the user to
+    re-run to retry those. That instruction was false -- this function counted
+    error rows as recorded, so a resume skipped exactly the records it claimed
+    to retry. `error` is now excluded, so re-running retries them and appends a
+    fresh record; the reader dedups to the latest, so a later success supersedes
+    the earlier error.
+
+    The absent-versus-unchecked rule, one level up again: "we have a record"
+    is not "we have an answer".
+    """
     if not path.exists():
         return set()
     seen = set()
@@ -83,9 +96,12 @@ def already_done(path: Path) -> set[str]:
             if not line:
                 continue
             try:
-                seen.add(json.loads(line)["project"])
+                record = json.loads(line)
             except Exception:
                 continue          # a truncated final line from a hard kill
+            if record.get("q_label") == "error":
+                continue          # reached but unclassified -- retry on resume
+            seen.add(record["project"])
     return seen
 
 

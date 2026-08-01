@@ -203,3 +203,38 @@ class TestStratifiedWeighting:
         assert "Fisher exact p" in out
         assert "significant" in out
         assert "No post-quantum signatures in either stratum" in out
+
+
+class TestLoadWorksAcrossEcosystems:
+    """stats.load keyed on model_id alone, so it KeyError'd on PyPI and npm.
+
+    That means it had never successfully run on the package ecosystems -- the
+    cross-ecosystem comparison the paper rests on could not have been produced
+    through this function until now.
+    """
+
+    def test_project_keyed_records_load(self, tmp_path):
+        path = tmp_path / "npm.jsonl"
+        path.write_text(
+            '{"project": "lodash", "q_label": "unsigned", '
+            '"has_signature": false, "audit_ts": "2026-08-01T00:00:00"}\n')
+        recs = st.load(path)
+        assert len(recs) == 1 and recs[0]["project"] == "lodash"
+
+    def test_model_id_keyed_records_still_load(self, tmp_path):
+        path = tmp_path / "hf.jsonl"
+        path.write_text(
+            '{"model_id": "org/model", "q_label": "unsigned", '
+            '"has_signature": false, "audit_ts": "2026-08-01T00:00:00"}\n')
+        assert st.load(path)[0]["model_id"] == "org/model"
+
+    def test_an_error_superseded_by_a_retry_dedups_to_the_success(self, tmp_path):
+        """The retry path depends on this: a re-run appends, latest wins."""
+        path = tmp_path / "r.jsonl"
+        path.write_text(
+            '{"project": "p", "q_label": "error", "has_signature": false, '
+            '"audit_ts": "2026-08-01T00:00:00"}\n'
+            '{"project": "p", "q_label": "signed", "has_signature": true, '
+            '"audit_ts": "2026-08-01T09:00:00"}\n')
+        recs = st.load(path)
+        assert len(recs) == 1 and recs[0]["q_label"] == "signed"

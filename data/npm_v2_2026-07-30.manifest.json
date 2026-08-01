@@ -1,0 +1,26 @@
+{
+  "generated": "2026-08-01T13:30:55+0530",
+  "frame_size": 4290079,
+  "frame_sha256": "6b5348e9f2aaab2a1c3cee2fe552cde2a3f4d16487a6082e56146c4adc24b593",
+  "head_size": 10000,
+  "tail_size": 10000,
+  "seed": 20260730,
+  "ranking_file": "data\\npm_ranking_v2.json",
+  "ranking_size": 2661335,
+  "ranking_metric": "npm downloads, last-month (two-stage: candidate pool then measured counts)",
+  "environment": {
+    "python": "3.13.14",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "cryptography": "49.0.0",
+    "openssl": "OpenSSL 4.0.1 9 Jun 2026",
+    "pqcParsing": {
+      "mlDsaKeysUsable": true,
+      "mlDsaCertificatesIssuable": true,
+      "slhDsaAvailable": false,
+      "opensslIsAtLeast350": true,
+      "oidFallbackActive": true,
+      "note": "Probed functionally -- keys are generated and signed with, not merely imported, because a module can be present and non-functional when the linked OpenSSL lacks the primitive. This build can both use ML-DSA keys and issue ML-DSA certificates, so a post-quantum certificate is classifiable through the structured path. SLH-DSA (FIPS 205) is absent: a FIPS 205 signature would reach the structured parser and fail. Only the OID fallback in audit/pqc_oid.py records it, as a finding rather than an error."
+    }
+  },
+  "unit_of_analysis": "per-project, any release ever attested"
+}
