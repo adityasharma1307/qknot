@@ -618,3 +618,43 @@ packages at 15–20/s, 134 recorded as `error` rather than `unsigned`. Only the
 head stratum's *membership* was wrong, and it must be re-derived and re-scanned
 into a fresh output file, because head/tail labels were assigned from the
 broken ranking.
+
+## npm unscoped ranking: complete and verified (2026-08-01)
+
+**2,656,176 packages ranked by measured last-month downloads**, exhaustively over
+every unscoped name in the pinned frame. No candidate pool, no sampling, no
+proxy — `rank_npm.py --frame` queried npm's bulk downloads endpoint for all
+2,686,420 unscoped names; the remaining 30,244 were answered "no download
+record" and are excluded from the ranking rather than ranked last.
+
+### Distribution
+
+| rank | downloads/month |
+|---|---|
+| 1 (`semver`) | 3,407,401,012 |
+| 100 | 748,069,027 |
+| 1,000 | 151,675,806 |
+| 5,000 | 5,783,091 |
+| **10,000** | **869,769** |
+| 50,000 | 9,822 |
+| 100,000 | 1,741 |
+
+**The head stratum threshold is 869,769 downloads/month.** That number is the
+concrete answer to "what does *popular* mean here", and it is worth quoting: a
+head defined this way is not an arbitrary cut.
+
+### Verification
+
+`check_ranking.py` run without `--partial`: **all 19 bellwethers present and
+ranked** — `semver` 1, `minimatch` 4, `ms` 8, `chalk` 12, `commander` 13,
+`glob` 18, `uuid` 41, `postcss` 45, `typescript` 55, `picocolors` 75, `react`
+125, `lodash` 131, `eslint` 153, `express` 244, `axios` 280, `webpack` 666.
+
+### Why this replaced the first attempt
+
+The discarded search-derived pool put rank 10,000 at **157 downloads/month** and
+omitted 25 of 30 top-tier packages including `lodash` and `express`. The
+threshold ratio between the two rankings is roughly **5,500x**. A "top 10,000"
+whose final member is essentially unused is not a head stratum, and nothing in
+that file said so — which is why `check_ranking.py` now exists and fails
+non-zero.
