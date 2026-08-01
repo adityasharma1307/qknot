@@ -61,7 +61,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from .algorithms import REGISTRY
@@ -634,3 +634,147 @@ def verify_proof_of_possession(envelope: HybridSignedRegistration) -> HybridRegi
             "built this does not hold the PQC private key.")
 
     return registration
+
+
+# ---------------------------------------------------------------------------
+# Revocation (spec section 5 and 5.1)
+# ---------------------------------------------------------------------------
+REVOCATION_PAYLOAD_TYPE = "application/vnd.qresp.key-revocation+json"
+
+
+def _key_fingerprint(public_key: bytes) -> str:
+    import hashlib
+
+    return hashlib.sha3_256(b"qresp-key-fingerprint-v1" + public_key).hexdigest()[:32]
+
+
+@dataclass(frozen=True)
+class Revocation:
+    """A statement that a registered PQC key is no longer to be trusted.
+
+    Targets the key by fingerprint, not by value, so the revocation need not
+    republish the key. Signed by the classical anchor OR a designated recovery
+    key -- never by the PQC key itself, which may be the compromised one.
+    """
+
+    identity: str
+    pqc_key_fingerprint: str
+    reason: str
+    revoked_at: str                       # RFC 3339
+
+    def to_payload(self) -> bytes:
+        return json.dumps({
+            "_type": "qresp-key-revocation/v1",
+            "identity": self.identity,
+            "pqcKeyFingerprint": self.pqc_key_fingerprint,
+            "reason": self.reason,
+            "revokedAt": self.revoked_at,
+        }, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+    @classmethod
+    def from_payload(cls, payload: bytes) -> Revocation:
+        try:
+            data = json.loads(payload)
+        except Exception as exc:
+            raise RegistrationError(f"revocation is not JSON: {exc}") from exc
+        if data.get("_type") != "qresp-key-revocation/v1":
+            raise RegistrationError(f"unexpected type {data.get('_type')!r}")
+        try:
+            return cls(identity=data["identity"],
+                       pqc_key_fingerprint=data["pqcKeyFingerprint"],
+                       reason=data["reason"], revoked_at=data["revokedAt"])
+        except KeyError as exc:
+            raise RegistrationError(f"revocation missing {exc}") from exc
+
+
+@dataclass(frozen=True)
+class SignedRevocation:
+    """A revocation and one signature: by the classical anchor or the recovery
+    key. Which one is determined at verification, by which key validates it."""
+
+    payload: bytes
+    signature: bytes
+
+    @property
+    def signed_bytes(self) -> bytes:
+        return pae(REVOCATION_PAYLOAD_TYPE, self.payload)
+
+
+def verify_revocation(
+    signed: SignedRevocation,
+    registration: HybridRegistration,
+    *,
+    registration_log_time: datetime,
+    now: datetime | None = None,
+    policies: dict[str, Any] | None = None,
+) -> Revocation:
+    """Is this a revocation that must be honoured against `registration`?
+
+    Spec section 5.1. A revocation is honoured if it is signed by EITHER:
+
+      * the registration's classicalKey, subject to the same step-7 temporal
+        decision as any classical signature (binding_trust on its algorithm and
+        the registration's log time); or
+      * the registration's DESIGNATED recoveryKey -- and only that one -- judged
+        on the RECOVERY key's own algorithm and its own date, so a recovery key
+        on a still-live family works after the primary anchor is disallowed.
+
+    Two checks the memo requires, neither optional:
+      1. a recovery-key revocation is matched against the recoveryKey fixed in
+         the registration, not trusted because some signature verifies;
+      2. the signer's own algorithm is judged on its own date.
+    """
+    from .backends import get_backend
+    from .temporal import BindingBasis, binding_trust
+
+    now = now or datetime.now(timezone.utc)
+    revocation = Revocation.from_payload(signed.payload)
+
+    if revocation.identity != registration.identity:
+        raise RegistrationError(
+            f"revocation names {revocation.identity!r} but the registration is "
+            f"for {registration.identity!r}")
+    target = _key_fingerprint(registration.pqc_key.public_key)
+    if revocation.pqc_key_fingerprint != target:
+        raise RegistrationError(
+            "revocation targets a different key than this registration's pqcKey")
+
+    def signed_by(key: KeyRef) -> bool:
+        backend = get_backend(key.algorithm)
+        return bool(backend.verify(key.public_key, signed.signed_bytes,
+                                   signed.signature))
+
+    # Classical anchor: the ordinary path.
+    if signed_by(registration.classical_key):
+        basis = binding_trust(registration.classical_key.algorithm,
+                             registration_log_time, now=now, policies=policies)
+        if basis is BindingBasis.REJECTED:
+            raise RegistrationError(
+                f"revocation is signed by the classicalKey "
+                f"({registration.classical_key.algorithm}) but that algorithm "
+                f"is past its disallow date with no rescuing timestamp, so the "
+                f"signature cannot be trusted now")
+        return revocation
+
+    # Recovery key: only if one was DESIGNATED, and only that one.
+    if registration.recovery_key is not None and signed_by(registration.recovery_key):
+        basis = binding_trust(registration.recovery_key.algorithm,
+                             registration_log_time, now=now, policies=policies)
+        if basis is BindingBasis.REJECTED:
+            raise RegistrationError(
+                f"revocation is signed by the recoveryKey "
+                f"({registration.recovery_key.algorithm}) but THAT algorithm is "
+                f"also past its own disallow date with no rescuing timestamp. A "
+                f"recovery key on an already-broken family provides no recovery.")
+        return revocation
+
+    # Signed by neither the classical anchor nor the designated recovery key.
+    if registration.recovery_key is None:
+        raise RegistrationError(
+            "revocation is not signed by the classicalKey, and no recoveryKey "
+            "was ever designated in this registration -- there is no key "
+            "authorised to revoke it after the primary anchor. A signature "
+            "that merely verifies against some other key is not trusted.")
+    raise RegistrationError(
+        "revocation is signed by neither the classicalKey nor the designated "
+        "recoveryKey of this registration")

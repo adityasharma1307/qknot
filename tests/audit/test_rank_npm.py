@@ -245,7 +245,7 @@ class TestNoRecordIsAnAnswerNotAnOmission:
         no_record = {"c"}
         ranked = sorted(counts.items(), key=lambda kv: -kv[1])
         assert [n for n, _ in ranked] == ["b", "a"], "descending by downloads"
-        assert "c" not in dict(ranked)
+        assert not (no_record & {n for n, _ in ranked}), "no-record excluded"
 
 
 class TestTheFinalisationIsLinear:
