@@ -307,3 +307,48 @@ class TestPermanentVersusTransientFailure:
         with pytest.raises(NpmError) as caught:
             client.single_downloads("@babel/core")
         assert caught.value.retry_after is None
+
+
+class TestProvenanceVersionsAreMatchedByFamily:
+    """6 signed HEAD packages were filed as unclassifiable over a version string.
+
+    react-fast-compare, @typescript-eslint/experimental-utils and others carry
+    slsa.dev/provenance/v0.2, but the matcher pinned the exact v1 string and so
+    skipped a real provenance attestation carrying a Fulcio certificate.
+    """
+
+    def _provenance(self, version: str) -> dict[str, Any]:
+        return {"attestations": [
+            {"predicateType": "https://github.com/npm/attestation/tree/main/"
+                              "specs/publish/v0.1",
+             "bundle": {"verificationMaterial": {"publicKey": {"hint": "x"}}}},
+            {"predicateType": f"https://slsa.dev/provenance/{version}",
+             "bundle": {"verificationMaterial": {
+                 "certificate": {"rawBytes": _certificate_b64()}}}}]}
+
+    @pytest.mark.parametrize("version", ["v0.2", "v1"])
+    def test_a_certificate_is_found_under_either_provenance_version(self, version):
+        assert provenance_certificate(self._provenance(version)) is not None
+
+    def test_a_v0_2_package_classifies_end_to_end(self):
+        """The head packages that were erroring: signed, and now classified."""
+        client = FakeNpm(
+            {"react-fast-compare": PackageVersions("react-fast-compare", 5,
+                                                   ["3.2.2"])},
+            {"react-fast-compare@3.2.2": self._provenance("v0.2")})
+        record = audit_package(client, "react-fast-compare")
+        assert record["sig_algorithm"] == SigAlgorithm.ECDSA_P256.value
+        assert record["q_label"] == QLabel.VULNERABLE.value
+        assert record["q_label"] != QLabel.ERROR.value
+
+    def test_publish_only_is_still_unclassifiable(self):
+        """The fix must not turn a publish-only package into a false positive."""
+        client = FakeNpm(
+            {"p": PackageVersions("p", 1, ["1.0.0"])},
+            {"p@1.0.0": {"attestations": [
+                {"predicateType": "https://github.com/npm/attestation/tree/"
+                                  "main/specs/publish/v0.1",
+                 "bundle": {"verificationMaterial": {"publicKey": {"hint": "x"}}}}]}})
+        record = audit_package(client, "p")
+        assert record["sig_algorithm"] == SigAlgorithm.UNKNOWN.value
+        assert record["has_signature"] is True

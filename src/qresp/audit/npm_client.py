@@ -17,7 +17,7 @@ TWO ATTESTATIONS PER VERSION, AND THEY ARE NOT THE SAME THING
 | predicateType | verification material |
 |---|---|
 | `github.com/npm/attestation/.../publish/v0.1` | `publicKey` -- npm's own registry key, **by reference** |
-| `slsa.dev/provenance/v1` | `certificate` -- a **Fulcio** certificate |
+| `slsa.dev/provenance/v0.2` or `/v1` | `certificate` -- a **Fulcio** certificate |
 
 Only the SLSA one embeds a certificate, so only it can have its algorithm read
 off directly. The npm publish attestation names a key by ID, and resolving that
@@ -70,7 +70,14 @@ _API = "https://api.npmjs.org"
 # docstring.
 BULK_LIMIT = 128
 
-PROVENANCE_PREDICATE = "https://slsa.dev/provenance/v1"
+# Matched by PREFIX, not exact string. npm has issued SLSA provenance under
+# both v0.2 and v1 over time, and the Fulcio certificate sits in the same place
+# in either. Pinning the exact "v1" string filed 6 popular, genuinely signed
+# HEAD packages -- react-fast-compare, @typescript-eslint/experimental-utils,
+# @semantic-release/error among them -- as "algorithm not determinable", which
+# undercounts the head signing rate in the most important stratum. A version
+# suffix is not the thing being matched; the predicate FAMILY is.
+PROVENANCE_PREDICATE_PREFIX = "https://slsa.dev/provenance/"
 
 
 class NpmError(Exception):
@@ -232,7 +239,8 @@ def provenance_certificate(attestations: dict[str, Any]) -> str | None:
     embedded.
     """
     for attestation in attestations.get("attestations") or []:
-        if attestation.get("predicateType") != PROVENANCE_PREDICATE:
+        predicate = attestation.get("predicateType") or ""
+        if not predicate.startswith(PROVENANCE_PREDICATE_PREFIX):
             continue
         material = (attestation.get("bundle") or {}).get("verificationMaterial") or {}
         certificate = material.get("certificate") or {}
