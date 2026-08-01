@@ -60,4 +60,19 @@ def pae(payload_type: str, payload: bytes) -> bytes:
     ])
 
 
-__all__ = ["DSSE_PAYLOAD_TYPE", "pae"]
+def rekord_preimage(payload_type: str, payload: bytes) -> bytes:
+    """SHA-256 of the PAE -- the exact bytes a hashedrekord entry commits to.
+
+    ONE function, imported by both the artefact-bundle and the
+    key-registration submission paths, because the two must agree on the
+    pre-image to the byte or an inclusion proof stops validating for a reason
+    nobody can see (spec section 2). It hashes the PAE of the payload, NOT the
+    surrounding envelope with its signatures, so adding or reordering
+    signatures cannot change what was logged.
+    """
+    import hashlib
+
+    return hashlib.sha256(pae(payload_type, payload)).digest()
+
+
+__all__ = ["DSSE_PAYLOAD_TYPE", "pae", "rekord_preimage"]

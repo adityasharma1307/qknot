@@ -400,6 +400,62 @@ def assess(
     return TemporalAssessment(findings=findings, evidence=evidence)
 
 
+class BindingBasis(str, Enum):
+    """Whether a CLASSICAL attestation can be trusted to vouch for a binding.
+
+    The three outcomes of spec section 4 step 7, made a value so the verifier
+    can report WHICH one held rather than just accept/reject -- a verdict that
+    hides its basis is the thing this whole design exists to avoid.
+    """
+
+    DIRECT = "direct"                       # the algorithm is still allowed
+    RESCUED = "rescued-by-timestamp"        # disallowed now, but logged before D
+    REJECTED = "rejected"                   # nothing proves it predates D
+
+
+def binding_trust(
+    algorithm: str,
+    upper_bound: datetime | None,
+    now: datetime | None = None,
+    policies: dict[str, Any] | None = None,
+) -> BindingBasis:
+    """Can a signature by `algorithm` be trusted to vouch for a binding now?
+
+    This is spec step 7, and it is called TWICE and identically: once for the
+    primary classical anchor, and once -- with the recovery key's own algorithm
+    and its own date -- for a recovery-key revocation (spec 5.1). Structurally
+    one decision, so it is one function.
+
+      DIRECT   now < D                         the algorithm is still allowed
+      RESCUED  now >= D, upper_bound < D        a log timestamp proves the act
+                                                happened while it was allowed
+      REJECTED now >= D, upper_bound absent      nothing proves it predates D;
+               or upper_bound >= D               it may be a forgery made after
+                                                 the algorithm broke
+
+    `upper_bound` is the log's integratedTime T -- an UPPER bound ("existed
+    by"), the only bound direction that can rescue. A lower bound cannot, which
+    is why this takes a datetime already known to be an upper bound rather than
+    a TimeEvidence whose direction it would have to trust.
+    """
+    policies = policies if policies is not None else ALGORITHM_POLICIES
+    now = now or datetime.now(timezone.utc)
+
+    spec = policies.get(algorithm)
+    if spec is None:
+        raise ValueError(
+            f"no policy for {algorithm!r}; a binding on an algorithm with no "
+            f"disallow date cannot be judged, so it is not silently trusted"
+        )
+    disallow = spec.disallowed_after_date
+    if disallow is None or now <= disallow:
+        # No deadline, or not yet past it: the attestation stands on its own.
+        return BindingBasis.DIRECT
+    if upper_bound is not None and upper_bound <= disallow:
+        return BindingBasis.RESCUED
+    return BindingBasis.REJECTED
+
+
 def evidence_from_attestation(attestation: Any) -> TimeEvidence | None:
     """Extract time evidence from an entropy attestation, if it carries any.
 
@@ -467,6 +523,8 @@ def evidence_from_attestation(attestation: Any) -> TimeEvidence | None:
 
 __all__ = [
     "ALGORITHM_POLICIES",
+    "BindingBasis",
+    "binding_trust",
     "AlgorithmPolicy",
     "Bound",
     "TemporalAssessment",

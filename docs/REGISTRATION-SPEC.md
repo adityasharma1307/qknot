@@ -48,9 +48,13 @@ canonical JSON.
 primary classical anchor is still valid -- to sign a revocation for this
 `(identity, pqcKey)` binding at any future time, including after
 `classicalKey`'s algorithm is disallowed. It should be a DIFFERENT classical
-family than `classicalKey` (e.g. primary ecdsa-p256, recovery ed25519), so the
-two do not break on the same date; a recovery key on the same broken algorithm
-buys nothing. Because it sits inside the PAE-covered payload, it is fixed by the
+family than `classicalKey`, so the two do not break on the same date; a
+recovery key on the same broken algorithm buys nothing. **Concretely, under
+EO 14412 / OMB M-26-15 the registry disallows ecdsa-p256 AND ed25519 on the
+same date (2031-12-31), so ed25519 is NOT an independent recovery key for a
+p256 primary -- they die together.** The genuinely independent choice is the
+ML-DSA key itself (no disallow date) or an algorithm under a different regime;
+whichever is chosen, `binding_trust` evaluates it on its own date. Because it sits inside the PAE-covered payload, it is fixed by the
 classical signature at registration and cannot be added or altered afterwards
 -- section 5.1 states the property the verifier must actually confirm rather
 than assume.
