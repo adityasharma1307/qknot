@@ -211,3 +211,38 @@ class TestTheThrottleIsAControlLoopNotARatchet:
         first = t.rate
         t.penalise(0.0)
         assert t.rate < first
+
+
+class TestNoRecordIsAnAnswerNotAnOmission:
+    """Observed at 98.9%: 30,244 names the API reports nothing for.
+
+    They stayed absent from `counts`, so every resume recomputed them as
+    outstanding, re-queried them, got the same answer, and finished in exactly
+    the same place. A run that has asked about every name could never converge.
+    """
+
+    def test_a_name_with_no_record_is_persisted_and_not_re_queried(self, tmp_path):
+        path = tmp_path / "no-record.json"
+        path.write_text('["--hashtagchris", "0utmail"]')
+        assert rank_npm.load_no_record(path) == {"--hashtagchris", "0utmail"}
+
+    def test_an_absent_file_means_nothing_answered_yet(self, tmp_path):
+        assert rank_npm.load_no_record(tmp_path / "absent.json") == set()
+
+    def test_no_record_names_count_towards_coverage(self):
+        """Otherwise a fully-asked run reads as permanently incomplete, and
+        --min-measured would abort a scan that had in fact finished."""
+        names = {"a", "b", "c", "d"}
+        measured = {"a": 10, "b": 20}
+        no_record = {"c", "d"}
+        answered = len(measured) + len(no_record & names)
+        assert answered / len(names) == 1.0
+
+    def test_they_are_excluded_from_the_ranking_not_ranked_last(self):
+        """A missing count is not a count of zero -- the rule the whole
+        collector is built on, applied to its own bookkeeping."""
+        counts = {"a": 10, "b": 20}
+        no_record = {"c"}
+        ranked = sorted(counts.items(), key=lambda kv: -kv[1])
+        assert [n for n, _ in ranked] == ["a", "b"]
+        assert "c" not in dict(ranked)

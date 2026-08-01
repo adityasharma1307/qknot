@@ -201,6 +201,25 @@ def load_partial(path: Path) -> dict[str, int]:
     return {k: v for k, v in data.items() if isinstance(v, int)}
 
 
+def load_no_record(path: Path) -> set[str]:
+    """Names npm answered about, with the answer "no download record".
+
+    Distinct from unmeasured, and persisted, because otherwise the run never
+    converges: a name the API declines to report on stays absent from `counts`,
+    so every resume recomputes it as outstanding, re-queries it, gets the same
+    answer, and ends in the same place. Observed at 98.9% completion with
+    30,244 such names -- 17,013 of them isolated singletons scattered through
+    the frame, mostly junk or unpublished packages.
+
+    "No record" is an ANSWER. Filing it as "not yet asked" is the same
+    absent-versus-unchecked confusion the scanners exist to prevent, here
+    turned inward on the collector's own bookkeeping.
+    """
+    if not path.exists():
+        return set()
+    return set(json.loads(path.read_text(encoding="utf-8")))
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -242,7 +261,9 @@ def main(argv: list[str] | None = None) -> int:
     unscoped = [n for n in names if not is_scoped(n)]
     scoped = [n for n in names if is_scoped(n)]
     partial_path = args.out.with_suffix(".partial.json")
+    no_record_path = args.out.with_suffix(".no-record.json")
     counts: dict[str, int] = load_partial(partial_path)
+    no_record_names: set[str] = load_no_record(no_record_path)
 
     print(f"candidates: {len(names):,}  ({len(unscoped):,} unscoped, "
           f"{len(scoped):,} scoped)")
@@ -255,7 +276,11 @@ def main(argv: list[str] | None = None) -> int:
     started = time.time()
     failed: list[str] = []
 
-    todo_unscoped = [n for n in unscoped if n not in counts]
+    if no_record_names:
+        print(f"  {len(no_record_names):,} name(s) previously answered "
+              f"'no download record' -- not re-queried")
+    todo_unscoped = [n for n in unscoped
+                     if n not in counts and n not in no_record_names]
     batches = [todo_unscoped[i:i + BULK_LIMIT]
                for i in range(0, len(todo_unscoped), BULK_LIMIT)]
     print(f"  unscoped -> {len(batches):,} bulk requests")
@@ -265,11 +290,17 @@ def main(argv: list[str] | None = None) -> int:
             result = with_retry(lambda b=batch: client.bulk_downloads(b),
                                 throttle, f"bulk {index}")
             counts.update({n: c for n, c in result.items() if isinstance(c, int)})
+            # The API answered for the batch; any name it did not report on has
+            # no download record. That is a result, so record it as one.
+            no_record_names.update(
+                n for n, c in result.items() if not isinstance(c, int))
         except Exception as exc:
             failed.extend(batch)
             print(f"  batch {index} exhausted retries: {str(exc)[:100]}")
         if index % 10 == 0 or index == len(batches):
             partial_path.write_text(json.dumps(counts), encoding="utf-8")
+            no_record_path.write_text(json.dumps(sorted(no_record_names)),
+                                      encoding="utf-8")
             rate = index / max(time.time() - started, 1e-9)
             eta = (len(batches) - index) / max(rate, 1e-9) / 60
             print(f"  bulk {index:,}/{len(batches):,}  {rate:.1f}/s  "
@@ -340,12 +371,21 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  merging {len(merged):,} rows from {args.merge}")
 
     measured = {n: c for n, c in counts.items() if n in set(names)}
-    fraction_own = len(measured) / max(len(names), 1)
+    # Names npm has no record for are ANSWERED, not outstanding, so they count
+    # towards coverage. Excluding them from the denominator would make a run
+    # that had asked about every single name look permanently incomplete.
+    answered = len(measured) + len(no_record_names & set(names))
+    fraction_own = answered / max(len(names), 1)
     measured = {**merged, **measured}
     fraction = fraction_own
     ranked = sorted(measured.items(), key=lambda kv: kv[1], reverse=True)
 
-    print(f"\n  measured {len(measured):,} / {len(names):,} ({fraction:.1%})")
+    print(f"\n  measured {len(measured):,} / {len(names):,}")
+    if no_record_names:
+        print(f"  {len(no_record_names & set(names)):,} answered "
+              f"'no download record' -- excluded from the ranking, not ranked "
+              f"last")
+    print(f"  coverage (measured + answered) {fraction:.2%}")
     if fraction < args.min_measured:
         print(f"\n  ABORTED: only {fraction:.1%} of candidates were measured, "
               f"below --min-measured {args.min_measured:.0%}.")
