@@ -244,5 +244,5 @@ class TestNoRecordIsAnAnswerNotAnOmission:
         counts = {"a": 10, "b": 20}
         no_record = {"c"}
         ranked = sorted(counts.items(), key=lambda kv: -kv[1])
-        assert [n for n, _ in ranked] == ["a", "b"]
+        assert [n for n, _ in ranked] == ["b", "a"], "descending by downloads"
         assert "c" not in dict(ranked)
