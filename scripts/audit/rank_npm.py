@@ -370,11 +370,19 @@ def main(argv: list[str] | None = None) -> int:
         merged = {r["project"]: r["download_count"] for r in prior.get("rows", [])}
         print(f"  merging {len(merged):,} rows from {args.merge}")
 
-    measured = {n: c for n, c in counts.items() if n in set(names)}
+    # `set(names)` MUST be hoisted. Written inline in the condition it is
+    # rebuilt on every iteration -- 2.65M passes each constructing a 2.68M
+    # element set -- which is quadratic and, measured by extrapolation from
+    # 20,000 items, roughly 60 hours. The run completed every request, printed
+    # "scoped -> 0 individual requests", and then sat here looking like a hang
+    # because it was one. It survived a 50,000-name candidate pool only because
+    # quadratic on 50,000 is merely slow.
+    name_set = set(names)
+    measured = {n: c for n, c in counts.items() if n in name_set}
     # Names npm has no record for are ANSWERED, not outstanding, so they count
     # towards coverage. Excluding them from the denominator would make a run
     # that had asked about every single name look permanently incomplete.
-    answered = len(measured) + len(no_record_names & set(names))
+    answered = len(measured) + len(no_record_names & name_set)
     fraction_own = answered / max(len(names), 1)
     measured = {**merged, **measured}
     fraction = fraction_own
@@ -382,7 +390,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"\n  measured {len(measured):,} / {len(names):,}")
     if no_record_names:
-        print(f"  {len(no_record_names & set(names)):,} answered "
+        print(f"  {len(no_record_names & name_set):,} answered "
               f"'no download record' -- excluded from the ranking, not ranked "
               f"last")
     print(f"  coverage (measured + answered) {fraction:.2%}")
@@ -397,16 +405,35 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(json.dumps({
+
+    # STREAMED, and compact for the rows. json.dumps(..., indent=2) over 2.65M
+    # rows builds a single ~400 MB string in memory before writing one byte:
+    # the run completed every request, printed "scoped -> 0", and then appeared
+    # to hang here. The header stays readable; the rows are one per line, which
+    # keeps the file greppable without paying for pretty-printing millions of
+    # objects.
+    header = {
         "generated": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "metric": "npm downloads, last-month, api.npmjs.org",
         "candidate_count": len(names),
         "measured": len(measured),
-        "unmeasured": len(names) - len(measured),
-        "measured_fraction": round(fraction, 4),
+        "no_download_record": len(no_record_names & name_set),
+        "unmeasured": len(names) - answered,
+        "coverage": round(fraction, 6),
         "rate_limit_req_per_s": args.rate,
-        "rows": [{"project": n, "download_count": c} for n, c in ranked],
-    }, indent=2), encoding="utf-8")
+    }
+    with args.out.open("w", encoding="utf-8") as handle:
+        handle.write("{\n")
+        for key, value in header.items():
+            handle.write(f"  {json.dumps(key)}: {json.dumps(value)},\n")
+        handle.write('  "rows": [\n')
+        last = len(ranked) - 1
+        for index, (name, count) in enumerate(ranked):
+            comma = "" if index == last else ","
+            handle.write(
+                f'    {{"project": {json.dumps(name)}, '
+                f'"download_count": {count}}}{comma}\n')
+        handle.write("  ]\n}\n")
 
     if no_record:
         print(f"  {no_record:,} returned 404 -- npm has no download record for "

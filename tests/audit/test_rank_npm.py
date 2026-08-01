@@ -246,3 +246,28 @@ class TestNoRecordIsAnAnswerNotAnOmission:
         ranked = sorted(counts.items(), key=lambda kv: -kv[1])
         assert [n for n, _ in ranked] == ["b", "a"], "descending by downloads"
         assert "c" not in dict(ranked)
+
+
+class TestTheFinalisationIsLinear:
+    """The hang: `set(names)` written inside a comprehension's condition.
+
+    Rebuilt per iteration, it is quadratic. At 2.65M names that is ~60 hours,
+    extrapolated from 20,000 items where it already costs 12s against 0.002s
+    hoisted. The run had completed every request and printed "scoped -> 0"
+    before sitting here, so it looked like a stall after the work was done.
+    """
+
+    def test_no_set_construction_survives_inside_a_comprehension(self):
+        source = (ROOT / "scripts" / "audit" / "rank_npm.py").read_text(
+            encoding="utf-8")
+        offenders = [line.strip() for line in source.splitlines()
+                     if "for " in line and "in set(" in line]
+        assert not offenders, (
+            f"set() built inside a comprehension condition is quadratic: "
+            f"{offenders}")
+
+    def test_membership_is_tested_against_a_hoisted_set(self):
+        source = (ROOT / "scripts" / "audit" / "rank_npm.py").read_text(
+            encoding="utf-8")
+        assert "name_set = set(names)" in source
+        assert "if n in name_set" in source
