@@ -79,7 +79,7 @@ def main(argv: list[str] | None = None) -> int:
                              "frame, so the pool cannot contain deleted packages.")
     args = parser.parse_args(argv)
 
-    from qresp.audit.npm_client import NpmClient, NpmError, is_scoped
+    from qresp.audit.npm_client import NpmClient, is_scoped
 
     ranking = json.loads(args.ranking.read_text(encoding="utf-8"))
     seeds = [r["project"] for r in ranking["rows"][:args.top]]
@@ -87,7 +87,8 @@ def main(argv: list[str] | None = None) -> int:
 
     client = NpmClient()
     found: dict[str, int] = {}          # scoped name -> how many depend on it
-    failures = 0
+    unfetchable = 0                     # could not ask -- candidates may be lost
+    no_dependencies = 0                 # asked; it genuinely has none
 
     def deps_of(name: str) -> list[str]:
         """Dependencies of the latest version, from the abbreviated packument."""
@@ -105,27 +106,42 @@ def main(argv: list[str] | None = None) -> int:
             out.extend((meta.get(field) or {}).keys())
         return out
 
-    def safe_deps(name: str) -> list[str]:
+    def safe_deps(name: str) -> list[str] | None:
+        """`[]` means "asked, and it has none". `None` means "could not ask".
+
+        These were the same value in the first version, both reported as "seeds
+        with no readable dependency list" -- which conflates the most ordinary
+        thing on npm with a collection failure. Popular packages very often
+        have ZERO dependencies: ms, picocolors, is-number and most of the
+        micro-package layer. A seed with no deps contributes nothing and is
+        fine. A seed that could not be fetched means candidates are MISSING
+        from the pool, and only the second is a reason to distrust the result.
+
+        The same absent-versus-unchecked rule the scanners enforce, which this
+        script was violating while sitting two directories away from them.
+        """
         try:
             return deps_of(name)
-        except NpmError:
-            return []
         except Exception:
-            return []
+            return None
 
     started = time.time()
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
         for index, deps in enumerate(pool.map(safe_deps, seeds), start=1):
-            if not deps:
-                failures += 1
+            if deps is None:
+                unfetchable += 1
+                deps = []
+            elif not deps:
+                no_dependencies += 1
             for dep in deps:
                 if is_scoped(dep):
                     found[dep] = found.get(dep, 0) + 1
             if index % 1000 == 0 or index == len(seeds):
                 rate = index / max(time.time() - started, 1e-9)
                 eta = (len(seeds) - index) / max(rate, 1e-9) / 60
-                print(f"  {index:,}/{len(seeds):,}  {rate:.0f}/s  ~{eta:.0f} min left  "
-                      f"distinct scoped deps={len(found):,}")
+                print(f"  {index:,}/{len(seeds):,}  {rate:.0f}/s  ~{eta:.0f} min "
+                      f"left  scoped deps={len(found):,}  "
+                      f"no-deps={no_dependencies:,}  unfetchable={unfetchable:,}")
 
     names = sorted(found, key=lambda n: (-found[n], n))
 
@@ -142,7 +158,8 @@ def main(argv: list[str] | None = None) -> int:
         "source": "direct dependencies of top-ranked unscoped npm packages",
         "ranking": str(args.ranking),
         "seed_count": len(seeds),
-        "seeds_with_no_readable_deps": failures,
+        "seeds_with_no_dependencies": no_dependencies,
+        "seeds_unfetchable": unfetchable,
         "scoped_candidates": len(names),
         "role": "stage 1 candidate pool only; rank_npm.py does the ranking",
         "replaces": "npm search seed sweep, which returned lodash._objecttypes "
@@ -150,8 +167,17 @@ def main(argv: list[str] | None = None) -> int:
     }, indent=2), encoding="utf-8")
 
     print(f"\n  {len(names):,} scoped candidates")
-    if failures:
-        print(f"  {failures:,} seed(s) had no readable dependency list")
+    if no_dependencies:
+        print(f"  {no_dependencies:,} seed(s) have no dependencies at all "
+              f"-- ordinary on npm, and not a problem")
+    if unfetchable:
+        share = unfetchable / max(len(seeds), 1)
+        print(f"  {unfetchable:,} seed(s) COULD NOT BE FETCHED ({share:.1%}) "
+              f"-- scoped candidates may be missing because of this")
+        if share > 0.05:
+            print("  That share is high enough to distrust the pool. Re-run; "
+                  "registry.npmjs.org\n  tolerates a high rate but not an "
+                  "unlimited one.")
     print(f"  most depended-upon: {names[:6]}")
     print(f"  -> {args.out}")
     return 0
