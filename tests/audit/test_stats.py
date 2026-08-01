@@ -238,3 +238,51 @@ class TestLoadWorksAcrossEcosystems:
             '"audit_ts": "2026-08-01T09:00:00"}\n')
         recs = st.load(path)
         assert len(recs) == 1 and recs[0]["q_label"] == "signed"
+
+
+class TestStratifiedSingleFileInput:
+    """The runners write ONE file with a `stratum` field; stats must read it.
+
+    --head/--tail expected two separate files, which is the HuggingFace
+    workflow. run_pypi_audit and run_npm_audit write a single combined file,
+    so pointing stats at it required splitting by hand until now -- an
+    integration gap that meant the npm/PyPI numbers could not go through this
+    tool as produced.
+    """
+
+    def _write(self, path, head_n, head_signed, tail_n, tail_signed):
+        rows = []
+        for i in range(head_n):
+            signed = i < head_signed
+            rows.append({"project": f"h{i}", "stratum": "head",
+                         "q_label": "vulnerable" if signed else "unsigned",
+                         "has_signature": signed, "audit_ts": "t"})
+        for i in range(tail_n):
+            signed = i < tail_signed
+            rows.append({"project": f"t{i}", "stratum": "tail",
+                         "q_label": "vulnerable" if signed else "unsigned",
+                         "has_signature": signed, "audit_ts": "t"})
+        path.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+
+    def test_a_combined_file_is_split_by_stratum(self, tmp_path, capsys):
+        path = tmp_path / "npm.jsonl"
+        self._write(path, 10_000, 2_540, 10_000, 363)
+        st.main(["--stratified", str(path), "--tail-population", "4290079"])
+        out = capsys.readouterr().out
+        assert "HEAD STRATUM" in out and "LONG-TAIL STRATUM" in out
+        assert "25.400%" in out          # head signed
+        assert "4,290,079" in out        # registry N = frame, not frame + head
+
+    def test_an_unlabelled_file_is_refused(self, tmp_path):
+        path = tmp_path / "flat.jsonl"
+        path.write_text(json.dumps(
+            {"project": "a", "q_label": "unsigned", "has_signature": False,
+             "audit_ts": "t"}) + "\n")
+        with pytest.raises(SystemExit):
+            st.main(["--stratified", str(path), "--tail-population", "1000"])
+
+    def test_a_file_missing_one_stratum_is_refused(self, tmp_path):
+        path = tmp_path / "headonly.jsonl"
+        self._write(path, 100, 10, 0, 0)
+        with pytest.raises(SystemExit):
+            st.main(["--stratified", str(path), "--tail-population", "1000"])

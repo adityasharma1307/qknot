@@ -38,6 +38,7 @@ import math
 import sys
 from math import ceil, lgamma
 from pathlib import Path
+from typing import Any
 
 # 95% two-sided normal quantile. The exact value is 1.9599639845400545; 1.96 is
 # kept because it is what the published Phase I intervals were computed with,
@@ -391,7 +392,30 @@ def main(argv: list[str] | None = None) -> int:
                              "the long-tail population size used as the stratum weight.")
     parser.add_argument("--tail-population", type=int, default=None,
                         help="Long-tail population size, if no manifest is available.")
+    parser.add_argument("--stratified", type=Path, default=None,
+                        help="A single audit output whose records carry a "
+                             "`stratum` field of 'head' or 'tail'. This is what "
+                             "run_pypi_audit.py and run_npm_audit.py write -- "
+                             "one file, both strata -- so it is split here "
+                             "rather than requiring two separate files.")
     args = parser.parse_args(argv)
+
+    if args.stratified:
+        records = load(args.stratified)
+        strata = {str(r.get("stratum")) for r in records}
+        if strata - {"head", "tail"}:
+            parser.error(
+                f"{args.stratified} has strata {sorted(strata)}; a stratified "
+                f"file must label every record 'head' or 'tail'")
+        head_recs = [r for r in records if r.get("stratum") == "head"]
+        tail_recs = [r for r in records if r.get("stratum") == "tail"]
+        if not head_recs or not tail_recs:
+            parser.error(
+                f"{args.stratified} has {len(head_recs)} head and "
+                f"{len(tail_recs)} tail records; both strata must be present")
+        head, tail = counts(head_recs), counts(tail_recs)
+        return _report_stratified(head, tail, args, parser, str(args.stratified),
+                                  str(args.stratified))
 
     stratified = bool(args.head or args.tail)
     if stratified and not (args.head and args.tail):
@@ -407,7 +431,12 @@ def main(argv: list[str] | None = None) -> int:
 
     head = counts(load(args.head))
     tail = counts(load(args.tail))
+    return _report_stratified(head, tail, args, parser,
+                              str(args.head), str(args.tail))
 
+
+def _report_stratified(head: dict, tail: dict, args: Any, parser: Any,
+                        head_label: str, tail_label: str) -> int:
     tail_population = args.tail_population
     if tail_population is None and args.manifest:
         manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
@@ -420,8 +449,8 @@ def main(argv: list[str] | None = None) -> int:
             "pass --manifest or --tail-population"
         )
 
-    print(f"head = {args.head}")
-    print(f"tail = {args.tail}\n")
+    print(f"head = {head_label}")
+    print(f"tail = {tail_label}\n")
     print_block("BLOCK 1 -- HEAD STRATUM (top 10,000 by downloads)", head,
                 population=HEAD_POPULATION)
     print_block("BLOCK 2 -- LONG-TAIL STRATUM (uniform random draw)", tail,
