@@ -206,10 +206,20 @@ class TestFullEntryVerification:
         with pytest.raises(InclusionError, match="Configuration error"):
             verify_log_entry(entry, preimage, b"")
 
-    def test_a_future_integrated_time_is_refused(self):
+    def test_a_far_future_integrated_time_is_refused(self):
         preimage = hashlib.sha256(b"r").digest()
         entries = [hashedrekord_body(preimage), b"x"]
         future = datetime.now(timezone.utc) + timedelta(days=3650)
         entry = _log_entry(entries, 0, self.log_key, integrated=future)
         with pytest.raises(InclusionError, match="future"):
             verify_log_entry(entry, preimage, self.log_pub)
+
+    def test_a_few_seconds_of_clock_skew_is_tolerated(self):
+        """A real log's integratedTime can land a moment ahead of the verifier's
+        clock; a small skew must be tolerated, unlike a far-future timestamp."""
+        preimage = hashlib.sha256(b"r").digest()
+        entries = [hashedrekord_body(preimage), b"x"]
+        soon = datetime.now(timezone.utc) + timedelta(seconds=10)
+        entry = _log_entry(entries, 0, self.log_key, integrated=soon)
+        t = verify_log_entry(entry, preimage, self.log_pub)
+        assert isinstance(t, datetime)

@@ -111,8 +111,13 @@ def register(
     passing them here is deliberate -- `register` refuses to hand back a bundle
     it cannot itself verify.
     """
-    now = now or datetime.now(timezone.utc)
-    created = created or now
+    # `now` pinned by the caller (temporal tests, "as of" queries) is used as
+    # given; otherwise the round-trip verification below is done as of the ACTUAL
+    # verification instant -- recomputed after the network round-trip -- because
+    # the log's integratedTime lands during those calls, so a `now` captured up
+    # front would be a hair behind it.
+    pinned_now = now
+    created = created or pinned_now or datetime.now(timezone.utc)
 
     # 1. The classical anchor key (ephemeral, like Fulcio's own signing key).
     classical = get_backend(classical_algorithm)
@@ -154,10 +159,11 @@ def register(
         intermediate_certificates=certificate.intermediate_ders,
         log_entry=log_entry,
     )
+    verify_now = pinned_now or datetime.now(timezone.utc)
     try:
         verify_registration_chain(
             bundle, fulcio_roots=fulcio_roots,
-            log_public_key=log_public_key, now=now)
+            log_public_key=log_public_key, now=verify_now)
     except RegistrationError as exc:
         raise RegistrationError(
             f"register produced a bundle that does not verify, so it is not a "

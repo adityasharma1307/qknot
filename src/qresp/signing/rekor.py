@@ -55,8 +55,15 @@ import base64
 import hashlib
 import json
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
+
+# A modest allowance for clock skew between the log and the verifier on the
+# "integratedTime is not in the future" sanity check. Real logs and verifiers do
+# not share a clock; rejecting a timestamp a second in the future would be too
+# strict. It is immaterial to the temporal rescue, which reasons about disallow
+# DATES years away, not seconds.
+_CLOCK_SKEW_TOLERANCE = timedelta(minutes=1)
 
 __all__ = [
     "InclusionError",
@@ -478,9 +485,10 @@ def verify_log_entry(
 
     # 5. Only now is integratedTime trustworthy: it is the log's signed claim.
     integrated = datetime.fromtimestamp(entry.integrated_time, tz=timezone.utc)
-    if integrated > at_time:
+    if integrated > at_time + _CLOCK_SKEW_TOLERANCE:
         raise InclusionError(
             f"the log's integratedTime {integrated.isoformat()} is in the "
-            f"future relative to {at_time.isoformat()}; a timestamp that has "
-            f"not happened yet cannot bound anything")
+            f"future relative to {at_time.isoformat()} (beyond a "
+            f"{_CLOCK_SKEW_TOLERANCE} clock-skew allowance); a timestamp that "
+            f"has not happened yet cannot bound anything")
     return integrated
