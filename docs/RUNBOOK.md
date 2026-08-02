@@ -133,6 +133,17 @@ by anyone who can read the repository" means the public.
 This is the one step that cannot be automated from a sandbox: it rewrites every
 commit and needs a force-push with your credentials.
 
+### Order matters if you have unpushed work
+
+`filter-repo` rewrites whatever history it is given, so run it **after** your
+local commits are on the remote, not before — otherwise you rewrite the remote,
+then push local commits that still carry the old blob, and you are back where
+you started. The repository is private, so pushing first exposes nothing new:
+the file is already in that history, which is the whole reason for this section.
+
+    git push origin main        # get local work onto the remote FIRST
+    # ...then run the purge below, which rewrites everything at once
+
 ### The procedure
 
 Work on a **fresh clone**, so a mistake costs nothing:
