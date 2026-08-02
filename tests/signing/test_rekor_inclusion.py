@@ -17,6 +17,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from qresp.signing.rekor import (
     InclusionError,
     LogEntry,
+    hashedrekord_body,
     leaf_hash,
     verify_inclusion_root,
     verify_log_entry,
@@ -86,14 +87,14 @@ def test_an_index_outside_the_tree_is_refused():
 
 
 def _log_entry(preimage, entries, index, log_key, integrated=None):
+    """`entries` are entry BODIES; entries[index] must commit to `preimage`."""
     tree = RefTree(entries)
     root = tree.root()
     tree_size = len(entries)
     sth = LogEntry.signed_tree_head(root, tree_size)
     sig = log_key.sign(sth, ec.ECDSA(hashes.SHA256()))
     return LogEntry(
-        body_sha256=preimage,
-        entry_leaf=entries[index],
+        entry_body=entries[index],
         log_index=index, tree_size=tree_size,
         inclusion_proof=tree.proof(index), root_hash=root,
         integrated_time=int((integrated or datetime.now(timezone.utc)
@@ -109,20 +110,50 @@ class TestFullEntryVerification:
 
     def test_a_valid_entry_returns_the_upper_bound_time(self):
         preimage = hashlib.sha256(b"registration").digest()
-        entries = [preimage if i == 2 else f"e{i}".encode() for i in range(5)]
+        entries = [hashedrekord_body(preimage) if i == 2 else f"e{i}".encode()
+                   for i in range(5)]
         entry = _log_entry(preimage, entries, 2, self.log_key)
         t = verify_log_entry(entry, preimage, self.log_pub)
         assert isinstance(t, datetime) and t.tzinfo is not None
 
-    def test_an_entry_for_a_different_registration_is_refused(self):
-        entries = [f"e{i}".encode() for i in range(5)]
-        entry = _log_entry(b"a" * 32, entries, 2, self.log_key)
-        with pytest.raises(InclusionError, match="different entry"):
-            verify_log_entry(entry, b"b" * 32, self.log_pub)
+    def test_the_digest_is_bound_to_the_proven_leaf(self):
+        """Bug 2: a REAL inclusion proof for one registration cannot be rebound
+        to a different registration. The digest is parsed from the proven body,
+        so claiming a different expected preimage simply fails the match."""
+        real = hashlib.sha256(b"alice-registration").digest()
+        entries = [hashedrekord_body(real) if i == 1 else f"e{i}".encode()
+                   for i in range(4)]
+        entry = _log_entry(real, entries, 1, self.log_key)   # honest proof
+        attacker = hashlib.sha256(b"mallory-registration").digest()
+        with pytest.raises(InclusionError, match="different digest|another entry"):
+            verify_log_entry(entry, attacker, self.log_pub)
+
+    def test_an_entry_body_not_matching_its_leaf_fails_inclusion(self):
+        """Swap the body for a different hashedrekord after the proof was built:
+        the leaf hash changes, so inclusion no longer reconstructs the root."""
+        real = hashlib.sha256(b"r").digest()
+        entries = [hashedrekord_body(real) if i == 0 else f"e{i}".encode()
+                   for i in range(4)]
+        entry = _log_entry(real, entries, 0, self.log_key)
+        swapped = LogEntry(
+            entry_body=hashedrekord_body(hashlib.sha256(b"other").digest()),
+            log_index=entry.log_index, tree_size=entry.tree_size,
+            inclusion_proof=entry.inclusion_proof, root_hash=entry.root_hash,
+            integrated_time=entry.integrated_time,
+            tree_head_signature=entry.tree_head_signature)
+        with pytest.raises(InclusionError):
+            verify_log_entry(swapped, hashlib.sha256(b"other").digest(), self.log_pub)
+
+    def test_a_non_hashedrekord_body_is_refused(self):
+        entries = [b"not-a-hashedrekord" for _ in range(3)]
+        entry = _log_entry(b"x" * 32, entries, 0, self.log_key)
+        with pytest.raises(InclusionError, match="not a parseable hashedrekord"):
+            verify_log_entry(entry, b"x" * 32, self.log_pub)
 
     def test_a_tree_head_signed_by_the_wrong_key_is_refused(self):
         preimage = hashlib.sha256(b"r").digest()
-        entries = [preimage if i == 1 else f"e{i}".encode() for i in range(4)]
+        entries = [hashedrekord_body(preimage) if i == 1 else f"e{i}".encode()
+                   for i in range(4)]
         entry = _log_entry(preimage, entries, 1, self.log_key)
         other = ec.generate_private_key(ec.SECP256R1()).public_key().public_bytes(
             Encoding.DER, PublicFormat.SubjectPublicKeyInfo)
@@ -131,14 +162,14 @@ class TestFullEntryVerification:
 
     def test_an_empty_log_key_is_a_config_error(self):
         preimage = hashlib.sha256(b"r").digest()
-        entries = [preimage, b"x"]
+        entries = [hashedrekord_body(preimage), b"x"]
         entry = _log_entry(preimage, entries, 0, self.log_key)
         with pytest.raises(InclusionError, match="Configuration error"):
             verify_log_entry(entry, preimage, b"")
 
     def test_a_future_integrated_time_is_refused(self):
         preimage = hashlib.sha256(b"r").digest()
-        entries = [preimage, b"x"]
+        entries = [hashedrekord_body(preimage), b"x"]
         future = datetime.now(timezone.utc) + timedelta(days=3650)
         entry = _log_entry(preimage, entries, 0, self.log_key, integrated=future)
         with pytest.raises(InclusionError, match="future"):

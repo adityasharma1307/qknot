@@ -10,12 +10,21 @@ expert reviews here is what runs.
 
 Three things are checked, and all three are required:
 
-  1. the entry the log holds commits to OUR registration -- its logged hash
-     equals `rekord_preimage(payloadType, payload)`, or the proof is about
-     someone else's entry;
+  1. the digest is EXTRACTED FROM the entry body that is proven included, and
+     equals `rekord_preimage(payloadType, payload)`. It is not a free-floating
+     field the submitter can set independently -- an expert review found that a
+     separate `body_sha256` let a real inclusion proof for an unrelated entry
+     be rebound to any registration by rewriting that field. The digest now
+     comes from the same bytes whose inclusion is proven, so the two cannot be
+     decoupled;
   2. the inclusion proof reconstructs the signed root -- RFC 6962 section 2.1.1;
   3. the tree head is signed by the log's key -- so the root, and therefore the
      inclusion, is the log's own claim and not the submitter's.
+
+The entry body is a hashedrekord-shaped structure (kind, spec.data.hash), which
+is what a real Rekor leaf carries. The digest lives at spec.data.hash.value and
+is parsed out here -- so mapping a live Rekor entry into a LogEntry is a shape
+translation, not a trust decision.
 
 `integratedTime` is then an UPPER bound: the entry existed by that instant.
 Only an upper bound can rescue (temporal.binding_trust), which is why this
@@ -31,10 +40,53 @@ from typing import Any
 __all__ = [
     "InclusionError",
     "LogEntry",
+    "hashedrekord_body",
+    "hashedrekord_digest",
     "leaf_hash",
     "verify_inclusion_root",
     "verify_log_entry",
 ]
+
+
+def hashedrekord_body(preimage: bytes) -> bytes:
+    """A canonical hashedrekord-shaped entry body committing to `preimage`.
+
+    The shape a real Rekor hashedrekord carries, minimally: kind, and
+    spec.data.hash.{algorithm,value}. Canonical JSON so the bytes are a function
+    of the digest alone -- the Merkle leaf is computed over exactly these bytes,
+    so nothing outside them can be smuggled into what the log attests.
+    """
+    import json
+
+    return json.dumps({
+        "kind": "hashedrekord",
+        "apiVersion": "0.0.1",
+        "spec": {"data": {"hash": {
+            "algorithm": "sha256", "value": preimage.hex()}}},
+    }, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+def hashedrekord_digest(entry_body: bytes) -> bytes:
+    """Extract the sha256 digest a hashedrekord entry body commits to.
+
+    Parsed from the SAME bytes whose inclusion is proven, which is the whole
+    point: the digest and the proven leaf cannot be decoupled.
+    """
+    import json
+
+    try:
+        data = json.loads(entry_body)
+        hashinfo = data["spec"]["data"]["hash"]
+    except Exception as exc:  # noqa: BLE001
+        raise InclusionError(
+            f"entry body is not a parseable hashedrekord: {exc}") from exc
+    if hashinfo.get("algorithm") != "sha256":
+        raise InclusionError(
+            f"entry hash algorithm is {hashinfo.get('algorithm')!r}, not sha256")
+    try:
+        return bytes.fromhex(hashinfo["value"])
+    except (KeyError, ValueError) as exc:
+        raise InclusionError(f"entry hash value is not hex: {exc}") from exc
 
 
 class InclusionError(Exception):
@@ -95,14 +147,14 @@ def verify_inclusion_root(
 class LogEntry:
     """A transparency-log entry and the proof it is included.
 
-    `body_sha256` is the hash the log recorded -- which for a registration is
-    `rekord_preimage(...)`. `entry_leaf` is the RFC 6962 leaf the tree actually
-    hashed; a real Rekor leaf is the canonicalised entry body, so the two are
-    kept distinct rather than assumed equal.
+    `entry_body` is the canonical hashedrekord body: the RFC 6962 leaf is hashed
+    over exactly these bytes, and the digest the entry attests is parsed out of
+    them (`hashedrekord_digest`). There is deliberately no separate digest
+    field -- one would let a real inclusion proof be rebound to a different
+    registration, which is the hole this design closes.
     """
 
-    body_sha256: bytes            # what the entry attests: our registration hash
-    entry_leaf: bytes             # the bytes the Merkle leaf was computed over
+    entry_body: bytes             # the canonical hashedrekord body, and the leaf
     log_index: int
     tree_size: int
     inclusion_proof: list[bytes]
@@ -114,8 +166,7 @@ class LogEntry:
         import base64
 
         return {
-            "bodySha256": base64.b64encode(self.body_sha256).decode("ascii"),
-            "entryLeaf": base64.b64encode(self.entry_leaf).decode("ascii"),
+            "entryBody": base64.b64encode(self.entry_body).decode("ascii"),
             "logIndex": self.log_index,
             "treeSize": self.tree_size,
             "inclusionProof": [base64.b64encode(h).decode("ascii")
@@ -132,8 +183,7 @@ class LogEntry:
 
         try:
             return cls(
-                body_sha256=base64.b64decode(data["bodySha256"], validate=True),
-                entry_leaf=base64.b64decode(data["entryLeaf"], validate=True),
+                entry_body=base64.b64decode(data["entryBody"], validate=True),
                 log_index=int(data["logIndex"]),
                 tree_size=int(data["treeSize"]),
                 inclusion_proof=[base64.b64decode(h, validate=True)
@@ -148,10 +198,21 @@ class LogEntry:
 
     @staticmethod
     def signed_tree_head(root_hash: bytes, tree_size: int) -> bytes:
-        """The canonical bytes the log signs. Kept as one function so the
-        producer and verifier cannot disagree on what the signature covers --
-        the same lesson as the shared rekord pre-image."""
-        return b"qresp-sth-v1\n%d\n%s" % (tree_size, root_hash.hex().encode())
+        """A TEST-DOUBLE signed-tree-head format, NOT Rekor's.
+
+        A real transparency log signs a checkpoint (Rekor v2) or an STH / SET
+        (v1) with its own canonicalisation. `qresp-sth-v1` is a deliberately
+        minimal stand-in so the Merkle and signature logic can be exercised
+        offline, and it is the ONE thing here that a Sigstore adapter must
+        replace rather than map: an operator wiring a real log parses the log's
+        checkpoint/SET and verifies it with the log's own rules, then feeds the
+        established root and integratedTime into this module. Everything else --
+        the inclusion proof math, the digest-to-leaf binding -- is real and
+        unchanged. Named with `qresp-` and documented as a double so it is never
+        mistaken for the real format.
+        """
+        return b"qresp-sth-v1-TESTDOUBLE\n%d\n%s" % (
+            tree_size, root_hash.hex().encode())
 
 
 def verify_log_entry(
@@ -172,18 +233,18 @@ def verify_log_entry(
 
     at_time = at_time or datetime.now(timezone.utc)
 
-    # 1. The entry is about OUR registration, not some other logged document.
-    if entry.body_sha256 != expected_preimage:
+    # 1. The digest is PARSED FROM the entry body -- the same bytes whose
+    #    inclusion is proven below -- and must equal our registration's
+    #    pre-image. There is no independent digest field to rewrite, so a real
+    #    proof for an unrelated entry cannot be rebound to this registration.
+    if hashedrekord_digest(entry.entry_body) != expected_preimage:
         raise InclusionError(
-            "the log entry's recorded hash does not match this registration's "
-            "pre-image; the inclusion proof is for a different entry")
+            "the entry body commits to a different digest than this "
+            "registration's pre-image; the inclusion proof is for another entry")
 
-    # 2. The inclusion proof reconstructs the claimed root. entry_leaf is the
-    #    bytes the Merkle leaf was computed over, so it is hashed here -- the
-    #    proof math operates on leaf HASHES, and passing raw bytes would look
-    #    like a proof failure while actually being a units mismatch.
+    # 2. That same body is the leaf whose inclusion the proof reconstructs.
     computed = verify_inclusion_root(
-        entry.log_index, entry.tree_size, leaf_hash(entry.entry_leaf),
+        entry.log_index, entry.tree_size, leaf_hash(entry.entry_body),
         entry.inclusion_proof)
     if computed != entry.root_hash:
         raise InclusionError(

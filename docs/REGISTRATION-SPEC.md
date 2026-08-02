@@ -139,8 +139,11 @@ before any parsing — the discipline already in `transparency.verify_timestamp`
     5. Verify the PQC signature over the SAME `pae` with payload.pqcKey. Fail
        -> REJECT. Steps 2 and 5 together are proof of possession of both keys.
 
-    6. Verify transparency: the logged hash equals SHA-256(envelope); the
-       inclusion proof validates against the log key; the SET is valid.
+    6. Verify transparency: the digest PARSED FROM the proven entry body (a
+       hashedrekord's spec.data.hash) equals SHA-256(PAE(payloadType, payload))
+       -- never a free-standing digest field, which would let a real proof be
+       rebound to a different registration; the inclusion proof validates
+       against the log key; the log's checkpoint/SET is valid.
        Extract T = integratedTime. Any failure -> the registration has no
        trustworthy time, so treat as un-rescuable in step 7.
 

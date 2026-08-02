@@ -124,14 +124,15 @@ class Harness:
             payload=payload, classical_signature=classical_sig,
             classical_certificate_der=self.leaf_der, pqc_signature=pqc_sig)
 
-        # a one-entry transparency tree over the preimage
+        # a one-entry transparency tree over a hashedrekord body
+        from qresp.signing.rekor import hashedrekord_body
         preimage = rekord_preimage(
             "application/vnd.qresp.hybrid-key-registration+json", payload)
-        entry_bytes = b"leaf:" + preimage
+        entry_bytes = hashedrekord_body(preimage)
         root = leaf_hash(entry_bytes)
         sth = LogEntry.signed_tree_head(root, 1)
         entry = LogEntry(
-            body_sha256=preimage, entry_leaf=entry_bytes, log_index=0, tree_size=1,
+            entry_body=entry_bytes, log_index=0, tree_size=1,
             inclusion_proof=[], root_hash=root,
             integrated_time=int(self.log_time.timestamp()),
             tree_head_signature=self.log_key.sign(sth, ec.ECDSA(hashes.SHA256())))
@@ -216,10 +217,11 @@ class TestItRejectsTampering:
         from qresp.signing.dsse import rekord_preimage
         preimage = rekord_preimage(
             "application/vnd.qresp.hybrid-key-registration+json", forged.to_payload())
-        eb = b"leaf:" + preimage
+        from qresp.signing.rekor import hashedrekord_body
+        eb = hashedrekord_body(preimage)
         root = leaf_hash(eb)
         entry = LogEntry(
-            body_sha256=preimage, entry_leaf=eb, log_index=0, tree_size=1,
+            entry_body=eb, log_index=0, tree_size=1,
             inclusion_proof=[], root_hash=root,
             integrated_time=int(h.log_time.timestamp()),
             tree_head_signature=h.log_key.sign(
