@@ -132,8 +132,8 @@ churn rather than silently dropping it.
 ## Publication decision (2026-08-02)
 
 `security/leaked_token_repos.redacted.json` has been removed from the working
-tree, and its blob is being purged from git history before this repository is
-made public. The reasoning, from `docs/OPEN-QUESTIONS.md` section 0:
+tree, and its blob was purged from git history before this repository was
+made public. The reasoning, recorded 2026-07-27 and applied unchanged:
 
 The redaction itself was sound -- 8 characters of a 34-character random suffix
 is not brute-forcible, and the file contained no complete token-shaped string.

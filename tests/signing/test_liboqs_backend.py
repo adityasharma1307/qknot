@@ -1,6 +1,6 @@
 """liboqs backend: cross-validated against the pure-Python one, or skipped.
 
-Criterion 4 of docs/TASK-D.md. Two implementations of one standard are only
+See docs/THREAT-MODEL.md, "liboqs, measured". Two implementations of one standard are only
 interchangeable if each verifies the other's signatures; if they disagree, one
 is wrong and shipping either is worse than shipping neither.
 

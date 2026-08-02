@@ -17,9 +17,9 @@ What it does cover is every path where a wrong answer is dangerous:
   * unverified claims in a bundle must not mint trusted evidence
 
 The one gap -- a genuine end-to-end rescue against a real public TSA -- needs a
-network round trip, is recorded in docs/OPEN-QUESTIONS.md, and becomes a
-committed fixture the moment a real response is obtained. Until then this file
-says so rather than implying coverage it does not have.
+network round trip, and becomes a committed fixture the moment a real response
+is obtained. Until then this file says so rather than implying coverage it
+does not have.
 """
 from __future__ import annotations
 

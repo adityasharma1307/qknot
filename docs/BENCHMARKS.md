@@ -45,10 +45,19 @@ incidental — see "The trap in benchmarking ML-DSA" below.
 | ML-DSA-65 | 6.001 ms | 27.878 ms | 6.695 ms | 3,309 B | 1,952 B | 4,032 B |
 | **ML-DSA-87** | **9.318 ms** | **33.845 ms** | **10.202 ms** | **4,627 B** | 2,592 B | 4,896 B |
 
-ML-DSA-87 is the shipped default (see [`OPEN-QUESTIONS.md`](OPEN-QUESTIONS.md)
-§7), so it is the row that matters: **Ed25519 signs 383× faster and produces a
-signature 72.3× smaller.** That is the headline cost of CNSA 2.0 alignment, and
-it is not a small one.
+**ML-DSA-87 is the shipped default**, reversing an earlier bandwidth-driven
+choice of ML-DSA-44 (the smallest parameter set meeting the security target).
+The reversal is CNSA 2.0: it names ML-DSA-87 specifically and requires
+exclusive use for software/firmware signing in US National Security Systems
+from 2027-01-01 — inside the lifetime of any artefact signed now. A
+provenance system whose default fails the compliance regime its users are
+migrating toward has chosen the wrong default, however efficient that default
+is. -44 and -65 remain fully supported and selectable via `--suite` for
+deployments where signature size dominates and CNSA 2.0 does not apply.
+
+So ML-DSA-87 is the row that matters: **Ed25519 signs 383× faster and
+produces a signature 72.3× smaller.** That is the headline cost of CNSA 2.0
+alignment, and it is not a small one.
 
 Two qualifications, both cutting the same way:
 

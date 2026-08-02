@@ -279,6 +279,42 @@ constant-time discipline. The contract is specified in
 3. pass the same FIPS 204 KATs, so swapping backends cannot silently change
    signature semantics.
 
+### liboqs, measured (2026-07-31)
+
+`LibOqsBackend` exists and was run through the same paired timing experiment
+as the pure-Python backend above — same script, same 50 ms uniform noise,
+same 2,000 trials per point, 5,000 samples per key and 3,200 traces:
+
+| | `dilithium-py` | liboqs 0.16.0 |
+|---|---|---|
+| median signing time | 15.2 ms | **0.0461 ms** (330x faster) |
+| attacker above chance from | 10 traces/key | never, to 3,200 |
+| accuracy at 3,200 traces | 99.5% [99.0, 99.7] | 51.0% [48.8, 53.2] |
+
+The harness is demonstrably powered — it separates `dilithium-py` from 10
+traces per key, so liboqs' null result is not the underpowered kind. Every
+liboqs interval includes 50% (chance) at every trace count tested.
+
+**The honest conclusion is not "liboqs is constant-time."** liboqs verifies
+constant-time behaviour in its own CI under valgrind, but none of that
+verification reaches the Python API: the runtime surface exposes no field for
+build flags, optimisation target, or `ctgrind`/`valgrind` provenance. A
+black-box timing test bounds a leak; it cannot prove one absent. `describe()`
+therefore reports `side_channel_resistant` as `UNKNOWN` rather than `True` —
+a favourable measurement of our own is exactly the evidence that is tempting
+to promote to a guarantee, and the three-state (`KNOWN_LEAKY` / `UNKNOWN` /
+`ASSERTED`) type exists specifically to prevent that promotion. `ASSERTED`
+requires structured evidence: a named tool and version, an RFC 3339
+timestamp, the exact library version and build flags, and a hash binding the
+claim to a specific report — free text is refused by construction.
+
+Cross-validated against the pure-Python backend and against NIST's own
+ML-DSA key material (not merely against itself) across all three parameter
+sets, both directions — 23 tests. One supply-chain note worth carrying
+alongside the benchmark: `pip install liboqs-python` clones liboqs from
+GitHub at a pinned commit and compiles it, with no signature verification on
+what it downloaded.
+
 ---
 
 ## Reproducing the measurements

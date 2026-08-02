@@ -20,10 +20,8 @@ Fulcio / Rekor chain, an end-to-end key registration, and the live revocation
 search have each been run against real Sigstore and locked with a passing
 test. 1261 tests pass offline; 57 more are skipped by default because they
 need network access or a captured fixture (see
-[`docs/RUNBOOK.md`](docs/RUNBOOK.md)). What is deliberately left undecided is
-tracked in [`docs/OPEN-QUESTIONS.md`](docs/OPEN-QUESTIONS.md); what is and is
-not protected is stated plainly, in both directions, in
-[`docs/THREAT-MODEL.md`](docs/THREAT-MODEL.md).
+[`docs/RUNBOOK.md`](docs/RUNBOOK.md)). What is and is not protected is stated
+plainly, in both directions, in [`docs/THREAT-MODEL.md`](docs/THREAT-MODEL.md).
 
 Phase I as originally submitted (report, figures, and the 2026-05-21 dataset)
 is archived unmodified at
@@ -87,6 +85,11 @@ vanished between the frame being built and the scan, and 3 gated CohereLabs
 repositories could not be read. Both are labelled `error`, never `unsigned` —
 absence of evidence is not evidence of absence, and counting them as unsigned
 would inflate the very statistic being reported.
+
+HuggingFace is the flagship dataset (it's what the figures and report cover),
+but the same zero holds on PyPI and npm too, where signing is far more
+common — see [`docs/RESULTS.md`](docs/RESULTS.md) for the full cross-ecosystem
+numbers, benchmarks, entropy analysis and correctness evidence in one place.
 
 ### The n = 1,000 pilot (2026-05-21 and 2026-07-06)
 
@@ -232,9 +235,7 @@ when the network is unavailable. Regenerate with
 `qresp.signing` imports nothing from `qresp.audit` and knows nothing about
 HuggingFace or machine learning. It signs bytes. That boundary is enforced by a
 test. See [`docs/THREAT-MODEL.md`](docs/THREAT-MODEL.md) for what is and is not
-protected, stated plainly in both directions, and
-[`docs/OPEN-QUESTIONS.md`](docs/OPEN-QUESTIONS.md) for the decisions left
-deliberately unmade.
+protected, stated plainly in both directions.
 
 ## What it does
 

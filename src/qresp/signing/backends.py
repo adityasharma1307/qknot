@@ -410,8 +410,9 @@ class LibOqsBackend:
 
     A black-box timing measurement of this backend found no separation at 5,000
     samples per key and 3,200 traces, while the same harness separates
-    dilithium-py from 10 traces (docs/TASK-D.md). That bounds a leak; it does
-    not prove the absence of one, and it is not a constant-time analysis. The
+    dilithium-py from 10 traces (docs/THREAT-MODEL.md, "liboqs, measured").
+    That bounds a leak; it does not prove the absence of one, and it is not a
+    constant-time analysis. The
     status therefore stays `UNKNOWN` and `check_exposure` keeps refusing online
     use until a deployer supplies `SideChannelEvidence` from dudect, ctgrind or
     Binsec/Rel against their specific build.
@@ -571,7 +572,8 @@ class LibOqsBackend:
             "sideChannelBasis": (
                 "liboqs exposes no constant-time or build-configuration flag at "
                 "runtime, so this build's discipline cannot be established from "
-                "within the process. See docs/TASK-D.md."
+                "within the process. See docs/THREAT-MODEL.md, "
+                "'liboqs, measured'."
             ),
             "deterministic": False,
             "signatureSize": self.signature_size,

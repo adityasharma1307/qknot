@@ -258,7 +258,7 @@ class TestHelpers:
         ML-DSA-87 because CNSA 2.0 names it specifically, and because software
         signing must be exclusively CNSA 2.0 for US National Security Systems
         from 2027-01-01. -44 and -65 remain selectable for bandwidth-sensitive
-        deployments; see docs/OPEN-QUESTIONS.md 7.
+        deployments; see docs/BENCHMARKS.md.
         """
         assert DEFAULT_SUITE == ["ed25519", "ml-dsa-87"]
 

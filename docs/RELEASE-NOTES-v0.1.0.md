@@ -10,7 +10,7 @@ today's-verifier still accepts.
 A stratified audit of 20,000 HuggingFace repositories (10,000 most-downloaded
 + 10,000 uniform-random) found **0 post-quantum signatures** — a one-sided
 upper bound of 0.038% at 95% confidence. Every signature found is
-Shor-breakable (ECDSA P-256, RSA). See the README and `docs/RESULTS-FINAL.md`
+Shor-breakable (ECDSA P-256, RSA). See the README and `docs/RESULTS.md`
 for the full statistics.
 
 ## What's in this release
@@ -53,7 +53,8 @@ collapses an inconclusive search into a clean bill of health. See
 ## Tests
 
 1261 passing offline, 57 skipped by default (need network or a captured
-fixture — see `docs/RUNBOOK.md`).
+fixture — see `docs/RUNBOOK.md`). What is and is not protected is stated
+plainly, in both directions, in `docs/THREAT-MODEL.md`.
 
 ## Known limitations, stated plainly
 

@@ -124,8 +124,10 @@ Nothing touches `report.tex`.
 ## Purging the account list from history (do this before going public)
 
 `security/leaked_token_repos.redacted.json` was removed from the working tree
-and the index on 2026-08-02 (see `docs/OPEN-QUESTIONS.md` §0). That is **not
-sufficient on its own**: the file had already been pushed to `origin/main`, so
+and the index on 2026-08-02 (full reasoning in
+`security/INCIDENT-2026-07-25-token-shaped-repo-names.md`, "Publication
+decision"). That is **not sufficient on its own**: the file had already been
+pushed to `origin/main`, so
 the blob is in the remote's history and a normal deletion leaves it recoverable
 by anyone who can read the repository. The moment visibility flips, "recoverable
 by anyone who can read the repository" means the public.

@@ -798,11 +798,14 @@ md(r"""
 algorithm non-separability and covered provenance metadata *relative to a public
 key you already trust*. It does **not** establish that the expected party signed.
 
-That is a trust-anchor problem, not a signature-format one, and it is
-deliberately out of scope here — Sigstore solves it with certificate chains and
-a transparency log, and adopting it is the project's recorded next step
-(`docs/OPEN-QUESTIONS.md`, items 2 and 3). Claiming otherwise would be exactly
-the kind of overclaim this project has tried to avoid.
+That is a trust-anchor problem, not a signature-format one, and it is out of
+scope for `sign`/`verify` alone by design. QResP's answer lives in a separate
+mechanism, identity registration: `qresp register` binds a post-quantum key to
+your OIDC identity through a classical Fulcio certificate and a Rekor log
+entry, and `qresp verify --registration` reports not just that a signature is
+valid but *whose* it is and on what basis. See `docs/REGISTRATION-SPEC.md`
+for the design and the honest residuals -- the binding is only as strong as
+the identity that anchored it, stated plainly rather than glossed over.
 """)
 
 # ===========================================================================

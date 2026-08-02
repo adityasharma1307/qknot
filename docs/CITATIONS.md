@@ -505,10 +505,11 @@ signed artefacts* in registries for signatures that will break. A project could
 score perfectly under QSA and still publish classically-signed releases — which
 is the gap this study measures.
 
-### Incidental corroboration for Task D
+### Incidental corroboration for the liboqs backend choice
 
 Both papers use liboqs as their reference backend (Shaw pins 0.15.0), which is
-mild independent support for the choice made in `docs/TASK-D.md`. Shaw also
+mild independent support for the choice recorded in
+[`THREAT-MODEL.md`](THREAT-MODEL.md) ("liboqs, measured"). Shaw also
 notes liboqs releases the GIL during C-level operations — potentially useful if
 concurrent benchmarking ever matters here, not pursued now.
 

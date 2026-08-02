@@ -112,9 +112,9 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit(
                 f"liboqs is not available here: {exc}\n\n"
                 f"That is a reportable outcome, not a failure of this script. "
-                f"See docs/TASK-D.md: no runtime mechanism exists to establish "
-                f"liboqs' constant-time status either, so 'we could not "
-                f"establish this' is the finding."
+                f"See docs/THREAT-MODEL.md, 'liboqs, measured': no runtime "
+                f"mechanism exists to establish liboqs' constant-time status "
+                f"either, so 'we could not establish this' is the finding."
             ) from None
 
         class _Signer:
@@ -213,7 +213,7 @@ def main(argv: list[str] | None = None) -> int:
     print()
     print(f"Signing took a median of {statistics.median(a):.4f} ms. A black-box")
     print("timing test bounds the leak; it does not prove its absence, and it")
-    print("is not a constant-time analysis. Per docs/TASK-D.md this result")
+    print("is not a constant-time analysis. Per docs/THREAT-MODEL.md this result")
     print("does NOT raise a backend to ASSERTED -- that needs dudect, ctgrind")
     print("or Binsec/Rel against the specific build, recorded as")
     print("SideChannelEvidence. The status stays UNKNOWN, which is the")

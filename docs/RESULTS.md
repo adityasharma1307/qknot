@@ -5,29 +5,55 @@ Every figure here is reproducible from a committed artefact; where a number
 cannot be independently re-derived by a third party, that is said explicitly
 rather than left to inference.
 
-Last updated 2026-07-30. Source artefacts: `data/`, `results/`,
+Last updated 2026-08-01 (after the bug sweep of that date — see "A note on
+the 2026-08-01 correction" below). Source artefacts: `data/`, `results/`,
 `docs/DATASETS.md`, `docs/BENCHMARKS.md`.
 
 ---
 
 ## 1. The headline
 
-Across 20,000 HuggingFace repositories sampled in two strata from a population
-of 2,938,109:
+Across three ecosystems — HuggingFace, PyPI, and npm — sampled in two strata
+each (a census of the top 10,000 by downloads, and a random draw of 10,000
+from the remainder):
 
-**Not one carried a post-quantum signature. Not one.**
+**Zero post-quantum signatures. In any stratum, of any ecosystem, out of
+60,000 sampled artefacts.**
 
-And across a further **20,000 PyPI projects**, where signing is roughly sixty
-times more common — 3,189 attested, 2,869 distinct publishers — **not one
-either.** Every attestation is ECDSA P-256, read off the certificate rather
-than assumed.
+| ecosystem | registry N | combined signed | head (top 10k) | tail (random 10k) | head/tail ratio |
+|---|---|---|---|---|---|
+| **HuggingFace** | 2,928,107 | **0.101%** [0.039, 0.163] | 0.39% | 0.10% | 3.9× |
+| **PyPI** | 860,900 | **8.907%** [8.363, 9.451] | 23.15% | 8.74% | 2.6× |
+| **npm** | 4,290,079 | **3.681%** [3.315, 4.046] | 25.40% | 3.63% | 7.0× |
 
-That pairing is the finding. On HuggingFace alone the result invites the reply
-that signing is simply rare there. PyPI removes it: **even in an ecosystem
-where attestation is routine, post-quantum attestation does not exist.** The
-claim is not that signing is uncommon; it is that the signing which exists is,
-without exception across two ecosystems and 40,000 artefacts, built on
-primitives a cryptographically relevant quantum computer breaks.
+Head strata are a census (no sampling variance); all interval width is the
+long-tail draw. Every attestation found, across all three ecosystems and every
+stratum, is classical — ECDSA P-256 or RSA, read off the certificate or
+signature rather than assumed. Each per-stratum 95% Wilson upper bound on
+post-quantum adoption is **0.038%**: the null is not an artefact of small
+samples, since adoption above roughly 4 in 10,000 would have been detected.
+
+That a post-quantum signature *could* be detected was itself verified, not
+assumed — a spliced ML-DSA-87 OID is caught by `pqc_oid.py` and recorded as a
+finding rather than a parse error. The claim is "we found zero and could have
+found one," not merely "we found zero."
+
+**PyPI and npm remove the obvious rebuttal to the HuggingFace number.** On
+HuggingFace alone, 0.10%–0.39% signing invites the reply that almost nothing
+is signed there, so the post-quantum absence says little. PyPI and npm sign
+26–87× more often (8.9% and 3.7% combined, against 0.1%) — normal ecosystem
+behaviour, not a curiosity — and the post-quantum rate is still exactly zero.
+**Even where signing is routine, post-quantum signing does not exist.**
+
+### A note on the 2026-08-01 correction
+
+Every number above was produced by `src/qresp/audit/stats.py` after a bug
+sweep on 2026-08-01 that fixed a stratum double-count, a loader that could not
+read `project`-keyed records, an error-retry that never retried, and a
+provenance-version mismatch. Before that sweep the npm and PyPI figures had
+never been run through this tool at all; the per-stratum head/tail rates
+below were unaffected, but the cross-ecosystem "combined, weighted" row is
+new as of this correction.
 
 ---
 
@@ -165,6 +191,32 @@ were skipped before sampling, which is recorded rather than silently absorbed.
 
 ---
 
+## 2c. npm: the third ecosystem, and the same zero
+
+Two strata of 10,000 from a frame of **4,290,079** packages: head by
+downloads, tail sampled at random. Combined, weighted rate **3.681%**
+[3.315, 4.046] — between HuggingFace's 0.101% and PyPI's 8.907%, and again
+**zero post-quantum** in either stratum.
+
+**npm tail: 121 deleted packages** (404 between frame and scan) — coverage
+loss, reported rather than absorbed; the signed rate over the 9,879 actually
+observed is 3.674%, materially unchanged.
+
+### Composition is uniform where signing exists at all
+
+Every signed artefact across **PyPI and npm** — both Sigstore/Fulcio
+ecosystems — is **100% ECDSA P-256**, the certificate type Fulcio issues by
+default. HuggingFace's signed set is mostly ECDSA P-256 with a handful of RSA,
+reflecting its older, more heterogeneous signing practice. Adoption is driven
+by mechanism, not vendor: PyPI's attestations arrive free with Trusted
+Publishers (96% via GitHub Actions, configure CI once and every release is
+attested); HuggingFace signing requires a deliberate act per publisher, and is
+concentrated in a single vendor (IBM, 69% of head signing) as a result. **Where
+signing is a property of the pipeline, adoption is broad; where it is a
+property of the publisher, adoption is one vendor.**
+
+---
+
 ## 3. Cost of the transition
 
 Measured 2026-07-30, Windows 11, CPython 3.13.14, `--reps 250`, hybrid and
@@ -299,7 +351,7 @@ argument turns on.
 | SP 800-22 subset | 4 tests; 3 reproduce published worked examples to 6 dp |
 | `cumulative_sums` | validated by Monte Carlo over 20,000 random walks (agrees within 0.006) |
 | Benchmark figures | 115 re-derived from JSON; 9/9 deliberate corruptions caught |
-| Test suite | **880 tests**, plus ruff and mypy clean |
+| Test suite | **1261 tests** passing offline (57 more skip without network/a fixture), plus ruff and mypy clean |
 
 **The sigVer vectors are mostly negative** — signatures mutated so a correct
 verifier must reject them. A `verify` that returned `True` unconditionally
@@ -386,20 +438,48 @@ deployed.
 
 ---
 
-## 8. Reproducing
+## 8. The mechanism, validated live
+
+§1–2c establish that the deployed ecosystem has no post-quantum path — Rekor
+v2 is `hashedrekord`-only, ML-DSA has no externalised prehash, and mainstream
+certificate tooling could not parse a post-quantum certificate for most of
+the audit window. QResP's answer is to bootstrap one from the classical PKI
+that already exists, and that answer is implemented and verified against live
+infrastructure, not only simulated:
+
+* A real registration was produced against **live Fulcio and Rekor** — a real
+  short-lived certificate over a P-256 key, a real transparency-log entry
+  with its checkpoint and signed entry timestamp — and verified through the
+  full eight-step chain, including the **temporal rescue**: verified at an
+  instant past the classical algorithm's disallow date, the ML-DSA binding
+  still holds because the log timestamp proves it predates the deprecation
+  (`tests/signing/test_registration_fixture.py`).
+* **Cross-implementation FIPS 204 evidence.** The ML-DSA-87 signature made at
+  capture time on one machine verifies under a **separate installation** of
+  the backend on another — interoperability evidence rather than
+  self-consistency. Stated at its true weight: one capture, one parameter
+  set, not a conformance campaign; the vendored ACVP vectors remain the
+  systematic check.
+* The revocation-search adapter was separately validated against live Rekor
+  (`scripts/verify/check_revocation_search.py`): 5/5 index entries fetched
+  and authenticated on production data, 0 unauthenticated.
+
+---
+
+## 9. Reproducing
 
 ```bash
 python scripts/bench/latency.py --reps 50 --sizes 1 10 100 --out results/bench.json
 python scripts/bench/collect_entropy.py --source all
 python scripts/bench/randomness.py --out results/randomness.json
 python scripts/bench/check_docs.py     # re-derives all 115 figures
-python -m pytest -q                    # 880 tests
+python -m pytest -q                    # 1261 pass offline, 57 skip
 ```
 
 Scan reproduction, dataset provenance, and the CRLF-digest and backfill
 incidents are documented in [`DATASETS.md`](DATASETS.md).
 
-## 9. Known limitations
+## 10. Known limitations
 
 - **One sequence per entropy source, not the 100 SP 800-22 recommends.** Live
   beacon collection for the full suite would need 136 days of output that does
@@ -410,9 +490,9 @@ incidents are documented in [`DATASETS.md`](DATASETS.md).
 - **Benchmarks are single-machine, pure-Python.** No cross-platform or
   optimised-implementation comparison. liboqs would be one to two orders of
   magnitude faster.
-- **The scan is a single point in time** (2026-07-25) on one hub. No
-  longitudinal trend, and nothing here generalises to PyPI, npm, or model hubs
-  other than HuggingFace.
+- **Each scan is a single point in time** (HuggingFace 2026-07-25, PyPI and
+  npm 2026-07-30). No longitudinal trend for any of the three, and nothing
+  here generalises to model hubs other than HuggingFace.
 - **Three gated repositories remain unclassified**, bounded as described in §2.
 - **SP 800-90B assesses raw noise sources.** Every sample here is conditioned
   output, so these estimates cannot validate an entropy source and are not
