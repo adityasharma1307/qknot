@@ -121,119 +121,56 @@ Nothing touches `report.tex`.
 
 ---
 
-## Purging files from history (do this before going public)
+## History purge (done before public release)
 
-A normal deletion commit is **not sufficient** for a file that was already
-pushed: the blob stays in the remote's history and is recoverable by anyone
-who can read the repository. The moment visibility flips, "recoverable by
-anyone who can read the repository" means the public. This is the one step
-that cannot be automated from a sandbox: it rewrites every commit and needs a
-force-push with your credentials.
+A normal deletion commit is **not** enough for files already pushed: the blob
+stays recoverable from history. Before this repository went public, both
+classes of material were purged from every commit with `git filter-repo` and
+force-pushed while the remote was still private.
 
-### Order matters if you have unpushed work
+### What was purged
 
-`filter-repo` rewrites whatever history it is given, so run it **after** your
-local commits are on the remote, not before — otherwise you rewrite the remote,
-then push local commits that still carry the old blobs, and you are back where
-you started. The repository is private, so pushing first exposes nothing new:
-the files are already in that history, which is the whole reason for this
-section.
+| Pass | Paths | Why |
+|---|---|---|
+| 1 | `security/leaked_token_repos.redacted.json` | Aggregated 147 account names (see incident log) |
+| 2 | Internal working notes: `docs/OPEN-QUESTIONS.md`, `docs/PAPER-SPRINT-PLAN.md`, `docs/EXPERT-REPORT-*.md`, `docs/TASK-D.md`, `docs/Phase2_Decision_Memo.docx`, `docs/RESULTS-FINAL.md` | Not public-facing; paper plan named unsubmitted venue/strategy |
 
-    git push origin main        # get local work onto the remote FIRST
-    # ...then run the purge below, which rewrites everything at once
+Local copies of the disclosure lists may still exist on the author's machine
+under `security/` (gitignored). They are not in git history.
 
-### Pass 1 — the leaked-token account list (executed 2026-08-02)
+### Re-verify any time (must print nothing)
 
-`security/leaked_token_repos.redacted.json` (full reasoning in
-`security/INCIDENT-2026-07-25-token-shaped-repo-names.md`, "Publication
-decision"). This pass is done; kept here as the record and the template for
-pass 2.
-
-```bash
-git clone --mirror https://github.com/adityasharma1307/qresp.git qresp-purge.git
-cd qresp-purge.git
-pip install git-filter-repo          # once
-git filter-repo --invert-paths \
-    --path security/leaked_token_repos.redacted.json --force
-git remote add origin https://github.com/adityasharma1307/qresp.git
-git push --force --mirror origin
+```powershell
+git log --all --oneline -- security/leaked_token_repos.redacted.json
+git log --all --oneline -- docs/OPEN-QUESTIONS.md
+git log --all --oneline -- docs/PAPER-SPRINT-PLAN.md
+git log --all --oneline -- docs/EXPERT-REPORT-04-residual-3-closed.md
+git rev-list --all --objects | Select-String -Pattern "redacted|OPEN-QUESTIONS|PAPER-SPRINT|EXPERT-REPORT|PRIVATE"
 ```
 
-### Pass 2 — internal working notes (do this next)
-
-These were removed from the tree in a later commit but, same as above, that
-alone leaves them in history: `docs/EXPERT-REPORT-02-integration-fixture.md`,
-`docs/EXPERT-REPORT-03-residuals-1-and-2.md`,
-`docs/EXPERT-REPORT-04-residual-3-closed.md`, `docs/TASK-D.md`,
-`docs/OPEN-QUESTIONS.md`, `docs/PAPER-SPRINT-PLAN.md` (names the target
-venue, deadline and framing strategy for an unsubmitted paper — the one
-worth actually purging, not just untracking), `docs/Phase2_Decision_Memo.docx`,
-`docs/RESULTS-FINAL.md`. None of these are secrets the way the token list
-was; they're just not public-facing, and `PAPER-SPRINT-PLAN.md` is
-premature to disclose.
-
-Work on a **fresh clone**, so a mistake costs nothing:
-
-```bash
-# 1. mirror-clone somewhere scratch
-cd /tmp
-git clone --mirror https://github.com/adityasharma1307/qresp.git qresp-purge.git
-cd qresp-purge.git
-
-# 2. purge every path from every commit on every ref, in one pass
-pip install git-filter-repo          # once
-git filter-repo --invert-paths \
-    --path docs/EXPERT-REPORT-02-integration-fixture.md \
-    --path docs/EXPERT-REPORT-03-residuals-1-and-2.md \
-    --path docs/EXPERT-REPORT-04-residual-3-closed.md \
-    --path docs/TASK-D.md \
-    --path docs/OPEN-QUESTIONS.md \
-    --path docs/PAPER-SPRINT-PLAN.md \
-    --path docs/Phase2_Decision_Memo.docx \
-    --path docs/RESULTS-FINAL.md \
-    --force
-
-# 3. confirm every one of them is gone from ALL history, not just the tip
-for f in docs/EXPERT-REPORT-02-integration-fixture.md \
-         docs/EXPERT-REPORT-03-residuals-1-and-2.md \
-         docs/EXPERT-REPORT-04-residual-3-closed.md \
-         docs/TASK-D.md docs/OPEN-QUESTIONS.md docs/PAPER-SPRINT-PLAN.md \
-         docs/Phase2_Decision_Memo.docx docs/RESULTS-FINAL.md; do
-    echo "== $f =="
-    git log --all --oneline -- "$f"      # each must print NOTHING
-done
-
-# 4. push the rewritten history back
-git remote add origin https://github.com/adityasharma1307/qresp.git
-git push --force --mirror origin
-```
-
-Then **re-clone fresh** for ongoing work, or run the same `filter-repo` in your
-working copy — the old clone's objects still contain the blobs locally.
-
-### Two things people get wrong here
-
-**GitHub keeps unreachable objects.** After a force-push, the old commits are
-unreferenced but not immediately deleted, and on a public repository they can
-still be fetched *by SHA* by anyone who knows it. If this repository was ever
-public with a file present, ask GitHub Support to run garbage collection
-before considering the removal complete. If it has only ever been private (the
-case here), the exposure was limited to collaborators and the rewrite is
-sufficient — but do the rewrite **before** flipping visibility, not after.
-
-**Forks and caches.** A rewrite does not touch forks, and it does not touch any
-mirror or archive that pulled the repository earlier. Confirm no forks exist
-before relying on the purge.
-
-### Verifying it worked, from a stranger's position
+Or from a fresh clone (stranger's view):
 
 ```bash
 git clone https://github.com/adityasharma1307/qresp.git /tmp/qresp-check
 cd /tmp/qresp-check
-git log --all --oneline -- security/leaked_token_repos.redacted.json   # nothing
-git log --all --oneline -- docs/OPEN-QUESTIONS.md                      # nothing
-git log --all --oneline -- docs/PAPER-SPRINT-PLAN.md                   # nothing
-git rev-list --all --objects | grep -iE 'PRIVATE|redacted'             # nothing
+# same commands as above — each must print nothing
 ```
 
-Both must print nothing. Until they do, do not make the repository public.
+### If you ever need the procedure again
+
+```bash
+git clone --mirror https://github.com/adityasharma1307/qresp.git qresp-purge.git
+cd qresp-purge.git
+pip install git-filter-repo
+git filter-repo --invert-paths --path path/to/remove --force
+git remote add origin https://github.com/adityasharma1307/qresp.git
+git push --force --mirror origin
+```
+
+Then re-clone for ongoing work. Do not leave a bare `qresp.git/` mirror inside
+the working tree (also remove extracted `qresp-0.1.0/` sdist trees). A helper
+for local junk is `scripts/publish/local_cleanup.ps1`.
+
+If the repo was ever public with a purged file present, ask GitHub Support to
+GC unreachable objects; a private-only rewrite is enough for collaborator-only
+exposure.

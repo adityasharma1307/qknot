@@ -2,15 +2,6 @@
 
 Two halves, and the commands mirror them.
 
-MEASURE an ecosystem -- how much is signed, and would any of it survive a
-quantum adversary:
-
-  qresp scan --n 1000 --out data/hf.jsonl --token $HF_TOKEN
-  qresp audit-npm  --ranking data/npm_ranking.json --frame data/npm_frame.txt \
-                   --out data/npm.jsonl
-  qresp audit-pypi --out data/pypi.jsonl
-  qresp summarise  --in data/hf.jsonl
-
 RESPOND -- sign an artefact so the post-quantum half cannot be stripped, bind
 the post-quantum key to an identity through classical PKI, and verify both
 together:
@@ -27,6 +18,15 @@ The last one is the point of the whole design: it reports not merely that a
 signature is valid, but WHOSE it is and on what basis that attribution still
 holds -- `direct`, or `rescued-by-timestamp` once the classical algorithm has
 been disallowed.
+
+MEASURE an ecosystem -- how much is signed, and would any of it survive a
+quantum adversary. The evidence for why RESPOND exists:
+
+  qresp scan --n 1000 --out data/hf.jsonl --token $HF_TOKEN
+  qresp audit-npm  --ranking data/npm_ranking.json --frame data/npm_frame.txt \
+                   --out data/npm.jsonl
+  qresp audit-pypi --out data/pypi.jsonl
+  qresp summarise  --in data/hf.jsonl
 """
 from __future__ import annotations
 
@@ -59,16 +59,17 @@ if TYPE_CHECKING:
 
 app = typer.Typer(
     help=(
-        "QResP: Quantum-Resilient Provenance for software supply chains.\n\n"
-        "Two halves. AUDIT measures how much of an ecosystem is signed, and "
-        "whether any of it would survive a quantum adversary -- across "
-        "HuggingFace, npm and PyPI. SIGN/VERIFY is the response: hybrid "
-        "signatures whose post-quantum half cannot be stripped, an identity "
-        "bound to a post-quantum key through classical PKI, and a verdict that "
-        "always names how it decided.\n\n"
-        "  audit:  scan, scan-ids, audit-npm, audit-pypi, summarise\n"
+        "QResP: hybrid post-quantum signing and identity registration for "
+        "software supply chains.\n\n"
+        "SIGN/VERIFY: hybrid signatures whose post-quantum half cannot be "
+        "stripped, an identity bound to a post-quantum key through classical "
+        "PKI, and a verdict that always names how it decided. AUDIT measures "
+        "how much of an ecosystem is signed, and whether any of it would "
+        "survive a quantum adversary -- across HuggingFace, npm and PyPI -- "
+        "the evidence for why the first half exists.\n\n"
         "  sign:   entropy, sign, verify\n"
-        "  identity: trust-material, register, verify-registration\n\n"
+        "  identity: trust-material, register, verify-registration\n"
+        "  audit:  scan, scan-ids, audit-npm, audit-pypi, summarise\n\n"
         "Every command explains itself with --help; the verification commands "
         "also state what they did NOT check."
     ),
@@ -548,10 +549,15 @@ def sign_artefact(
     exposure: str = typer.Option("offline", "--exposure",
                                  help="offline | online. See docs/THREAT-MODEL.md."),
     seed_hex: str | None = typer.Option(
-        None, "--seed", help="Hex seed for reproducible keys. Omit to draw "
-                             "attested entropy (network, with PRNG fallback)."),
+        None, "--seed",
+        help="Hex seed for reproducible / registerable keys. Key material "
+             "comes from this seed alone; unless --no-beacon, a NIST beacon "
+             "pulse is still attached as a public ceremony-time witness "
+             "(lower bound only). Omit to draw fully attested mixed entropy."),
     no_beacon: bool = typer.Option(
-        False, "--no-beacon", help="Skip the NIST beacon (offline use)."),
+        False, "--no-beacon",
+        help="Skip the NIST beacon (offline use). Applies to both mixed "
+             "entropy and the --seed witness path."),
     deterministic: bool = typer.Option(
         False, "--deterministic",
         help="Byte-reproducible signatures (FIPS 204 deterministic mode). "
@@ -591,12 +597,54 @@ def sign_artefact(
 
     if seed_hex:
         try:
-            keys = keygen(suite=algorithms, seed=bytes.fromhex(seed_hex))
+            seed_bytes = bytes.fromhex(seed_hex)
+        except ValueError as exc:
+            console.print(f"[red]bad --seed: {exc}")
+            raise typer.Exit(2) from None
+        from datetime import datetime, timezone
+
+        from .signing.entropy.mixing import attest_explicit_seed
+
+        # Registerable/reproducible keys AND (by default) beacon time evidence:
+        # the seed alone determines the key material; the beacon is a public
+        # ceremony-time witness only. --deterministic needs a BYTE-STABLE
+        # attestation, so it forces no beacon and a fixed ceremony timestamp
+        # (wall-clock or a live pulse would make two runs differ).
+        try:
+            if deterministic:
+                attestation = attest_explicit_seed(
+                    seed_bytes,
+                    use_beacon=False,
+                    ceremony_time=datetime(1970, 1, 1, tzinfo=timezone.utc),
+                )
+            else:
+                attestation = attest_explicit_seed(
+                    seed_bytes, use_beacon=not no_beacon)
+        except ValueError as exc:
+            console.print(f"[red]bad --seed: {exc}")
+            raise typer.Exit(2) from None
+        try:
+            keys = keygen(suite=algorithms, seed=seed_bytes,
+                          entropy_attestation=attestation)
         except ValueError as exc:
             console.print(f"[red]bad --seed: {exc}")
             raise typer.Exit(2) from None
         console.print("[yellow]Keys derived from an explicit seed: reproducible, "
                       "and only as secret as that seed.")
+        if deterministic:
+            console.print("[yellow]Deterministic mode: beacon witness omitted "
+                          "and attestation ceremony time fixed so the bundle "
+                          "is byte-stable. Re-sign without --deterministic for "
+                          "a live time witness.")
+        elif attestation.not_before:
+            console.print(f"[green]Beacon time witness: not_before="
+                          f"{attestation.not_before} (lower bound only; "
+                          f"notAfter/revocation coverage still needs an upper "
+                          f"bound -- pass --artefact-signed-at at verify, or "
+                          f"a TSA timestamp).")
+        elif not no_beacon:
+            console.print("[yellow]No beacon pulse recorded (unreachable or "
+                          "--no-beacon); artefact carries no public time witness.")
     else:
         from .signing.entropy.mixing import default_sources
 
@@ -664,12 +712,44 @@ def _load_cert_pool(path: Path) -> list[bytes]:
     return out
 
 
+def _load_revocation_statements(path: Path) -> dict[str, dict[str, str]]:
+    """Load a digest->statement feed for --check-revocations.
+
+    Accepts either a single JSON object mapping hex digests to
+    ``{"payload": "<b64>", "signature": "<b64>"}``, or a directory of such
+    JSON files (each file is one map, merged). Digests are lowercased.
+    """
+    def _from_obj(data: object) -> dict[str, dict[str, str]]:
+        if not isinstance(data, dict):
+            raise ValueError("revocation statements must be a JSON object")
+        out: dict[str, dict[str, str]] = {}
+        for digest, stmt in data.items():
+            if not isinstance(stmt, dict):
+                raise ValueError(f"statement for {digest!r} is not an object")
+            if "payload" not in stmt or "signature" not in stmt:
+                raise ValueError(
+                    f"statement for {digest!r} needs payload and signature")
+            out[str(digest).lower()] = {
+                "payload": str(stmt["payload"]),
+                "signature": str(stmt["signature"]),
+            }
+        return out
+
+    if path.is_dir():
+        merged: dict[str, dict[str, str]] = {}
+        for p in sorted(path.glob("*.json")):
+            merged.update(_from_obj(json.loads(p.read_text(encoding="utf-8"))))
+        return merged
+    return _from_obj(json.loads(path.read_text(encoding="utf-8")))
+
+
 def _verify_with_registration(
     target: Path, artefact: Any, registration: Path,
     fulcio_roots: Path | None, log_key: Path | None,
     mode: Any, context: str, artefact_signed_at: str | None,
     at: str | None = None, check_revocations: bool = False,
     rekor_url: str = "https://rekor.sigstore.dev",
+    revocation_statements: Path | None = None,
 ) -> None:
     """The composed verdict: a valid artefact, attributed to an identity."""
     from datetime import datetime
@@ -711,12 +791,28 @@ def _verify_with_registration(
         from .signing.sigstore_clients import RekorRevocationSearchClient
 
         payload = HybridRegistration.from_payload(reg_bundle.envelope.payload)
+        # The registration itself is logged under this identity; its pre-image
+        # is not a revocation and must not make the search FAILED for opacity.
+        known = {reg_bundle.envelope.rekord_preimage.hex()}
+        statement_source: dict[str, dict[str, str]] = {}
+        if revocation_statements is not None:
+            try:
+                statement_source = _load_revocation_statements(
+                    revocation_statements)
+            except (OSError, ValueError, json.JSONDecodeError) as exc:
+                console.print(f"[red]could not read --revocation-statements: "
+                              f"{exc}")
+                raise typer.Exit(2) from None
+            console.print(f"  loaded {len(statement_source)} statement(s) "
+                          f"from {revocation_statements}")
         console.print(f"  searching {rekor_url} for revocations of "
                       f"{payload.identity} ...")
         search = find_revocations(
             payload.identity, _key_fingerprint(payload.pqc_key.public_key),
-            client=RekorRevocationSearchClient(rekor_url),
-            log_public_key=key_der, now=as_of)
+            client=RekorRevocationSearchClient(
+                rekor_url, statement_source=statement_source or None),
+            log_public_key=key_der, now=as_of,
+            known_non_revocation_digests=known)
 
     try:
         verdict = verify_artefact_against_registration(
@@ -755,10 +851,12 @@ def _verify_with_registration(
                       f"({verdict.signing_time_source.value})")
     else:
         console.print("  [yellow]covers this sig   : not checked -- the artefact "
-                      "carries no trustworthy signing time. The registration "
-                      "sets no notAfter and no revocation was supplied, so "
-                      "there was nothing to rule on; this is 'unchecked', not "
-                      "'passed'.")
+                      "carries no trustworthy UPPER-bound signing time "
+                      "(a NIST beacon is only a lower bound). The registration "
+                      "sets no notAfter and no conclusive revocation was "
+                      "supplied, so there was nothing to rule on; this is "
+                      "'unchecked', not 'passed'. Pass --artefact-signed-at "
+                      "to assert a time for coverage checks.")
     # Revocation status, always stated -- including when it was not established.
     outcome = verdict.revocation_search.outcome.value
     if verdict.revocation_status_is_conclusive:
@@ -815,10 +913,18 @@ def verify_artefact(
         False, "--check-revocations",
         help="Search the transparency log for revocations of the registered "
              "key. WITHOUT this, the verdict says revocation was NOT CHECKED "
-             "rather than pretending the key is live."),
+             "rather than pretending the key is live. The registration's own "
+             "log entry is ignored (it is not a revocation). Other opaque "
+             "entries still need a statement feed."),
     rekor_url: str = typer.Option(
         "https://rekor.sigstore.dev", "--rekor-url",
         help="The log to search with --check-revocations."),
+    revocation_statements: Path | None = typer.Option(
+        None, "--revocation-statements",
+        help="JSON file or directory of digest->statement maps "
+             "({payload, signature} b64) so --check-revocations can examine "
+             "hashedrekord entries. Required for conclusive results when the "
+             "identity has other log entries beyond this registration."),
 ) -> None:
     """Verify an artefact against a bundle, and report what was checked.
 
@@ -850,7 +956,7 @@ def verify_artefact(
         _verify_with_registration(
             target, parsed, registration, fulcio_roots, log_key,
             chosen, context, artefact_signed_at, at,
-            check_revocations, rekor_url)
+            check_revocations, rekor_url, revocation_statements)
         return
     if (fulcio_roots is not None or log_key is not None
             or artefact_signed_at or at):

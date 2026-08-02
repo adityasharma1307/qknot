@@ -1,29 +1,26 @@
 # v0.1.0 — first public release
 
-Quantum-Resilient Provenance: an audit of how much of the ML/software supply
-chain is signed and whether any of it would survive a quantum adversary, plus
-a response — hybrid post-quantum signing and identity registration that a
-today's-verifier still accepts.
+Quantum-Resilient Provenance: hybrid post-quantum signing and identity
+registration that a today's-verifier still accepts, motivated by a
+cross-registry audit of how much of the software supply chain would survive
+a quantum adversary right now (not much).
 
 ## Headline finding
 
-A stratified audit of 20,000 HuggingFace repositories (10,000 most-downloaded
-+ 10,000 uniform-random) found **0 post-quantum signatures** — a one-sided
-upper bound of 0.038% at 95% confidence. Every signature found is
-Shor-breakable (ECDSA P-256, RSA). See the README and `docs/RESULTS.md`
-for the full statistics.
+A stratified audit of HuggingFace, npm and PyPI (10,000 most-downloaded +
+10,000 uniform-random each, 60,000 artefacts total) found **0 post-quantum
+signatures anywhere** — a one-sided upper bound of 0.038% per stratum at 95%
+confidence. Every signature found is Shor-breakable (ECDSA P-256, RSA), and
+the zero holds even on PyPI and npm, where signing is routine. See the
+README and `docs/RESULTS.md` for the full statistics.
 
 ## What's in this release
-
-**Audit.** `qresp scan` / `scan-ids` / `audit-npm` / `audit-pypi` /
-`summarise` — HuggingFace, npm and PyPI, each with a head/tail stratified
-design, resumable, and honest about unreachable rows (`error`, never folded
-into `unsigned`).
 
 **Sign / verify.** A non-separable hybrid signature (Ed25519 + ML-DSA-87 by
 default) that a bare-field-deletion attack cannot silently downgrade, in an
 OMS v1.0-compatible Sigstore bundle. 180/180 NIST ACVP FIPS 204 vectors pass
-offline on every test run.
+offline on every test run. **This release signs itself** — see
+`release/qresp-0.1.0.bundle.json` and `release/README.md`.
 
 **Identity registration.** `qresp register` binds a post-quantum key to your
 existing OIDC identity through a classical Fulcio certificate, before that
@@ -41,6 +38,11 @@ collapses an inconclusive search into a clean bill of health. See
 `docs/REGISTRATION-SPEC.md` §9.1 for the structural limit this exposes
 (Rekor stores a digest, not a statement) and how it's handled.
 
+**Audit.** `qresp scan` / `scan-ids` / `audit-npm` / `audit-pypi` /
+`summarise` — HuggingFace, npm and PyPI, each with a head/tail stratified
+design, resumable, and honest about unreachable rows (`error`, never folded
+into `unsigned`). The evidence base for why the above exists.
+
 ## Validated on live infrastructure, not only simulated
 
 - A real Fulcio certificate + Rekor entry, captured and run through the full
@@ -53,7 +55,7 @@ collapses an inconclusive search into a clean bill of health. See
 ## Tests
 
 1261 passing offline, 57 skipped by default (need network or a captured
-fixture — see `docs/RUNBOOK.md`). What is and is not protected is stated
+fixture — see `CONTRIBUTING.md`). What is and is not protected is stated
 plainly, in both directions, in `docs/THREAT-MODEL.md`.
 
 ## Known limitations, stated plainly
@@ -74,4 +76,5 @@ plainly, in both directions, in `docs/THREAT-MODEL.md`.
 
 `qresp trust-material`, the identity-registration product surface
 (`register` / `verify --registration` / `--check-revocations`), npm/PyPI
-audit commands, `SECURITY.md`, `CONTRIBUTING.md`, and this release process.
+audit commands, `SECURITY.md`, `CONTRIBUTING.md`, a self-signed release
+process (`scripts/release/`), and this release itself.

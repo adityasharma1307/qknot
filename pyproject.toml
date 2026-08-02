@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "qresp"
 version = "0.1.0"
-description = "Quantum-Resilient Provenance audit tool for ML model registries"
+description = "Hybrid post-quantum signing and identity registration for software supply chains, backed by a cross-registry audit"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}

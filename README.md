@@ -1,11 +1,11 @@
-# QResP — Quantum-Resilient Provenance Audit
+# QResP — Quantum-Resilient Provenance
 
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)
-![Models audited](https://img.shields.io/badge/Repositories%20audited-20%2C000-green.svg)
-![PQ-safe](https://img.shields.io/badge/PQ--safe%20repositories-0-red.svg)
 ![Tests](https://img.shields.io/badge/Tests-1261%20passing-brightgreen.svg)
 ![FIPS 204](https://img.shields.io/badge/FIPS%20204%20ACVP-180%2F180-brightgreen.svg)
+![Self-signed release](https://img.shields.io/badge/v0.1.0-self--signed%20hybrid%20PQC-blueviolet.svg)
+![PQ-safe found](https://img.shields.io/badge/PQ--safe%20signatures%20found%20in%20audit-0-red.svg)
 
 > Phase I and II of *Quantum-Resilient Provenance for Machine Learning Supply Chains*
 > CS F376 Design Project, BITS Pilani Dubai Campus, 2025–26.
@@ -13,99 +13,39 @@
 
 ## Status
 
-Phase I (the audit) and Phase II (hybrid signing and PQC identity
-registration) are both implemented and tested against production
-infrastructure where it matters, not only simulated: the Sigstore /
-Fulcio / Rekor chain, an end-to-end key registration, and the live revocation
-search have each been run against real Sigstore and locked with a passing
-test. 1261 tests pass offline; 57 more are skipped by default because they
-need network access or a captured fixture (see
-[`docs/RUNBOOK.md`](docs/RUNBOOK.md)). What is and is not protected is stated
-plainly, in both directions, in [`docs/THREAT-MODEL.md`](docs/THREAT-MODEL.md).
+`qresp` is a **hybrid post-quantum signing and identity-registration tool**:
+it signs artefacts with a non-separable Ed25519 + ML-DSA-87 signature that
+existing OpenSSF Model Signing verifiers still accept, and it binds a
+post-quantum key to your existing OIDC identity through classical PKI so a
+signature made today stays attributable after classical algorithms are
+broken. A cross-registry audit (HuggingFace, npm, PyPI — see below) is what
+motivated building it: **zero post-quantum signatures found anywhere**,
+across three ecosystems and 60,000 sampled artefacts.
+
+Both halves are tested against production infrastructure, not only
+simulated: the Sigstore/Fulcio/Rekor chain, an end-to-end key registration,
+and the live revocation search have each been run against real Sigstore and
+locked with a passing test. 1261 tests pass offline (57 more need network or
+a captured fixture — see `CONTRIBUTING.md`). What is and is not protected is
+stated plainly, in both directions, in
+[`docs/THREAT-MODEL.md`](docs/THREAT-MODEL.md).
+
+**This repository signs its own releases.** v0.1.0's source tarball ships
+with a real hybrid signature over its own bytes — see
+["This release signs itself"](#this-release-signs-itself) below.
 
 Phase I as originally submitted (report, figures, and the 2026-05-21 dataset)
 is archived unmodified at
-[adityasharma1307/qresp-pilot](https://github.com/adityasharma1307/qresp-pilot); this
-repository is where development continues, and has grown past a single
-semester's scope.
-
-`qresp` does three things. It **audits** the cryptographic provenance of
-public packages — currently HuggingFace, npm and PyPI — classifying each by
-quantum vulnerability; it **signs** artefacts with a non-separable hybrid
-signature that remains compatible with existing OpenSSF Model Signing
-verifiers; and it **registers** a post-quantum key against your existing
-(classical) OIDC identity, so a signature made today stays attributable after
-classical algorithms are broken.
-
-The audit establishes that the gap is real and near-total. Signing and
-registration are the response to it, and are deliberately independent of both
-HuggingFace and machine learning: they operate on bytes and identities, and
-work for anything that needs signing — firmware, datasets, documents,
-container images.
-
-The accompanying end-semester report is available in [`docs/report.pdf`](docs/report.pdf).
-
----
-
-## Key findings
-
-### The 20,000-repository stratified audit (2026-07-25)
-
-The registry is too skewed to sample uniformly and too large to enumerate, so
-the audit uses two strata: a **census** of the 10,000 most-downloaded
-repositories, and a **uniform random draw** of 10,000 from the 2,928,107
-remaining, seed `20260725`.
-
-| | head (census) | long tail (sample) | ratio | Fisher exact |
-|---|---|---|---|---|
-| signed | 39 / 10,000 = 0.390% | 10 / 10,000 = 0.100% | 3.9x | p = 3.8e-05 |
-| vulnerable | 36 / 10,000 = 0.360% | 10 / 10,000 = 0.100% | 3.6x | p = 1.5e-04 |
-| **post-quantum** | **0** | **0** | — | p = 1 |
-
-Weighted to the whole registry: **0.101%** signed [95% CI 0.039%–0.163%], and
-**0%** post-quantum with a one-sided upper bound of **0.038%**.
-
-**Not one repository in 20,000 carries a post-quantum signature.** Every
-signature found is Shor-breakable: ECDSA P-256 via Sigstore in the head, RSA in
-the tail. Popular repositories are ~4x more likely to be signed than obscure
-ones, and the difference is significant — but signing anything at all remains a
-rounding error, and signing with anything quantum-resistant does not happen.
-
-Reproduce with:
-
-```bash
-python -m qresp.audit.stats \
-  --head data/head_10k_2026-07-25.jsonl \
-  --tail data/longtail_10k_2026-07-25.jsonl \
-  --manifest data/longtail_manifest_2026-07-25.json
-```
-
-Caveats are carried in the data rather than in prose: 58 tail repositories
-vanished between the frame being built and the scan, and 3 gated CohereLabs
-repositories could not be read. Both are labelled `error`, never `unsigned` —
-absence of evidence is not evidence of absence, and counting them as unsigned
-would inflate the very statistic being reported.
-
-HuggingFace is the flagship dataset (it's what the figures and report cover),
-but the same zero holds on PyPI and npm too, where signing is far more
-common — see [`docs/RESULTS.md`](docs/RESULTS.md) for the full cross-ecosystem
-numbers, benchmarks, entropy analysis and correctness evidence in one place.
-
-### The n = 1,000 pilot (2026-05-21 and 2026-07-06)
-
-Two top-1,000 snapshots seven weeks apart both gave 998 unsigned / 2 vulnerable
-/ 0 safe. *Which* models were signed changed completely between them, while the
-aggregate held — evidence that the near-total absence of signing is a property
-of the registry rather than of one snapshot. Superseded in scale by the audit
-above; retained because the turnover is itself a finding. See
-[`docs/DATASETS.md`](docs/DATASETS.md) for provenance of every dataset.
+[adityasharma1307/qresp-pilot](https://github.com/adityasharma1307/qresp-pilot);
+this repository is where development continues, and has grown past a single
+semester's scope. The accompanying end-semester report is available in
+[`docs/report.pdf`](docs/report.pdf).
 
 ---
 
 ## Signing: the quantum-resilient pipeline
 
-The audit establishes the gap. The `qresp.signing` package is the response: a
-**non-separable hybrid signature** that an existing OpenSSF Model Signing
+**A non-separable hybrid signature** that an existing OpenSSF Model Signing
 verifier still accepts.
 
 ```bash
@@ -126,11 +66,16 @@ one leaves the other attesting to its absence.
 | **Default suite** | Ed25519 + ML-DSA-87 (CNSA 2.0; -44/-65 selectable) |
 | **Digest** | SHA3-256, with SHA-256 alongside for OMS conformance |
 | **Format** | OMS v1.0-compatible Sigstore bundle, validated against the published schemas |
-| **Entropy** | Sources mixed, never chosen between; quantum origin attested, never assumed |
+| **Entropy** | Sources mixed, never chosen between; quantum origin attested, never assumed; falls back cleanly when unreachable (demonstrated on this repo's own release, below) |
 | **Signed** | DSSE PAE over the whole statement — attestation and metadata included |
 | **Conformance** | 180 NIST ACVP FIPS 204 vectors, byte-exact, run offline on every test invocation |
 
-### Identity & attribution: registering a PQC key off classical PKI, durably
+`qresp.signing` imports nothing from `qresp.audit` and knows nothing about
+HuggingFace or machine learning. It signs bytes. That boundary is enforced by
+a test, and works for anything that needs signing — firmware, datasets,
+documents, container images, source releases (including its own — see below).
+
+## Identity & attribution: registering a PQC key off classical PKI, durably
 
 Fulcio will certify a P-256 key against your OIDC identity. It will not certify
 an ML-DSA key. So QResP uses the classical certificate **while it is still
@@ -201,6 +146,35 @@ search adapter has separately been run and validated against live Rekor
 authenticated on production data. Design, two rounds of expert review, and the
 honest residuals: [`docs/REGISTRATION-SPEC.md`](docs/REGISTRATION-SPEC.md).
 
+## This release signs itself
+
+[`release/qresp-0.1.0.tar.gz`](release/qresp-0.1.0.tar.gz) is the v0.1.0
+source release, and [`release/qresp-0.1.0.bundle.json`](release/qresp-0.1.0.bundle.json)
+is its own hybrid signature — produced by `qresp sign` against its own
+bytes, not a demo artefact:
+
+```bash
+qresp verify release/qresp-0.1.0.tar.gz \
+    --bundle release/qresp-0.1.0.bundle.json --context qresp-release
+```
+
+```
+VERIFIED
+  algorithms checked: ['ed25519', 'ml-dsa-87']
+  quantum resistant : True
+  binding enforced  : True
+```
+
+This authenticates the artifact — tamper with one byte and verification
+fails with a digest mismatch. `sign` and `register` generate independent
+throwaway keys by default, so a signature and a registration don't refer to
+the same key unless you make them: `scripts/release/derive_keypair.py`
+bridges that gap (one seed, fed to both `sign --seed` and `register
+--pqc-public-key/--pqc-secret-key`), so a release can carry a signature, a
+Rekor transparency-log entry, *and* an identity binding, all for the same
+key. See [`release/README.md`](release/README.md) for what each piece does
+and does not prove, and the full walkthrough.
+
 ### Benchmarks
 
 [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) — signing latency, signature sizes,
@@ -222,39 +196,58 @@ straight migration.
 ### Run it end to end
 
 [`notebooks/qresp_demo.ipynb`](notebooks/qresp_demo.ipynb) signs
-`openai/privacy-filter` — one of the 39 signed repositories in the head stratum,
-currently carrying an ECDSA P-256 Sigstore signature — then attacks the result
-seven ways: artefact tampering, unsigned additions to an excluded directory,
-signature stripping (with and without rewriting the declared suite), metadata
-forgery, verification from 2031, and artefact substitution.
+`openai/privacy-filter` — one of the signed repositories found in the audit
+below, currently carrying an ECDSA P-256 Sigstore signature — then attacks
+the result seven ways: artefact tampering, unsigned additions to an excluded
+directory, signature stripping (with and without rewriting the declared
+suite), metadata forgery, verification from 2031, and artefact substitution.
 
 Runs in Colab with no API keys and no hardware; falls back cleanly and says so
 when the network is unavailable. Regenerate with
 `python scripts/demo/build_notebook.py --run`.
 
-`qresp.signing` imports nothing from `qresp.audit` and knows nothing about
-HuggingFace or machine learning. It signs bytes. That boundary is enforced by a
-test. See [`docs/THREAT-MODEL.md`](docs/THREAT-MODEL.md) for what is and is not
-protected, stated plainly in both directions.
+---
 
-## What it does
+## Why this matters: the audit
 
-The tool walks the HuggingFace registry, finds signature files attached to
-each model (if any), parses them, identifies the underlying signature
-algorithm, and tags the model with one of five labels:
+Signing and registration are the response to a gap this project measured
+directly, across three registries, none of them cherry-picked toward the
+result:
 
-| Label | Meaning |
-|---|---|
-| `safe` | Post-quantum scheme: ML-DSA or SLH-DSA (NIST FIPS 204/205) |
-| `vulnerable` | Classical scheme: RSA, ECDSA, Ed25519 — broken by Shor's algorithm |
-| `unsigned` | No signature file present |
-| `mixed` | Multiple signatures with disagreeing labels |
-| `error` | Could not be assessed: unparseable signature, or repository unreachable |
+| ecosystem | registry size | combined signed | head (top 10k) | tail (random 10k) |
+|---|---|---|---|---|
+| **HuggingFace** | 2,928,107 | 0.101% [0.039, 0.163] | 0.39% | 0.10% |
+| **npm** | 4,290,079 | 3.681% [3.315, 4.046] | 25.40% | 3.63% |
+| **PyPI** | 860,900 | 8.907% [8.363, 9.451] | 23.15% | 8.74% |
 
-The tool **never downloads model weights**. It checks only for signature
-sidecar files (typically kilobytes), so a 1,000-model scan completes in
-under 5 seconds and the full 20,000-repository audit in a few hours,
-network-bound throughout.
+Same two-stratum design on all three: a **census** of the 10,000
+most-downloaded packages/repositories, and a **uniform random draw** of
+10,000 from the remainder, so the result describes the ecosystem rather than
+its popular corner. **Zero post-quantum signatures in any stratum, of any
+ecosystem, out of 60,000 sampled artefacts.** Every signature found is
+Shor-breakable — ECDSA P-256 or RSA — and each per-stratum 95% Wilson upper
+bound on post-quantum adoption is 0.038%, so the null is not a small-sample
+artefact.
+
+npm and PyPI matter to the finding precisely because they remove the obvious
+objection to the HuggingFace number: signing there is rare (0.1%–0.4%), which
+invites the reply that the post-quantum absence says little if almost nothing
+is signed at all. On PyPI and npm, signing is routine — 26–87× more common —
+and post-quantum adoption is still exactly zero. **Even where signing is
+normal, post-quantum signing does not exist.**
+
+Full per-ecosystem numbers, methodology, caveats (unreadable/deleted
+repositories are labelled `error`, never folded into `unsigned`), benchmarks,
+entropy analysis and correctness evidence are in one place:
+[`docs/RESULTS.md`](docs/RESULTS.md). Dataset provenance for every file in
+`data/`: [`docs/DATASETS.md`](docs/DATASETS.md).
+
+The tool itself never downloads model/package weights — it checks only for
+signature sidecar files, so a 1,000-repository scan completes in seconds and
+the full 20,000-repository HuggingFace audit in a few hours, network-bound
+throughout. It tags each artefact `safe` (ML-DSA/SLH-DSA), `vulnerable`
+(RSA/ECDSA/Ed25519), `unsigned`, `mixed`, or `error` (could not be assessed —
+never counted as unsigned).
 
 ---
 
@@ -268,18 +261,6 @@ cd qresp
 pip install -e .
 ```
 
-For analysis notebooks:
-
-```bash
-pip install -e ".[analysis]"
-```
-
-For development (tests, linter):
-
-```bash
-pip install -e ".[dev]"
-```
-
 For `qresp register` and `qresp trust-material` (OIDC login, the TUF client):
 
 ```bash
@@ -287,7 +268,9 @@ pip install -e ".[register]"
 ```
 
 `sign`, `verify` (without `--registration`), and the audit commands need none
-of this — `qresp.signing`'s core does not depend on `sigstore` at all.
+of this — `qresp.signing`'s core does not depend on `sigstore` at all. For
+analysis notebooks: `pip install -e ".[analysis]"`. For development (tests,
+linter): `pip install -e ".[dev]"` — see `CONTRIBUTING.md`.
 
 > **Windows note:** if `qresp` is not found after install, the Python
 > Scripts directory may not be on your PATH. Either add it:
@@ -306,9 +289,8 @@ of this — `qresp.signing`'s core does not depend on `sigstore` at all.
 |---|---|
 | `qresp sign` / `qresp verify` (no `--registration`) | `qresp register` (OIDC login, Fulcio, Rekor) |
 | `qresp verify --registration` / `verify-registration`, given a bundle and a trust store you already have | `qresp trust-material` (fetches Sigstore's TUF root) |
-| `qresp entropy` | `--check-revocations` (searches Rekor live) |
+| `qresp entropy` (falls back to CSPRNG if unreachable) | `--check-revocations` (searches Rekor live) |
 | Almost the whole test suite (1261 of 1318 tests) | `qresp scan` / `audit-npm` / `audit-pypi` (query the registries) |
-| | The 57 skipped tests, and a handful that need a captured live fixture |
 
 So a fresh clone with no network at all can still sign, verify signatures,
 verify a registration you already hold the trust material for, and run
@@ -317,54 +299,6 @@ nearly the entire test suite.
 ---
 
 ## Usage
-
-### Run a pilot scan (50 models)
-
-```bash
-qresp scan --n 50 --out data/pilot_2026-05-21.jsonl
-```
-
-### Run the head census (top 10,000 by downloads)
-
-```bash
-qresp scan --n 10000 --out data/head_$(date +%Y-%m-%d).jsonl --token $HF_TOKEN
-```
-
-### Run the long-tail sample
-
-The tail is not a top-N slice, so it is drawn first and audited from a fixed id
-list. The seed makes the draw reproducible byte for byte:
-
-```bash
-python scripts/audit/sample_longtail.py --k 10000 --seed 20260725
-qresp scan-ids --ids data/longtail_sample_$(date +%Y-%m-%d).txt \
-    --out data/longtail_$(date +%Y-%m-%d).jsonl --token $HF_TOKEN
-```
-
-See [`docs/RUNBOOK.md`](docs/RUNBOOK.md) for the full procedure, including what
-to do when it stops partway.
-
-### Audit npm and PyPI
-
-The same two-stratum design — a `head` of the most-downloaded packages and a
-`tail` sampled at random from the rest, so the result describes the ecosystem
-rather than its popular corner:
-
-```bash
-qresp audit-pypi --out data/pypi_$(date +%Y-%m-%d).jsonl
-
-# npm publishes no ranking, so both inputs are produced locally first
-python scripts/audit/fetch_npm_frame.py --out data/npm_frame.txt
-python scripts/audit/rank_npm.py        --out data/npm_ranking.json
-qresp audit-npm --ranking data/npm_ranking.json --frame data/npm_frame.txt \
-    --out data/npm_$(date +%Y-%m-%d).jsonl
-```
-
-Both write a manifest beside the output recording the seed, the frame size and
-a digest of the frame, so the sample is re-derivable rather than merely
-described. Both resume if interrupted, and rows labelled `error` are retried on
-re-run rather than counted — a package that could not be reached was not
-checked, and folding those into "unsigned" would inflate the headline rate.
 
 ### Sign and verify an artefact
 
@@ -376,96 +310,59 @@ qresp verify ./my-model --bundle model.bundle.json
 Add `--deterministic` for byte-reproducible signatures. It is off by default:
 FIPS 204 hedged signing mixes fresh randomness into every signature as a
 defence against fault injection, and that margin is worth more than
-reproducibility outside of test vectors and demos.
+reproducibility outside of test vectors and demos. Resume is on by default
+for directories — if interrupted, rerun the same command and it picks up
+where it left off.
 
-Resume is on by default — if interrupted, rerun the same command and it
-picks up where it left off.
+### Register an identity and verify attribution
 
-### With a HuggingFace token (higher rate limits)
+See ["Identity & attribution"](#identity--attribution-registering-a-pqc-key-off-classical-pki-durably)
+above for the full walkthrough (`trust-material` → `register` → `sign` →
+`verify --registration --check-revocations`).
 
-```bash
-qresp scan --n 1000 --out data/full_$(date +%Y-%m-%d).jsonl --token $HF_TOKEN
-```
+### Audit HuggingFace, npm, or PyPI
 
-A token is optional for a 1,000-model scan and effectively required beyond
-that. Get a free read-only token at https://huggingface.co/settings/tokens.
-
-### Re-audit from scratch (ignore existing output)
-
-```bash
-qresp scan --n 1000 --out data/full_2026-07-06.jsonl --no-resume
-```
-
----
-
-## Output format
-
-Each line of the JSONL output is one model record:
-
-```json
-{
-  "model_id": "ibm-granite/granite-4.1-8b",
-  "publisher": "ibm-granite",
-  "downloads": 601933,
-  "last_modified": "2026-05-04T17:36:29Z",
-  "file_count": 16,
-  "has_signature": true,
-  "candidate_files": ["model.sig"],
-  "sig_algorithm": "ecdsa_p256",
-  "sig_format": "sigstore",
-  "key_size_bits": null,
-  "q_label": "vulnerable",
-  "audit_ts": "2026-07-06T07:29:41.006257Z",
-  "notes": "inferred_from_sigstore_fulcio_default"
-}
-```
-
----
-
-## Statistical analysis
-
-Run the included stats script to reproduce the Wilson confidence intervals
-and power analysis:
+Same two-stratum design across all three — a `head` of the most-downloaded
+packages and a `tail` sampled at random from the rest:
 
 ```bash
-python -m qresp.audit.stats data/full_2026-07-06.jsonl
+# HuggingFace
+qresp scan --n 10000 --out data/head_$(date +%Y-%m-%d).jsonl --token $HF_TOKEN
+python scripts/audit/sample_longtail.py --k 10000 --seed 20260725
+qresp scan-ids --ids data/longtail_sample_$(date +%Y-%m-%d).txt \
+    --out data/longtail_$(date +%Y-%m-%d).jsonl --token $HF_TOKEN
+
+# PyPI
+qresp audit-pypi --out data/pypi_$(date +%Y-%m-%d).jsonl
+
+# npm -- publishes no ranking, so both inputs are produced locally first
+python scripts/audit/fetch_npm_frame.py --out data/npm_frame.txt
+python scripts/audit/rank_npm.py        --out data/npm_ranking.json
+qresp audit-npm --ranking data/npm_ranking.json --frame data/npm_frame.txt \
+    --out data/npm_$(date +%Y-%m-%d).jsonl
 ```
 
-Expected output:
+All three write a manifest beside the output recording the seed, the frame
+size and a digest of the frame, so the sample is re-derivable rather than
+merely described. All three resume if interrupted, and rows labelled `error`
+are retried on re-run rather than counted — a repository/package that could
+not be reached was not checked, and folding those into "unsigned" would
+inflate the headline rate. A HuggingFace token is optional under 1,000
+repositories and effectively required beyond that (free, read-only:
+https://huggingface.co/settings/tokens).
 
-```
-n = 1000
-Signed:        2 / 1000  (0.2%)   95% CI: [0.05%, 0.73%]
-Unsigned:    998 / 1000  (99.8%)  95% CI: [99.27%, 99.95%]
-Vulnerable:    2 / 1000  (0.20%)  95% CI: [0.055%, 0.726%]
-PQ-safe:       0 / 1000  (0.0%)   95% CI: [0.00%, 0.38%]
-
-Power analysis: to detect 1% PQ adoption (vs 0%) at 80% power,
-minimum sample size needed = 615 models
-=> Our n=1000 is sufficient to rule out even 1% PQ adoption.
-```
-
-For visualisations, open the analysis notebook:
+Reproduce the published statistics:
 
 ```bash
-jupyter lab notebooks/analysis.ipynb
+python -m qresp.audit.stats \
+  --head data/head_10k_2026-07-25.jsonl \
+  --tail data/longtail_10k_2026-07-25.jsonl \
+  --manifest data/longtail_manifest_2026-07-25.json
 ```
 
----
-
-## Signature detection coverage
-
-Detection is filename-based (no weights are downloaded) and covers:
-
-| Format | Patterns matched |
-|---|---|
-| Sigstore | `.sigstore`, `.sigstore.json`, `model.sig`, `signature.json` |
-| in-toto | `.intoto.jsonl`, `.in-toto.jsonl`, `attestation.json` |
-| GPG / OpenPGP | `.asc`, `.gpg`, `.pgp` |
-| Generic | `.sig` (fallback) |
-
-Cosign bundle files (`.cosign.bundle`) are not currently covered but were
-not observed in the audited corpus.
+Full output format, detection coverage (Sigstore/in-toto/GPG/generic `.sig`),
+and worked statistical output are in
+[`docs/DATASETS.md`](docs/DATASETS.md) and [`docs/RESULTS.md`](docs/RESULTS.md).
 
 ---
 
@@ -476,38 +373,35 @@ Two halves, deliberately separable.
 ```
 qresp/
 ├── src/qresp/
-│   ├── audit/          PHASE I -- surveying one registry
-│   │   ├── detect.py       filename-based signature detection
-│   │   ├── parse.py        Sigstore / OpenPGP / raw signature parsers
-│   │   ├── scanner.py      resumable audit orchestration
-│   │   ├── hf_client.py    HuggingFace API with retry and backoff
-│   │   ├── model.py        record schema and classification rules
-│   │   └── stats.py        Wilson intervals, stratified estimates, Fisher
 │   ├── signing/        PHASE II -- signing anything, reusable
 │   │   └── entropy/        attested entropy acquisition
+│   ├── audit/          PHASE I -- surveying three registries
 │   └── cli.py
 ├── scripts/
-│   ├── audit/          sampling, trimming, relabelling, the 20k runner
-│   └── verify/         red team and coverage checks
+│   ├── release/         builds and signs this repository's own releases
+│   ├── register/         live-registration capture
+│   ├── verify/           red team and live-infrastructure validation
+│   └── audit/            sampling, trimming, relabelling, the 20k runner
 ├── tests/
-│   ├── audit/          Phase I
-│   ├── signing/        Phase II, including the package-boundary test
-│   └── adversarial/    attempts to make the audit lie
-├── data/               date-stamped datasets and sampling manifests
-├── docs/               DATASETS.md, RUNBOOK.md, REGISTRATION-SPEC.md, report, figures
-├── security/           responsible-disclosure material
-├── SECURITY.md         how to report a vulnerability in this code
-└── CONTRIBUTING.md     how the codebase is organised, and what a PR needs
+│   ├── signing/         Phase II, including the package-boundary test
+│   ├── audit/           Phase I
+│   └── adversarial/     attempts to make the audit lie
+├── release/             this project's own signed release artifacts
+├── data/                date-stamped datasets and sampling manifests
+├── docs/                RESULTS.md, DATASETS.md, REGISTRATION-SPEC.md, THREAT-MODEL.md, report, figures
+├── security/            responsible-disclosure material
+├── SECURITY.md          how to report a vulnerability in this code
+└── CONTRIBUTING.md      how the codebase is organised, and what a PR needs
 ```
 
-**`qresp.signing` does not import `qresp.audit`, and never will.** The audit
-answers a research question about one registry; the signing pipeline is meant
-to be usable by anyone who needs post-quantum-ready signatures with honest
-provenance -- for firmware, datasets, documents, container images, anything.
-`tests/signing/test_package_boundary.py` fails the build if that separation is
-broken, and also if `qresp.signing` acquires a dependency on `huggingface_hub`,
-`transformers` or `datasets`.
-
+**`qresp.signing` does not import `qresp.audit`, and never will.** The
+signing/identity pipeline is meant to be usable by anyone who needs
+post-quantum-ready signatures with honest provenance — for firmware,
+datasets, documents, container images, anything; the audit answers a
+research question about specific registries and is the evidence for why the
+signing half exists. `tests/signing/test_package_boundary.py` fails the
+build if that separation is broken, and also if `qresp.signing` acquires a
+dependency on `huggingface_hub`, `transformers` or `datasets`.
 
 ---
 

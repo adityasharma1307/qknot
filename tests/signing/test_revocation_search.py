@@ -27,7 +27,11 @@ from qresp.signing.registration import (  # noqa: E402
     Revocation,
     _key_fingerprint,
 )
-from qresp.signing.rekor import hashedrekord_body, leaf_hash  # noqa: E402
+from qresp.signing.rekor import (  # noqa: E402
+    hashedrekord_body,
+    hashedrekord_digest,
+    leaf_hash,
+)
 from qresp.signing.revocation_search import (  # noqa: E402
     RevocationSearchOutcome,
     find_revocations,
@@ -136,6 +140,26 @@ class TestItNeverClaimsAnUnearnedAllClear:
                                   log_public_key=pub)
         assert result.outcome is RevocationSearchOutcome.NONE_FOUND
         assert result.is_conclusive
+
+    def test_a_known_registration_digest_is_not_unexaminable(self):
+        """The registration entry for this identity always appears in a Rekor
+        index-by-email search. Without filtering it, every registered identity
+        would get FAILED for opacity. Callers pass the registration pre-image
+        as a known non-revocation; remaining empty => none-found."""
+        key, pub = _log_key()
+        # Reuse the revocation helper's body shape but treat its digest as known.
+        entry = _logged_revocation(_revocation(FINGERPRINT), key,
+                                   with_statement=False)
+        digest = hashedrekord_digest(
+            base64.b64decode(entry["canonicalizedBody"])).hex()
+        result = find_revocations(
+            IDENTITY, FINGERPRINT,
+            client=FakeSearchClient([entry]),
+            log_public_key=pub,
+            known_non_revocation_digests={digest})
+        assert result.outcome is RevocationSearchOutcome.NONE_FOUND
+        assert result.is_conclusive
+        assert "known non-revocation" in result.detail
 
 
 class TestItFindsRealRevocations:

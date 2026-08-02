@@ -36,15 +36,12 @@ data/longtail_frame_*.txt.cursor
 # Run logs
 logs/
 
-# Responsible-disclosure material. Full credential-shaped identifiers, held
-# locally for reporting to HuggingFace and never published. The redacted
-# JSON alongside it is safe to commit.
+# Responsible-disclosure material. Full identifiers and the redacted account
+# list stay on the author's machine only — never commit either. (The redacted
+# file's value was aggregation of 147 account names, which is enough to recover
+# public token-shaped repo names. See security/INCIDENT-2026-07-25-*.md.)
 security/*.PRIVATE.txt
 security/*.private.*
-# The REDACTED account list is also excluded (removed 2026-08-02). The
-# redaction was sound, but the file's value was aggregation: 147 account names
-# whose public repositories let a reader reconstruct the credential-shaped
-# names unaided. See security/INCIDENT-2026-07-25-*.md, "Publication decision".
 security/leaked_token_repos.redacted.json
 
 # OS junk files
@@ -78,7 +75,26 @@ notebooks/cli.keys.json
 # The demo notebook's Colab fallback clones the repository. If that path runs
 # from inside a checkout -- which it should not, but did once when the local
 # search failed -- it leaves a nested clone here. Never commit one.
+/qresp/
 /qresp2/
+
+# Local packaging / history-rewrite scratch that must never be committed.
+# - qresp-0.1.0/   extracted sdist from release/qresp-0.1.0.tar.gz
+# - qresp.git/     bare mirror left by git-filter-repo / --mirror clones
+# - trust/         output of `qresp trust-material` (re-fetchable anytime)
+/qresp-0.1.0/
+/qresp.git/
+/trust/
+
+# Long-term signing key material derived by scripts/release/derive_keypair.py
+# (or anything else) for registering a release identity. This is exactly the
+# kind of secret that must never end up in git history -- see
+# release/README.md, "Completing the cycle". release/*.bundle.json and
+# release/*.keys.json (PUBLIC keys only) are fine and are meant to be
+# committed; only the raw secret material is excluded here.
+release/keys/
+*.key
+!tests/**/*.key
 
 # Primary sources behind docs/CITATIONS.md, kept locally rather than committed.
 # 33 MB of PDFs makes every commit slow over a mounted filesystem, and a

@@ -61,7 +61,7 @@ def main() -> int:
     with tarfile.open(tarpath, "r:gz") as tf:
         names = tf.getnames()
     print(f"built: {tarpath} ({tarpath.stat().st_size} bytes, {len(names)} files)")
-    print(f"\nsign it with:")
+    print("\nsign it with:")
     print(f"  qresp sign {tarpath} --out {args.out}/qresp-{args.version}.bundle.json "
           f"--keys-out {args.out}/qresp-{args.version}.keys.json "
           f"--name qresp-{args.version} --context qresp-release")

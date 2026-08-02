@@ -7,10 +7,12 @@
 account list is NOT published -- see "Publication decision" below.
 **Full identifiers:** `security/leaked_token_repos.PRIVATE.txt` (gitignored,
 local only, never committed -- verified absent from all git history)
-**Redacted evidence:** REMOVED from the repository on 2026-08-02. It listed 147
-distinct account names, and the repository names those accounts hold are public
-on HuggingFace, so the 8-character prefixes were never the exposure -- the
-account list was. See "Publication decision".
+**Redacted evidence:** removed from git (tip and history) on 2026-08-02 and
+gitignored. A local copy may still exist on the author's machine only — it is
+not part of the published repository. It listed 147 distinct account names;
+the repository names those accounts hold are public on HuggingFace, so the
+8-character prefixes were never the exposure — the account list was. See
+"Publication decision".
 
 ---
 
@@ -131,9 +133,11 @@ churn rather than silently dropping it.
 
 ## Publication decision (2026-08-02)
 
-`security/leaked_token_repos.redacted.json` has been removed from the working
-tree, and its blob was purged from git history before this repository was
-made public. The reasoning, recorded 2026-07-27 and applied unchanged:
+`security/leaked_token_repos.redacted.json` is not in the published repository:
+it was deleted from the tree, purged from git history with `git filter-repo`,
+and listed in `.gitignore` so it cannot be re-added by accident. A local copy
+may remain on the author's machine for disclosure to HuggingFace only. The
+reasoning, recorded 2026-07-27 and applied unchanged:
 
 The redaction itself was sound -- 8 characters of a 34-character random suffix
 is not brute-forcible, and the file contained no complete token-shaped string.

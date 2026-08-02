@@ -201,6 +201,46 @@ class TestAttestationHonesty:
             "without a beacon there is no evidence about creation time"
         )
 
+
+class TestAttestExplicitSeed:
+    """Registerable keys (sign --seed) still carry honest time evidence."""
+
+    def test_without_beacon_still_commits_to_the_seed(self):
+        from qresp.signing.entropy.mixing import attest_explicit_seed
+
+        seed = b"\x5a" * 32
+        att = attest_explicit_seed(seed, use_beacon=False)
+        assert att.verify_commitment(seed)
+        assert att.not_before is None
+        assert att.contributions[0].backend == "explicit-seed"
+        assert not att.is_quantum_seeded
+
+    def test_key_material_is_not_mixed_with_public_witness(self):
+        """Reproducibility: the same seed must produce the same keys whether
+        or not a beacon pulse was recorded beside them."""
+        from qresp.signing.entropy.mixing import attest_explicit_seed
+        from qresp.signing.sign import keygen
+
+        seed = b"\x42" * 32
+        a = keygen(suite=["ed25519"], seed=seed,
+                   entropy_attestation=attest_explicit_seed(seed, use_beacon=False))
+        b = keygen(suite=["ed25519"], seed=seed, entropy_attestation=None)
+        assert a.keys["ed25519"].public_key == b.keys["ed25519"].public_key
+        assert a.entropy_attestation is not None
+        assert b.entropy_attestation is None
+
+    def test_fixed_ceremony_time_is_byte_stable(self):
+        """--deterministic needs two attestations of the same seed to match."""
+        from datetime import datetime, timezone
+
+        from qresp.signing.entropy.mixing import attest_explicit_seed
+
+        seed = b"\x11" * 32
+        fixed = datetime(1970, 1, 1, tzinfo=timezone.utc)
+        a = attest_explicit_seed(seed, use_beacon=False, ceremony_time=fixed)
+        b = attest_explicit_seed(seed, use_beacon=False, ceremony_time=fixed)
+        assert a.to_dict() == b.to_dict()
+
     def test_commitment_binds_the_derived_seed(self):
         result = mix_entropy([SystemEntropyBackend()], n_bytes=32)
         assert result.attestation.verify_commitment(result.seed)

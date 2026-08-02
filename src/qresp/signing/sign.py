@@ -174,6 +174,10 @@ def keygen(
         entropy_attestation = result.attestation
     elif len(seed) < 32:
         raise ValueError("seed must be at least 32 bytes")
+    # Explicit seed: key material is the caller's. Attestation is optional --
+    # pass `entropy_attestation=attest_explicit_seed(seed, ...)` (as the CLI
+    # does) for a beacon ceremony witness without mixing the beacon into the
+    # seed. Leaving it None keeps offline unit tests network-free.
 
     from .entropy.mixing import hkdf
 

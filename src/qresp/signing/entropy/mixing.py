@@ -315,6 +315,104 @@ def default_sources(anu_api_key: str | None = None,
     return sources
 
 
+def attest_explicit_seed(
+    seed: bytes,
+    *,
+    use_beacon: bool = True,
+    ceremony_time: datetime | None = None,
+) -> MixedEntropyAttestation:
+    """Attest a CALLER-SUPPLIED seed, optionally with a NIST beacon time witness.
+
+    Used by `sign --seed` / registerable key paths: the key material is the
+    seed the caller already holds (so it is reproducible and can be registered),
+    and the beacon -- if reachable -- is recorded only as a PUBLIC contribution
+    that fixes a lower-bound time on the generation ceremony. The beacon bytes
+    do NOT enter the seed: folding them in would destroy reproducibility, and
+    an explicit seed is already fully determined without them.
+
+    Honest about both sides:
+      * the secret contribution is `explicit-seed` (not quantum, not drawn);
+      * `not_before` comes from the beacon pulse when one is obtained;
+      * if the beacon is down, the attestation still commits to the seed and
+        notes that no public time witness is available.
+
+    A beacon lower bound is NOT enough for notAfter / revocation coverage on
+    an artefact (that needs an upper bound: TSA or log). It is the same
+    evidence the non-seed path carries, so the two paths no longer diverge.
+
+    `ceremony_time`, if given, is written into the attestation instead of
+    wall-clock now -- used with `--deterministic` so two signings of the same
+    inputs stay byte-identical. Pass a fixed instant (and `use_beacon=False`)
+    for that path; a live beacon pulse would reintroduce non-determinism.
+    """
+    if len(seed) < 32:
+        raise ValueError("seed must be at least 32 bytes")
+
+    started = ceremony_time or datetime.now(timezone.utc)
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=timezone.utc)
+    contributions: list[SourceContribution] = [
+        SourceContribution(
+            backend="explicit-seed",
+            role="secret",
+            is_quantum=False,
+            n_bytes=len(seed),
+            commitment=commit(seed),
+            notes=[
+                "caller-supplied seed; key material is reproducible from this "
+                "seed alone and is only as secret as the seed itself",
+            ],
+        ),
+    ]
+    not_before: str | None = None
+    notes: list[str] = [
+        "key material is an explicit seed (registerable / reproducible path); "
+        "public sources below, if any, witness ceremony time only and do not "
+        "enter the key",
+    ]
+
+    if use_beacon:
+        from .backends import QrngUnavailable
+        from .beacon import NistBeaconBackend
+
+        beacon = NistBeaconBackend()
+        try:
+            raw = beacon.get_bytes(32)
+            described = beacon.describe() or {}
+            if described.get("not_before"):
+                not_before = str(described["not_before"])
+            contributions.append(SourceContribution(
+                backend=beacon.name,
+                role="public",
+                is_quantum=True,
+                n_bytes=len(raw),
+                commitment=commit(raw),
+                public_value=raw.hex(),
+                reference=described.get("pulse"),
+                notes=[
+                    "public time witness only; not mixed into the key seed",
+                ],
+            ))
+        except (QrngUnavailable, OSError, NotImplementedError, ValueError) as exc:
+            notes.append(
+                f"NIST beacon unavailable ({exc}); attestation has no "
+                f"externally-verifiable lower-bound time")
+    else:
+        notes.append(
+            "no public time witness requested (--no-beacon or deterministic "
+            "mode); attestation has no externally-verifiable lower-bound time")
+
+    return MixedEntropyAttestation(
+        kdf="none-explicit-seed",
+        n_bytes=len(seed),
+        timestamp=started.isoformat(),
+        commitment=commit(seed),
+        contributions=contributions,
+        not_before=not_before,
+        notes=notes,
+    )
+
+
 __all__ = [
     "COMMITMENT_DOMAIN",
     "KDF_NAME",
@@ -322,6 +420,7 @@ __all__ = [
     "MixedEntropyResult",
     "NoSecretEntropy",
     "SourceContribution",
+    "attest_explicit_seed",
     "default_sources",
     "hkdf",
     "mix_entropy",

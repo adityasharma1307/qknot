@@ -153,6 +153,7 @@ def find_revocations(
     client: RevocationSearchClient,
     log_public_key: bytes,
     now: datetime | None = None,
+    known_non_revocation_digests: set[str] | None = None,
 ) -> RevocationSearch:
     """Search the log for revocations of `(identity, pqc_key_fingerprint)`.
 
@@ -162,6 +163,14 @@ def find_revocations(
     that are not qresp revocations, or that name a different identity or key,
     are ignored rather than treated as failures: a log search legitimately
     returns unrelated entries.
+
+    `known_non_revocation_digests` are digests the caller already knows are NOT
+    revocations (typically the registration pre-image of the binding being
+    verified). Without that filter, every identity that has registered produces
+    unexaminable hashedrekord entries (the registration itself) and the search
+    would always return FAILED for lack of a statement feed -- which is honest
+    about opacity but useless for the common case of "I registered, I never
+    revoked." Known digests are skipped, not counted as unexaminable.
 
     A transport failure returns outcome FAILED. It does NOT raise, because the
     caller must be able to render "I could not check" as a verdict rather than a
@@ -175,6 +184,8 @@ def find_revocations(
         verify_log_entry,
     )
 
+    known = {d.lower() for d in (known_non_revocation_digests or set())}
+
     try:
         raw_entries = client.search_by_identity(identity)
     except Exception as exc:  # noqa: BLE001 -- any transport failure is FAILED
@@ -186,12 +197,24 @@ def find_revocations(
     found: list[tuple[SignedRevocation, datetime]] = []
     examined = 0
     unexaminable = 0
+    skipped_known = 0
     for raw in raw_entries:
         examined += 1
         try:
             entry = log_entry_from_rekor(raw)
         except InclusionError:
             continue                     # not an entry shape we can read
+
+        # Known non-revocations (e.g. this binding's registration pre-image):
+        # skip before demanding a statement. The log indexes by identity, so
+        # the registration entry always shows up and is not a revocation.
+        try:
+            entry_digest = hashedrekord_digest(entry.entry_body).hex()
+        except InclusionError:
+            entry_digest = ""
+        if entry_digest and entry_digest.lower() in known:
+            skipped_known += 1
+            continue
 
         # The revocation statement travels alongside the entry: the log stores a
         # digest, not the document (see the module docstring). Without the
@@ -250,17 +273,28 @@ def find_revocations(
         return RevocationSearch(
             RevocationSearchOutcome.FAILED, candidates_examined=examined,
             detail=f"{unexaminable} of {examined} log entr(ies) for {identity} "
-                   f"could not be examined or did not authenticate. The log "
-                   f"stores digests, so an entry whose statement is unavailable "
-                   f"is opaque; and a candidate naming this key that fails to "
-                   f"authenticate may be a real revocation someone damaged to "
-                   f"suppress it. Whether this key is revoked is UNKNOWN, "
-                   f"not 'no'.")
+                   f"could not be examined or did not authenticate"
+                   f"{f' ({skipped_known} known non-revocation(s) skipped)' if skipped_known else ''}. "
+                   f"The log stores digests, so an entry whose statement is "
+                   f"unavailable is opaque; pass --revocation-statements with a "
+                   f"published feed to examine candidates. Whether this key is "
+                   f"revoked is UNKNOWN, not 'no'.")
+    detail = (
+        f"searched {examined} log entr(ies) for {identity}; none was an "
+        f"authenticated revocation of this key"
+    )
+    if skipped_known:
+        detail += (
+            f" ({skipped_known} known non-revocation entr(ies) skipped, "
+            f"e.g. the registration itself)"
+        )
+    detail += (
+        ". This is a search of one log as of now, not a proof that none will "
+        "ever exist."
+    )
     return RevocationSearch(
         RevocationSearchOutcome.NONE_FOUND, candidates_examined=examined,
-        detail=f"searched {examined} log entr(ies) for {identity}; none was an "
-               f"authenticated revocation of this key. This is a search of one "
-               f"log as of now, not a proof that none will ever exist.")
+        detail=detail)
 
 
 def _b64(value: str) -> bytes:
