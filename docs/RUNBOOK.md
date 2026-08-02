@@ -118,3 +118,73 @@ python -m qresp.audit.stats --head data\head_10k_<date>.jsonl `
 
 Send me `logs\stats_<date>.txt` and the manifest and I will pick up from there.
 Nothing touches `report.tex`.
+
+---
+
+## Purging the account list from history (do this before going public)
+
+`security/leaked_token_repos.redacted.json` was removed from the working tree
+and the index on 2026-08-02 (see `docs/OPEN-QUESTIONS.md` §0). That is **not
+sufficient on its own**: the file had already been pushed to `origin/main`, so
+the blob is in the remote's history and a normal deletion leaves it recoverable
+by anyone who can read the repository. The moment visibility flips, "recoverable
+by anyone who can read the repository" means the public.
+
+This is the one step that cannot be automated from a sandbox: it rewrites every
+commit and needs a force-push with your credentials.
+
+### The procedure
+
+Work on a **fresh clone**, so a mistake costs nothing:
+
+```bash
+# 1. mirror-clone somewhere scratch
+cd /tmp
+git clone --mirror https://github.com/adityasharma1307/qresp2.git qresp2-purge.git
+cd qresp2-purge.git
+
+# 2. purge the blob from every commit on every ref
+pip install git-filter-repo          # once
+git filter-repo --invert-paths \
+    --path security/leaked_token_repos.redacted.json --force
+
+# 3. confirm it is gone from ALL history, not just the tip
+git log --all --oneline -- security/leaked_token_repos.redacted.json
+#    ^ must print NOTHING
+
+# 4. confirm the PRIVATE list was never there either
+git rev-list --all --objects | grep -i PRIVATE
+#    ^ must print NOTHING
+
+# 5. push the rewritten history back
+git remote add origin https://github.com/adityasharma1307/qresp2.git
+git push --force --mirror origin
+```
+
+Then **re-clone fresh** for ongoing work, or run the same `filter-repo` in your
+working copy — the old clone's objects still contain the blob locally.
+
+### Two things people get wrong here
+
+**GitHub keeps unreachable objects.** After a force-push, the old commits are
+unreferenced but not immediately deleted, and on a public repository they can
+still be fetched *by SHA* by anyone who knows it. If this repository was ever
+public with the file present, ask GitHub Support to run garbage collection
+before considering the removal complete. If it has only ever been private (the
+case here), the exposure was limited to collaborators and the rewrite is
+sufficient — but do the rewrite **before** flipping visibility, not after.
+
+**Forks and caches.** A rewrite does not touch forks, and it does not touch any
+mirror or archive that pulled the repository earlier. Confirm no forks exist
+before relying on the purge.
+
+### Verifying it worked, from a stranger's position
+
+```bash
+git clone https://github.com/adityasharma1307/qresp2.git /tmp/qresp2-check
+cd /tmp/qresp2-check
+git log --all --oneline -- security/leaked_token_repos.redacted.json   # nothing
+git rev-list --all --objects | grep -iE 'PRIVATE|redacted'             # nothing
+```
+
+Both must print nothing. Until they do, do not make the repository public.
