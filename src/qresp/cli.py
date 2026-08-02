@@ -16,10 +16,12 @@ the post-quantum key to an identity through classical PKI, and verify both
 together:
 
   qresp sign ./my-model --out model.bundle.json --context model-release
-  qresp register --out ./my-registration
+  qresp trust-material --out ./trust                   # once, or when it goes stale
+  qresp register --out ./my-registration \
+                 --fulcio-roots ./trust/fulcio_roots.pem --log-key ./trust/rekor.pub
   qresp verify ./my-model --bundle model.bundle.json --context model-release \
                --registration ./my-registration/bundle.json \
-               --fulcio-roots <trust store> --log-key <log key>
+               --fulcio-roots ./trust/fulcio_roots.pem --log-key ./trust/rekor.pub
 
 The last one is the point of the whole design: it reports not merely that a
 signature is valid, but WHOSE it is and on what basis that attribution still
@@ -66,7 +68,7 @@ app = typer.Typer(
         "always names how it decided.\n\n"
         "  audit:  scan, scan-ids, audit-npm, audit-pypi, summarise\n"
         "  sign:   entropy, sign, verify\n"
-        "  identity: register, verify-registration\n\n"
+        "  identity: trust-material, register, verify-registration\n\n"
         "Every command explains itself with --help; the verification commands "
         "also state what they did NOT check."
     ),
@@ -1139,6 +1141,102 @@ def register_cmd(
                       f"{out / f'{pqc_algorithm}.key'} -- this is long-term key "
                       f"material. Move it somewhere safe; anyone holding it can "
                       f"sign as you for the life of this registration.")
+
+
+@app.command("trust-material")
+def trust_material_cmd(
+    out: Path = typer.Option(..., "--out",
+                             help="Directory to write fulcio_roots.pem and "
+                                  "rekor.pub into."),
+    staging: bool = typer.Option(
+        False, "--staging",
+        help="Sigstore's staging instance instead of production. Only "
+             "useful for testing against staging Fulcio/Rekor."),
+) -> None:
+    """Fetch a real trust store for --fulcio-roots/--log-key.
+
+    Without this, `register` falls back to trusting whatever certificate
+    chain Fulcio itself returned in the moment (self-consistent, not
+    independently trusted), and `verify --registration` / `verify-registration`
+    simply refuse to run without a trust store at all. Most people do not have
+    a Fulcio CA pool and a Rekor public key lying around, so this pulls both
+    from Sigstore's production TUF root -- the same mechanism `sigstore-python`
+    itself uses to bootstrap trust, not a QResP-specific shortcut.
+
+    This is a CONVENIENCE, not the only path. `--fulcio-roots` also accepts a
+    TUF `trusted_root.json` file directly (fetch it by any means you trust,
+    e.g. from a machine that already has one cached, or from
+    https://tuf-repo-cdn.sigstore.dev under TUF's own signature checks) and
+    QResP will parse it the same way this command does internally.
+    """
+    import base64 as b64
+
+    try:
+        from sigstore._internal.tuf import DEFAULT_TUF_URL, STAGING_TUF_URL, TrustUpdater
+    except ImportError:
+        console.print(
+            "[red]`sigstore` is not installed.[/red] `pip install sigstore` "
+            "(or `pip install qresp\\[register]`), then rerun this command. "
+            "Alternatively, fetch a TUF trusted_root.json yourself and pass "
+            "it directly as --fulcio-roots to register/verify -- no "
+            "conversion needed, QResP reads that format natively.")
+        raise typer.Exit(2) from None
+
+    url = STAGING_TUF_URL if staging else DEFAULT_TUF_URL
+    console.print(f"  fetching and verifying the TUF trust root from {url} ...")
+    try:
+        trusted_root_path = TrustUpdater(url).get_trusted_root_path()
+    except Exception as exc:  # noqa: BLE001 -- TUF/network failures vary by version
+        console.print(
+            f"[red]could not fetch/verify the TUF trust root: {exc}[/red]\n"
+            "  This needs network access to tuf-repo-cdn.sigstore.dev. If a "
+            "trusted_root.json is available some other way (a machine that "
+            "does have access, sigstore-python's own cache), pass it "
+            "directly as --fulcio-roots instead of running this command.")
+        raise typer.Exit(1) from None
+
+    data = json.loads(Path(trusted_root_path).read_text(encoding="utf-8"))
+    ca_certs = [b64.b64decode(cert["rawBytes"])
+                for ca in data.get("certificateAuthorities", [])
+                for cert in ca.get("certChain", {}).get("certificates", [])]
+    rekor_keys = [b64.b64decode(tlog["publicKey"]["rawBytes"])
+                  for tlog in data.get("tlogs", [])
+                  if tlog.get("publicKey", {}).get("rawBytes")]
+    if not ca_certs or not rekor_keys:
+        console.print(
+            f"[red]parsed {trusted_root_path} but found no CA certificates "
+            f"or no Rekor key -- the TUF target's shape may have changed "
+            f"since this command was written. The raw file is at "
+            f"{trusted_root_path}; pass it directly as --fulcio-roots "
+            f"(it is accepted as-is) while this gets fixed.")
+        raise typer.Exit(1)
+    if len(rekor_keys) > 1:
+        console.print(f"  [yellow]{len(rekor_keys)} Rekor keys in the trust "
+                       f"root (log key rotation history); writing the first. "
+                       f"If verification of an OLDER entry fails on the key, "
+                       f"inspect {trusted_root_path} for the others.")
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives.serialization import Encoding
+
+    out.mkdir(parents=True, exist_ok=True)
+    roots_path = out / "fulcio_roots.pem"
+    with roots_path.open("wb") as f:
+        for der in ca_certs:
+            f.write(x509.load_der_x509_certificate(der).public_bytes(Encoding.PEM))
+    key_path = out / "rekor.pub"
+    key_path.write_bytes(rekor_keys[0])
+
+    console.print(f"[green]wrote {len(ca_certs)} Fulcio CA certificate(s) -> "
+                  f"{roots_path}")
+    console.print(f"[green]wrote the Rekor public key -> {key_path}")
+    console.print("\n  Use them with:")
+    console.print(f"    qresp register --out ./my-registration "
+                  f"--fulcio-roots {roots_path} --log-key {key_path}")
+    console.print(f"    qresp verify ./artefact --bundle bundle.json "
+                  f"--registration ./my-registration/bundle.json \\\n"
+                  f"        --fulcio-roots {roots_path} --log-key {key_path} "
+                  f"--check-revocations")
 
 
 # The __main__ guard MUST stay at the end of this file. It used to sit in the
