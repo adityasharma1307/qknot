@@ -8,6 +8,7 @@ Usage examples (after `pip install -e .`):
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import sys
@@ -363,10 +364,6 @@ def _print_summary(
     console.print(table)
 
 
-if __name__ == "__main__":
-    app()
-
-
 # ---------------------------------------------------------------------------
 # Signing
 # ---------------------------------------------------------------------------
@@ -603,3 +600,178 @@ def verify_registration_cmd(
             raise typer.Exit(1) from None
         console.print(f"  [green]covers the artefact; verify its signature "
                       f"against {base64.b64encode(key).decode()[:32]}...")
+
+
+@app.command("register")
+def register_cmd(
+    out: Path = typer.Option(..., "--out",
+                             help="Directory to write bundle.json and the PQC "
+                                  "key files into."),
+    pqc_algorithm: str = typer.Option("ml-dsa-87", "--pqc-algorithm",
+                                      help="The long-term PQC algorithm to register."),
+    pqc_public_key: Path | None = typer.Option(
+        None, "--pqc-public-key",
+        help="An EXISTING PQC public key to register (raw bytes). With "
+             "--pqc-secret-key. If omitted, a fresh pair is generated."),
+    pqc_secret_key: Path | None = typer.Option(
+        None, "--pqc-secret-key", help="The matching PQC secret key (raw bytes)."),
+    not_after: str | None = typer.Option(
+        None, "--not-after",
+        help="Optional RFC 3339 self-limit: the registration does not cover "
+             "artefacts signed after this instant."),
+    identity_token: str | None = typer.Option(
+        None, "--identity-token",
+        help="Skip the interactive OIDC flow and use this token."),
+    oauth_force_oob: bool = typer.Option(
+        False, "--oauth-force-oob",
+        help="Out-of-band OIDC: print a URL and read back a code. Use on a "
+             "machine with no usable browser (WSL, containers, servers)."),
+    log_key: Path | None = typer.Option(
+        None, "--log-key",
+        help="The transparency log's public key (DER). STRONGLY preferred: this "
+             "is your trust store. If omitted it is fetched from the log, which "
+             "is fine for producing a bundle but is not third-party trust."),
+    fulcio_roots: Path | None = typer.Option(
+        None, "--fulcio-roots",
+        help="A file or directory of trusted Fulcio roots (DER/PEM), or a TUF "
+             "trusted_root.json. If omitted, the chain Fulcio returns is used, "
+             "which does NOT establish independent trust."),
+) -> None:
+    """Register a PQC key against your OIDC identity, and log it.
+
+    Runs the eight-step protocol: OIDC -> Fulcio certificate over an ephemeral
+    classical key -> a dual-signed registration naming your PQC key -> a
+    transparency-log entry -> a self-contained bundle. The bundle is VERIFIED
+    end to end before it is written; a registration that logs but does not
+    verify is a failure, and this command exits non-zero.
+
+    RESIDUAL RISK, briefly. The binding is only as good as the OIDC identity
+    that anchored it: whoever controls that account at registration time can
+    register a key as you. The rescue only works for registrations logged
+    BEFORE the classical algorithm's disallow date -- registering after it
+    proves nothing, so register early. And transparency is only useful if
+    someone looks: monitor the log for registrations naming your identity.
+    """
+    import base64 as b64
+    from datetime import datetime, timezone
+
+    from .signing.backends import get_backend
+    from .signing.register import register
+    from .signing.registration import RegistrationError
+    from .signing.sigstore_clients import (
+        FulcioRestClient,
+        RekorRestClient,
+        SigstoreClientError,
+        acquire_identity_token,
+        rekor_public_key_der,
+    )
+
+    def _load_certs(path: Path) -> list[bytes]:
+        from cryptography import x509
+        from cryptography.hazmat.primitives.serialization import Encoding
+
+        if path.is_file() and path.suffix == ".json":       # TUF trusted_root
+            data = json.loads(path.read_text(encoding="utf-8"))
+            return [b64.b64decode(cert["rawBytes"])
+                    for ca in data.get("certificateAuthorities", [])
+                    for cert in ca.get("certChain", {}).get("certificates", [])]
+        paths = sorted(path.iterdir()) if path.is_dir() else [path]
+        out_ders: list[bytes] = []
+        for p in paths:
+            raw = p.read_bytes()
+            try:
+                out_ders.extend(c.public_bytes(Encoding.DER)
+                                for c in x509.load_pem_x509_certificates(raw))
+            except (ValueError, TypeError):
+                out_ders.append(raw)
+        return out_ders
+
+    # The long-term PQC key: the thing being registered. Supplied or generated.
+    backend = get_backend(pqc_algorithm)
+    if pqc_public_key is not None or pqc_secret_key is not None:
+        if pqc_public_key is None or pqc_secret_key is None:
+            console.print("[red]--pqc-public-key and --pqc-secret-key must be "
+                          "given together.")
+            raise typer.Exit(2)
+        pqc_pub, pqc_sk = pqc_public_key.read_bytes(), pqc_secret_key.read_bytes()
+        generated = False
+    else:
+        pqc_pub, pqc_sk = backend.keygen()
+        generated = True
+
+    try:
+        token = acquire_identity_token(
+            force_oob=oauth_force_oob, supplied=identity_token)
+        log_key_der = (log_key.read_bytes() if log_key
+                       else rekor_public_key_der())
+        fulcio = FulcioRestClient(token)
+        rekor = RekorRestClient()
+        console.print(f"  identity        : {fulcio.subject}")
+
+        if fulcio_roots is not None:
+            roots = _load_certs(fulcio_roots)
+        else:
+            # Learn the CA pool from a throwaway certification, so register's
+            # own verification has roots. Not independent trust -- say so.
+            probe_pub, probe_sk = get_backend("ecdsa-p256").keygen()
+            probe = fulcio.certify(probe_pub, probe_sk)
+            roots = list(probe.intermediate_ders) or [probe.leaf_der]
+            console.print("  [yellow]trust roots taken from Fulcio's own reply "
+                          "(--fulcio-roots not given): this proves the chain is "
+                          "self-consistent, not that it is trusted.")
+
+        bundle = register(
+            pqc_algorithm=pqc_algorithm, pqc_public_key=pqc_pub,
+            pqc_secret=pqc_sk, fulcio=fulcio, rekor=rekor,
+            fulcio_roots=roots, log_public_key=log_key_der,
+            not_after=not_after)
+    except (SigstoreClientError, OSError, ValueError) as exc:
+        console.print(f"[bold red]REGISTRATION FAILED[/bold red]\n{exc}")
+        raise typer.Exit(2) from None
+    except RegistrationError as exc:
+        # The step-8 gate: it logged, but it does not verify. Not a success.
+        console.print(f"[bold red]REGISTRATION NOT VERIFIABLE[/bold red]\n{exc}")
+        raise typer.Exit(1) from None
+
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "bundle.json").write_text(
+        json.dumps(bundle.to_dict(), indent=2), encoding="utf-8")
+    (out / "rekor_key.der").write_bytes(log_key_der)
+    for i, der in enumerate(roots):
+        (out / f"fulcio_root_{i}.der").write_bytes(der)
+    if generated:
+        (out / f"{pqc_algorithm}.pub").write_bytes(pqc_pub)
+        secret_path = out / f"{pqc_algorithm}.key"
+        secret_path.write_bytes(pqc_sk)
+        with contextlib.suppress(OSError):  # e.g. a Windows mount; not fatal
+            secret_path.chmod(0o600)
+
+    from .signing.registration_chain import verify_registration_chain
+
+    binding = verify_registration_chain(
+        bundle, fulcio_roots=roots, log_public_key=log_key_der,
+        now=datetime.now(timezone.utc))
+    console.print("[bold green]REGISTERED[/bold green]")
+    console.print(f"  identity        : {binding.identity}")
+    console.print(f"  issuer          : {binding.issuer}")
+    console.print(f"  pqc algorithm   : {binding.pqc_algorithm}")
+    console.print(f"  basis           : [green]{binding.basis.value}")
+    console.print(f"  logged at       : {binding.valid_as_of.isoformat()} "
+                  f"(the log's integratedTime -- the upper bound the rescue "
+                  f"turns on)")
+    console.print(f"  bundle          : {out / 'bundle.json'}")
+    if generated:
+        console.print(f"  [yellow]PQC SECRET KEY written to "
+                      f"{out / f'{pqc_algorithm}.key'} -- this is long-term key "
+                      f"material. Move it somewhere safe; anyone holding it can "
+                      f"sign as you for the life of this registration.")
+
+
+# The __main__ guard MUST stay at the end of this file. It used to sit in the
+# middle, before the signing commands were defined, so `python -m qresp.cli`
+# invoked the app with only the audit commands registered and reported
+# "No such command: sign" -- while the installed `qresp` console script, which
+# imports the whole module first, worked fine. A confusing split found while
+# wiring `register`.
+if __name__ == "__main__":
+    app()

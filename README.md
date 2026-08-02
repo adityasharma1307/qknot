@@ -111,6 +111,34 @@ one leaves the other attesting to its absence.
 | **Signed** | DSSE PAE over the whole statement — attestation and metadata included |
 | **Conformance** | 180 NIST ACVP FIPS 204 vectors, byte-exact, run offline on every test invocation |
 
+### Identity: registering a PQC key off classical PKI, durably
+
+Fulcio will certify a P-256 key against your OIDC identity. It will not certify
+an ML-DSA key. So QResP uses the classical certificate **while it is still
+valid** to vouch for the post-quantum key, and logs that vouching in
+transparency — the log timestamp then proves the binding predates the classical
+algorithm's deprecation, so it survives it.
+
+```bash
+qresp register --out ./my-registration            # OIDC -> Fulcio -> Rekor
+qresp verify-registration --bundle ./my-registration/bundle.json \
+    --fulcio-roots <your trust store> --log-key <the log's key>
+```
+
+`register` will not hand back a bundle it cannot itself verify, and
+`verify-registration` names *how* the key was trusted — `direct`, or
+`rescued-by-timestamp` — rather than a bare yes.
+
+This path is verified against **live Sigstore**, not simulated: a real Fulcio
+certificate and a real Rekor entry are captured and run through the full
+verification chain, including the temporal rescue at an instant past the
+classical disallow date
+([`tests/signing/test_registration_fixture.py`](tests/signing/test_registration_fixture.py),
+captured by [`scripts/register/capture_registration.py`](scripts/register/capture_registration.py);
+the test skips cleanly if you have not captured a fixture). Design, two rounds
+of expert review, and the honest residuals:
+[`docs/REGISTRATION-SPEC.md`](docs/REGISTRATION-SPEC.md).
+
 ### Benchmarks
 
 [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) — signing latency, signature sizes,
