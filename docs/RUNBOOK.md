@@ -150,12 +150,12 @@ decision"). This pass is done; kept here as the record and the template for
 pass 2.
 
 ```bash
-git clone --mirror https://github.com/adityasharma1307/qresp2.git qresp2-purge.git
-cd qresp2-purge.git
+git clone --mirror https://github.com/adityasharma1307/qresp.git qresp-purge.git
+cd qresp-purge.git
 pip install git-filter-repo          # once
 git filter-repo --invert-paths \
     --path security/leaked_token_repos.redacted.json --force
-git remote add origin https://github.com/adityasharma1307/qresp2.git
+git remote add origin https://github.com/adityasharma1307/qresp.git
 git push --force --mirror origin
 ```
 
@@ -177,8 +177,8 @@ Work on a **fresh clone**, so a mistake costs nothing:
 ```bash
 # 1. mirror-clone somewhere scratch
 cd /tmp
-git clone --mirror https://github.com/adityasharma1307/qresp2.git qresp2-purge.git
-cd qresp2-purge.git
+git clone --mirror https://github.com/adityasharma1307/qresp.git qresp-purge.git
+cd qresp-purge.git
 
 # 2. purge every path from every commit on every ref, in one pass
 pip install git-filter-repo          # once
@@ -204,7 +204,7 @@ for f in docs/EXPERT-REPORT-02-integration-fixture.md \
 done
 
 # 4. push the rewritten history back
-git remote add origin https://github.com/adityasharma1307/qresp2.git
+git remote add origin https://github.com/adityasharma1307/qresp.git
 git push --force --mirror origin
 ```
 
@@ -228,8 +228,8 @@ before relying on the purge.
 ### Verifying it worked, from a stranger's position
 
 ```bash
-git clone https://github.com/adityasharma1307/qresp2.git /tmp/qresp2-check
-cd /tmp/qresp2-check
+git clone https://github.com/adityasharma1307/qresp.git /tmp/qresp-check
+cd /tmp/qresp-check
 git log --all --oneline -- security/leaked_token_repos.redacted.json   # nothing
 git log --all --oneline -- docs/OPEN-QUESTIONS.md                      # nothing
 git log --all --oneline -- docs/PAPER-SPRINT-PLAN.md                   # nothing

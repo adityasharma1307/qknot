@@ -205,7 +205,7 @@ This is the corpus cited by `docs/report.pdf`, the figures in `docs/`, and the
 results table in the README of the original repository. It carries
 `"notes": null` on both signed records, because it predates the
 note-propagation fix. It is **not stored in this repository** — it lives only in
-the git history of <https://github.com/adityasharma1307/qresp>, which is
+the git history of <https://github.com/adityasharma1307/qresp-pilot>, which is
 archived and not to be modified.
 
 **2026-07-06 — the current re-scan (`full_2026-07-06.jsonl`).**

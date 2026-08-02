@@ -8,8 +8,8 @@ follows.
 ## Setting up
 
 ```bash
-git clone https://github.com/adityasharma1307/qresp2
-cd qresp2
+git clone https://github.com/adityasharma1307/qresp
+cd qresp
 pip install -e ".[dev,analysis,register]"
 ```
 

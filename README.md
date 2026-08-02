@@ -25,7 +25,7 @@ plainly, in both directions, in [`docs/THREAT-MODEL.md`](docs/THREAT-MODEL.md).
 
 Phase I as originally submitted (report, figures, and the 2026-05-21 dataset)
 is archived unmodified at
-[adityasharma1307/qresp](https://github.com/adityasharma1307/qresp); this
+[adityasharma1307/qresp-pilot](https://github.com/adityasharma1307/qresp-pilot); this
 repository is where development continues, and has grown past a single
 semester's scope.
 
@@ -263,8 +263,8 @@ network-bound throughout.
 Requires Python 3.10 or newer.
 
 ```bash
-git clone https://github.com/adityasharma1307/qresp2
-cd qresp2
+git clone https://github.com/adityasharma1307/qresp
+cd qresp
 pip install -e .
 ```
 
@@ -474,7 +474,7 @@ not observed in the audited corpus.
 Two halves, deliberately separable.
 
 ```
-qresp2/
+qresp/
 ├── src/qresp/
 │   ├── audit/          PHASE I -- surveying one registry
 │   │   ├── detect.py       filename-based signature detection
@@ -520,7 +520,7 @@ broken, and also if `qresp.signing` acquires a dependency on `huggingface_hub`,
                   Machine Learning Supply Chains},
   year         = {2026},
   howpublished = {CS F376 Design Project, BITS Pilani Dubai Campus},
-  url          = {https://github.com/adityasharma1307/qresp},
+  url          = {https://github.com/adityasharma1307/qresp-pilot},
 }
 ```
 
