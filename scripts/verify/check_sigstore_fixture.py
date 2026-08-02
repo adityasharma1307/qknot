@@ -163,9 +163,64 @@ def main(argv: list[str] | None = None) -> int:
     from qresp.signing.fulcio import ChainError, verify_chain
     from qresp.signing.rekor import (
         InclusionError,
+        hashedrekord_digest,
         leaf_hash,
         verify_inclusion_root,
     )
+
+    def _check_real_body_digest(body: bytes) -> None:
+        """Does our hashedrekord_digest read a REAL Rekor entry body? (Bug 2 parser)"""
+        try:
+            digest = hashedrekord_digest(body)
+            print(f"  [OK] hashedrekord_digest parsed the real body: "
+                  f"sha256={digest.hex()[:24]}...")
+        except InclusionError as exc:
+            print(f"  [GAP] our hashedrekord_digest cannot read Rekor's real body "
+                  f"shape: {exc}")
+            print("        ^ report the real spec.data.hash path so the parser matches.")
+
+    def _check_checkpoint_signature(checkpoint: object, key_der: bytes | None) -> None:
+        """Verify the REAL Rekor checkpoint note signature -- what the
+        qresp-sth-v1 test double stands in for (Gap 3)."""
+        if not key_der:
+            print("  [--] no Rekor key -- checkpoint signature not checked "
+                  "(pass --trusted-root or --rekor-key).")
+            return
+        if not isinstance(checkpoint, dict) or "envelope" not in checkpoint:
+            print(f"  [GAP] checkpoint shape unexpected: {type(checkpoint).__name__}")
+            return
+        note = checkpoint["envelope"]
+        try:
+            text, _, sigblock = note.partition("\n\n")
+            signed = (text + "\n").encode("utf-8")
+            sigline = next(line for line in sigblock.splitlines()
+                           if line.startswith("— ") or line.startswith("- "))
+            raw = base64.b64decode(sigline.split(" ", 2)[2])
+            signature = raw[4:]                 # strip the 4-byte key hint
+        except Exception as exc:  # noqa: BLE001
+            print(f"  [GAP] could not parse the checkpoint note: {exc}")
+            return
+        from cryptography.exceptions import InvalidSignature
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.primitives.asymmetric import ec, ed25519
+        from cryptography.hazmat.primitives.serialization import load_der_public_key
+
+        try:
+            key = load_der_public_key(key_der)
+            if isinstance(key, ec.EllipticCurvePublicKey):
+                key.verify(signature, signed, ec.ECDSA(hashes.SHA256()))
+            elif isinstance(key, ed25519.Ed25519PublicKey):
+                key.verify(signature, signed)
+            else:
+                print(f"  [GAP] Rekor key type {type(key).__name__} unhandled")
+                return
+            print("  [OK] checkpoint note signature verifies under the Rekor key "
+                  "-- the root is the log's own claim (real SET, not the double).")
+        except InvalidSignature:
+            print("  [GAP] checkpoint signature did NOT verify with this parse. "
+                  "Report the note text + Rekor key so the real format is pinned.")
+        except Exception as exc:  # noqa: BLE001
+            print(f"  [GAP] checkpoint verify errored: {exc}")
 
     bundle = json.loads(args.bundle.read_text(encoding="utf-8"))
     material = bundle["verificationMaterial"]
@@ -241,6 +296,8 @@ def main(argv: list[str] | None = None) -> int:
                   f"proof_hashes={len(hashes)}")
             if match:
                 print("  [OK] RFC 6962 reconstruction matches the checkpoint root.")
+                _check_real_body_digest(body)
+                _check_checkpoint_signature(proof.get("checkpoint"), rekor_key)
             else:
                 print("  [GAP] reconstructed root != checkpoint root.")
                 print(f"        computed   {computed.hex()}")
@@ -258,6 +315,8 @@ def main(argv: list[str] | None = None) -> int:
             (args.save / f"fulcio_root_{i}.der").write_bytes(der)
         (args.save / "tlog_entry.json").write_text(
             json.dumps(entry, indent=2), encoding="utf-8")
+        if rekor_key:
+            (args.save / "rekor_key.der").write_bytes(rekor_key)
         print(f"\n  saved fixture pieces to {args.save}")
 
     print("\nWhatever [GAP] lines appear above are the findings for the expert.")
