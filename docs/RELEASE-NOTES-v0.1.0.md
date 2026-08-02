@@ -70,7 +70,8 @@ plainly, in both directions, in `docs/THREAT-MODEL.md`.
   hard) file-size threshold; a future release may move it to Git LFS or a
   release asset.
 - This is a research/reference implementation (Alpha). See `SECURITY.md` for
-  how to report an issue.
+  how to report an issue, and `DISCLAIMER.md` for warranty/liability limits
+  covering the author, supervisor, and institution.
 
 ## New since the design-project submission
 

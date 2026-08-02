@@ -41,6 +41,18 @@ this repository is where development continues, and has grown past a single
 semester's scope. The accompanying end-semester report is available in
 [`docs/report.pdf`](docs/report.pdf).
 
+### Disclaimer (please read)
+
+This is a **student research / Alpha reference** project (CS F376, BITS Pilani
+Dubai Campus), not a commercial security product and not professional advice.
+The software and materials are provided **AS IS**, without warranty. To the
+maximum extent permitted by law, **neither the author (Aditya Sharma), the
+supervisor (Dr. Tamizharasan Periyasamy), nor BITS Pilani Dubai Campus** is
+liable for damages arising from use of or reliance on this work, including
+audit findings and third-party systems measured or discussed here.
+
+Full text: [`DISCLAIMER.md`](DISCLAIMER.md). License: [`LICENSE`](LICENSE) (MIT).
+
 ---
 
 ## Signing: the quantum-resilient pipeline

@@ -77,6 +77,11 @@ infrastructure before opening a PR is worth doing — offline fakes can't catch
 a mismatch between what the client assumes and what the live API actually
 returns.
 
+## Disclaimer
+
+Research software, AS IS. Author, supervisor, and institution liability limits:
+see [`DISCLAIMER.md`](DISCLAIMER.md).
+
 ## Security issues
 
 Please don't open a public issue for a security-relevant bug (a soundness gap

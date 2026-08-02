@@ -1,5 +1,9 @@
 # Security policy
 
+This project is research software released **AS IS**. Liability and warranty
+limits for the author, supervisor, and institution are stated in
+[`DISCLAIMER.md`](DISCLAIMER.md).
+
 ## Reporting a vulnerability in QResP itself
 
 If you find a security issue in this code — a soundness bug in the signature
