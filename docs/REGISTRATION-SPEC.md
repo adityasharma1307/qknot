@@ -251,22 +251,46 @@ Two checks the verifier MUST make, neither optional:
   rotation, M-of-N recovery, and recovery when no recovery key was ever
   designated.
 
-## 7. CLI surface to build
+## 7. CLI surface, and the true size of `register`
 
-    qresp register --identity-token <OIDC>  --pqc-key <path>
-                   --classical-key <path or keyless>  --log <rekor url>
-      -> emits a registration bundle (section 3)
+### `qresp verify-registration` -- BUILT
 
-    qresp verify --artifact <path> --bundle <artifact bundle>
-                 --registration <registration bundle>
-                 --policy <deprecation policy>  --at <now>
-      -> resolves the full chain (sections 4 + the artifact's hybrid
-         signature) and prints a verdict naming the basis: direct or
-         rescued-by-timestamp, and the validAsOf time.
+Offline and complete (src/qresp/cli.py). Resolves the whole chain and names the
+basis it trusted -- direct or rescued-by-timestamp -- rather than a bare yes.
+`--at` asks how the binding looks at a future instant; `--artifact-signed-at`
+additionally runs notAfter and revocation and prints the authorised PQC key.
 
-`qresp verify` must report *what it checked and how the PQC key was trusted*,
-in the same spirit as the current verifier — a verdict that hides its basis is
-the thing this whole design exists to avoid.
+### `qresp register` -- the real protocol, NOT "two network calls"
+
+An earlier note under-scoped this as two sockets. It is a small protocol, and
+an implementer must budget for all of it:
+
+    1. OIDC: device/browser flow, token exchange, the audience Fulcio expects
+    2. classical keygen (ephemeral P-256) or load an existing key
+    3. Fulcio: CSR with proof-of-possession against the OIDC token -> leaf cert
+    4. build the dual-signed registration envelope (classical + PQC)   [OURS]
+    5. submit a hashedrekord (digest = rekord_preimage, signature =
+       signatures[0]) to the log
+    6. fetch the inclusion proof + checkpoint/SET, wait for integration
+    7. assemble the RegistrationBundle to disk                          [OURS]
+    8. revocation is a SEPARATE path: build + submit a revocation, and a live
+       verifier needs a log-search to FIND revocations (offline
+       `authorize_for_artifact` takes them as input, which is correct)
+
+Steps 1-3 and 5-6 are the network surface, against Fulcio and the log. Steps 4
+and 7 -- the cryptographic assembly -- are already built and tested. Only steps
+1-3 and 5-6, and the checkpoint/SET parsing they entail, remain.
+
+### Still a composition step: artefact verification end to end
+
+`qresp verify --registration` in the sense of "verify an artefact's hybrid
+signature, authorised by a trusted binding" is not yet a single command. The
+pieces exist -- `verify_registration_chain` -> `authorize_for_artifact` yields
+the trusted PQC key, and the existing `verify` checks a hybrid signature -- but
+composing them into one artefact-plus-registration verdict is an unbuilt step.
+
+`qresp verify` must report *what it checked and how the PQC key was trusted*, so
+a verdict never hides its basis -- which is what this whole design exists to avoid.
 
 ## 8. Acceptance criteria for the implementation (adversarial, not "it verifies")
 
@@ -307,3 +331,32 @@ what the fix prevents. Matches the standard in `test_digest.py` /
 **Global.** The full suite passes after every change. The task is not complete
 until the specific adversarial tests above exist, not just general
 happy-path coverage.
+
+## 9. Status after expert review (2026-08-01)
+
+The review found two soundness holes; both are fixed with adversarial tests, and
+the ordered "seal the trust logic" pass is done except one item that needs real
+network-captured bytes.
+
+| item | status |
+|---|---|
+| Bug 1 -- classical sig bound to the Fulcio leaf, SPKI equality | **fixed** (`1e0b5ff`); adversarial test: cert for key B, payload names key A -> reject |
+| Bug 2 -- digest parsed from the proven leaf, no free digest field | **fixed** (`9829792`); adversarial tests: rebind a real proof -> reject; swap the body -> inclusion fails |
+| Gap 3 -- STH is a labelled TEST DOUBLE, spec/code agree | **done**; `qresp-sth-v1-TESTDOUBLE`, and step-6 prose corrected |
+| Gap 4 -- `register` framed as its real 8-step protocol, not two sockets | **done** (section 7) |
+| single-sig `KeyRegistration` marked transitional | **done** |
+| artefact-plus-registration as one command | **noted as an unbuilt composition step** (section 7) |
+| **integration fixture from a REAL Fulcio leaf + REAL Rekor inclusion** | **OPEN -- needs captured bytes** |
+
+### The one open item, stated honestly
+
+Every test here mints its own trust stack, so it proves the logic against
+*self-consistent* bytes. It does not yet prove the logic against *production*
+Fulcio/Rekor bytes -- a real Fulcio leaf carries EKUs, CT poison/SCT extensions
+and issuer-extension forms the minted certs omit, and a real Rekor entry is a
+canonical hashedrekord body, not this module's minimal one. Before anyone claims
+"production-shape consumption", capture one real Fulcio leaf DER and one real
+Rekor inclusion + checkpoint (recorded offline is fine) and add a fixture that
+runs the verifier against them. That is the step that de-risks the adapter, and
+it is the right thing to do BEFORE wiring live clients -- wiring first would
+cement adapters around bytes the verifier has never actually seen.

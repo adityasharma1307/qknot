@@ -91,7 +91,15 @@ class RegistrationError(Exception):
 
 @dataclass(frozen=True)
 class KeyRegistration:
-    """The claim: `identity` vouches for post-quantum key `public_key`.
+    """TRANSITIONAL single-key registration. Prefer HybridRegistration below.
+
+    Kept because existing callers and tests use it, but the verification chain
+    (registration_chain.py) uses only the dual-key HybridRegistration path. This
+    single-signature form does not carry the classical anchor and cannot express
+    the temporal rescue, so it should be retired once nothing depends on it; do
+    not build new callers against it.
+
+    The claim: `identity` vouches for post-quantum key `public_key`.
 
     `created` is the signer's own clock and is **not** evidence -- an attacker
     forging a registration writes a timestamp too. It is recorded because a
