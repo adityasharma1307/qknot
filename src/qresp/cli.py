@@ -1,10 +1,30 @@
 """QResP command-line interface.
 
-Usage examples (after `pip install -e .`):
+Two halves, and the commands mirror them.
 
-  qresp scan --n 50 --out data/pilot.jsonl
-  qresp scan --n 1000 --out data/full.jsonl --token $HF_TOKEN
-  qresp summarise --in data/pilot.jsonl
+MEASURE an ecosystem -- how much is signed, and would any of it survive a
+quantum adversary:
+
+  qresp scan --n 1000 --out data/hf.jsonl --token $HF_TOKEN
+  qresp audit-npm  --ranking data/npm_ranking.json --frame data/npm_frame.txt \
+                   --out data/npm.jsonl
+  qresp audit-pypi --out data/pypi.jsonl
+  qresp summarise  --in data/hf.jsonl
+
+RESPOND -- sign an artefact so the post-quantum half cannot be stripped, bind
+the post-quantum key to an identity through classical PKI, and verify both
+together:
+
+  qresp sign ./my-model --out model.bundle.json --context model-release
+  qresp register --out ./my-registration
+  qresp verify ./my-model --bundle model.bundle.json --context model-release \
+               --registration ./my-registration/bundle.json \
+               --fulcio-roots <trust store> --log-key <log key>
+
+The last one is the point of the whole design: it reports not merely that a
+signature is valid, but WHOSE it is and on what basis that attribution still
+holds -- `direct`, or `rescued-by-timestamp` once the classical algorithm has
+been disallowed.
 """
 from __future__ import annotations
 
@@ -36,7 +56,20 @@ if TYPE_CHECKING:
     from .audit.model import QLabel
 
 app = typer.Typer(
-    help="QResP: Quantum-Resilient Provenance audit for ML model registries.",
+    help=(
+        "QResP: Quantum-Resilient Provenance for software supply chains.\n\n"
+        "Two halves. AUDIT measures how much of an ecosystem is signed, and "
+        "whether any of it would survive a quantum adversary -- across "
+        "HuggingFace, npm and PyPI. SIGN/VERIFY is the response: hybrid "
+        "signatures whose post-quantum half cannot be stripped, an identity "
+        "bound to a post-quantum key through classical PKI, and a verdict that "
+        "always names how it decided.\n\n"
+        "  audit:  scan, scan-ids, audit-npm, audit-pypi, summarise\n"
+        "  sign:   entropy, sign, verify\n"
+        "  identity: register, verify-registration\n\n"
+        "Every command explains itself with --help; the verification commands "
+        "also state what they did NOT check."
+    ),
     no_args_is_help=True,
 )
 console = Console()
@@ -56,7 +89,22 @@ def scan(
     ),
     verbose: bool = typer.Option(False, "-v", "--verbose"),
 ) -> None:
-    """Run the audit on the top-N HuggingFace models."""
+    """Audit the top-N HuggingFace models for signing and PQC readiness.
+
+    Walks the most-downloaded models and records, per model, whether it carries
+    a signature at all and whether that signature would survive a quantum
+    adversary. Results append to a JSONL file and re-running RESUMES rather than
+    starting over (--no-resume forces a re-audit).
+
+    A token is optional but strongly recommended: without one the HuggingFace
+    API rate-limits quickly, and a rate-limited scan produces `error` rows, not
+    `unsigned` ones. Those are different claims -- a model that could not be
+    checked is not a model that is unsigned -- and only the second belongs in a
+    reported rate.
+
+    For the long-tail half of the sample, see `scan-ids`; for other ecosystems,
+    `audit-npm` and `audit-pypi`.
+    """
     logging.basicConfig(
         level=logging.DEBUG if verbose else logging.INFO,
         format="%(asctime)s %(levelname)-7s %(name)s :: %(message)s",
@@ -164,6 +212,108 @@ def scan_ids(
             progress.update(task, advance=1, description=f"Last: {record.model_id[:40]}")
 
     _print_summary(label_counter, out)
+
+
+@app.command("audit-npm")
+def audit_npm(
+    out: Path = typer.Option(..., "--out",
+                             help="JSONL output. Re-running RESUMES into the "
+                                  "same file rather than starting over."),
+    ranking: Path = typer.Option(
+        ..., "--ranking",
+        help="The download ranking, from scripts/audit/rank_npm.py. A file, "
+             "never a live fetch: a stratum is only reproducible if its exact "
+             "inputs are preserved."),
+    frame: Path = typer.Option(
+        ..., "--frame",
+        help="The sampling frame: one package name per line, from the "
+             "registry's _all_docs (scripts/audit/fetch_npm_frame.py)."),
+    head: int = typer.Option(10_000, "--head", help="Size of the head stratum."),
+    tail: int = typer.Option(10_000, "--tail", help="Size of the tail stratum."),
+    seed: int = typer.Option(20260730, "--seed",
+                             help="Sampling seed. Recorded in the manifest so "
+                                  "the tail is re-derivable."),
+    workers: int = typer.Option(8, "--workers",
+                                help="Concurrent requests. Keep this modest: "
+                                     "the npm registry is a free public "
+                                     "service."),
+    limit: int | None = typer.Option(None, "--limit",
+                                     help="Stop after N packages. For a smoke "
+                                          "test before committing to a full run."),
+) -> None:
+    """Audit npm for signing and post-quantum readiness (two strata).
+
+    Scans a `head` of the most-downloaded packages and a `tail` sampled at
+    random from the rest, because reporting only the head would describe the
+    popular packages and call it the ecosystem.
+
+    npm publishes no ranking, so BOTH inputs are produced locally and passed in
+    (--ranking, --frame). A manifest beside the output records the seed, the
+    frame size and a digest of the frame, so the sample can be re-derived
+    rather than taken on trust.
+
+    Resumable: interrupt it and re-run. A 20,000-package scan over a public API
+    will be interrupted at some point. Rows labelled `error` are NOT treated as
+    done -- re-running retries them, because a package that could not be reached
+    was not checked, and counting it as unsigned would inflate the finding.
+    """
+    from .audit.registry_scan import run_npm_audit
+
+    try:
+        run_npm_audit(out=out, ranking_path=ranking, frame_path=frame,
+                      head_size=head, tail_size=tail, seed=seed,
+                      workers=workers, limit=limit, echo=console.print)
+    except (OSError, ValueError) as exc:
+        console.print(f"[red]scan could not start: {exc}")
+        raise typer.Exit(2) from None
+
+
+@app.command("audit-pypi")
+def audit_pypi(
+    out: Path = typer.Option(..., "--out",
+                             help="JSONL output. Re-running RESUMES into the "
+                                  "same file rather than starting over."),
+    ranking_url: str = typer.Option(
+        "https://hugovk.github.io/top-pypi-packages/top-pypi-packages.min.json",
+        "--ranking-url", help="Where to fetch the download ranking from."),
+    ranking_cache: Path | None = typer.Option(
+        None, "--ranking-cache",
+        help="Where to cache the ranking. Default: <out>.ranking.json. Cached "
+             "deliberately -- re-fetching per run would silently change the "
+             "head stratum mid-scan."),
+    head: int = typer.Option(10_000, "--head", help="Size of the head stratum."),
+    tail: int = typer.Option(10_000, "--tail", help="Size of the tail stratum."),
+    seed: int = typer.Option(20260730, "--seed",
+                             help="Sampling seed. Recorded in the manifest so "
+                                  "the tail is re-derivable."),
+    workers: int = typer.Option(8, "--workers",
+                                help="Concurrent requests. Keep this modest: "
+                                     "PyPI is a free public service."),
+    limit: int | None = typer.Option(None, "--limit",
+                                     help="Stop after N projects. For a smoke "
+                                          "test before committing to a full run."),
+) -> None:
+    """Audit PyPI for signing and post-quantum readiness (two strata).
+
+    Scans a `head` of the most-downloaded projects and a `tail` sampled at
+    random from the rest of the namespace. The ranking is fetched once and
+    cached; the frame is the live index at scan time, and its size and digest
+    go into a manifest beside the output so the tail is re-derivable.
+
+    Resumable, and `error` rows are retried on re-run rather than counted as
+    recorded: a project that could not be reached was not checked, and treating
+    it as unsigned would inflate the very rate this reports.
+    """
+    from .audit.registry_scan import run_pypi_audit
+
+    try:
+        run_pypi_audit(out=out, ranking_url=ranking_url,
+                       ranking_cache=ranking_cache, head_size=head,
+                       tail_size=tail, seed=seed, workers=workers,
+                       limit=limit, echo=console.print)
+    except (OSError, ValueError) as exc:
+        console.print(f"[red]scan could not start: {exc}")
+        raise typer.Exit(2) from None
 
 
 @app.command()
@@ -316,7 +466,16 @@ def _entropy_mixed(
 def summarise(
     inp: Path = typer.Option(..., "--in", help="JSONL audit dataset to summarise."),
 ) -> None:
-    """Print summary statistics for an existing audit dataset."""
+    """Print summary statistics for an audit dataset (any ecosystem).
+
+    Reads a JSONL file written by `scan`, `scan-ids`, `audit-npm` or
+    `audit-pypi` and prints the label distribution.
+
+    `error` rows are reported as their own category and never folded into
+    `unsigned`: they are projects that could not be checked, and merging the two
+    would inflate the headline rate. Re-run the corresponding scan to retry them
+    before quoting any number from this table.
+    """
     if not inp.exists():
         console.print(f"[red]File not found:[/red] {inp}")
         raise typer.Exit(code=1)
@@ -396,7 +555,27 @@ def sign_artefact(
         help="Byte-reproducible signatures (FIPS 204 deterministic mode). "
              "Off by default: hedged signing defends against fault injection."),
 ) -> None:
-    """Sign an artefact with a non-separable hybrid signature."""
+    """Sign a file or directory with a non-separable hybrid signature.
+
+    Signs with a classical and a post-quantum algorithm at once, in a way the
+    post-quantum half CANNOT be stripped from: both algorithms sign a value
+    committing to the set of algorithms in use, so deleting one signature leaves
+    the other attesting to its absence. The obvious hybrid -- two independent
+    signatures side by side -- is broken by deleting a JSON field.
+
+    The output is an OpenSSF Model Signing v1.0-compatible Sigstore bundle, so
+    an existing OMS verifier still accepts it. Works on any artefact, not just
+    models: a directory is digested via its manifest.
+
+    --context is domain separation. A signature made with one context will not
+    verify under another, which stops a signature over a model being replayed as
+    a signature over something else. Use the same value when verifying.
+
+    Keys: omit --seed to draw attested entropy (network, with a documented
+    fallback to the system CSPRNG); pass --seed for reproducible keys. With
+    --keys-out only PUBLIC keys are written. To have an identity vouch for the
+    post-quantum key, see `register`.
+    """
     from .signing.backends import BackendUnsuitable, Exposure
     from .signing.bundle import build_bundle, bundle_to_json
     from .signing.sign import keygen, sign

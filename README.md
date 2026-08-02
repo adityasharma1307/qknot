@@ -257,6 +257,28 @@ qresp scan-ids --ids data/longtail_sample_$(date +%Y-%m-%d).txt \
 See [`docs/RUNBOOK.md`](docs/RUNBOOK.md) for the full procedure, including what
 to do when it stops partway.
 
+### Audit npm and PyPI
+
+The same two-stratum design — a `head` of the most-downloaded packages and a
+`tail` sampled at random from the rest, so the result describes the ecosystem
+rather than its popular corner:
+
+```bash
+qresp audit-pypi --out data/pypi_$(date +%Y-%m-%d).jsonl
+
+# npm publishes no ranking, so both inputs are produced locally first
+python scripts/audit/fetch_npm_frame.py --out data/npm_frame.txt
+python scripts/audit/rank_npm.py        --out data/npm_ranking.json
+qresp audit-npm --ranking data/npm_ranking.json --frame data/npm_frame.txt \
+    --out data/npm_$(date +%Y-%m-%d).jsonl
+```
+
+Both write a manifest beside the output recording the seed, the frame size and
+a digest of the frame, so the sample is re-derivable rather than merely
+described. Both resume if interrupted, and rows labelled `error` are retried on
+re-run rather than counted — a package that could not be reached was not
+checked, and folding those into "unsigned" would inflate the headline rate.
+
 ### Sign and verify an artefact
 
 ```bash
