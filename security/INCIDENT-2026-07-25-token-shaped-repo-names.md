@@ -2,9 +2,15 @@
 
 **Date found:** 2026-07-25
 **Found by:** Aditya Sharma, incidental to the QResP Phase II registry enumeration
-**Status:** logged, not yet reported
-**Full identifiers:** `security/leaked_token_repos.PRIVATE.txt` (gitignored, local only)
-**Redacted evidence:** `security/leaked_token_repos.redacted.json` (safe to commit)
+**Status:** reported to security@huggingface.co on 2026-07-25. **No reply as of
+2026-08-02.** Absent confirmation that the credentials were remediated, the
+account list is NOT published -- see "Publication decision" below.
+**Full identifiers:** `security/leaked_token_repos.PRIVATE.txt` (gitignored,
+local only, never committed -- verified absent from all git history)
+**Redacted evidence:** REMOVED from the repository on 2026-08-02. It listed 147
+distinct account names, and the repository names those accounts hold are public
+on HuggingFace, so the 8-character prefixes were never the exposure -- the
+account list was. See "Publication decision".
 
 ---
 
@@ -123,10 +129,38 @@ which point the dataset row becomes a historical record of a repo that no
 longer exists. That is expected and is exactly why the audit records registry
 churn rather than silently dropping it.
 
+## Publication decision (2026-08-02)
+
+`security/leaked_token_repos.redacted.json` has been removed from the working
+tree, and its blob is being purged from git history before this repository is
+made public. The reasoning, from `docs/OPEN-QUESTIONS.md` section 0:
+
+The redaction itself was sound -- 8 characters of a 34-character random suffix
+is not brute-forcible, and the file contained no complete token-shaped string.
+The exposure was never the prefixes. It was the **account names**, because the
+repositories those accounts hold are already public on HuggingFace: a reader
+could visit each account, list its public repositories, and recover the full
+credential-shaped names unaided.
+
+So the file's value was *aggregation* -- 2.9 million repositories distilled to
+162 candidates -- and aggregation serves an attacker exactly as well as a
+defender. Publishing it while any of those credentials may still be live would
+turn a research artefact into a curated target list.
+
+Nothing scientific is lost. This incident log records the method and the counts
+without naming a single account, so every claim the paper makes remains fully
+supported. The claim stays **"162 repository names match the token format"** --
+never "162 tokens are leaked". No token was ever tested, deliberately: testing
+another person's credential is unauthorised access regardless of intent.
+
+If HuggingFace later confirms remediation, the decision can be revisited and the
+file restored from the local copy, cited alongside their response.
+
 ## Follow-up
 
-- [ ] Report to HuggingFace security
-- [ ] Record the response and any revocation in this file
+- [x] Report to HuggingFace security -- sent 2026-07-25
+- [ ] Record the response and any revocation in this file (no reply yet)
+- [x] Decide publication of the redacted list -- REMOVED, 2026-08-02
 - [ ] Decide whether to include as an incidental finding in the paper. It is
       genuinely relevant to ML supply-chain security and arose from a census
       rather than a sample, which is a methodological argument for enumerating

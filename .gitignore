@@ -41,6 +41,11 @@ logs/
 # JSON alongside it is safe to commit.
 security/*.PRIVATE.txt
 security/*.private.*
+# The REDACTED account list is also excluded (removed 2026-08-02). The
+# redaction was sound, but the file's value was aggregation: 147 account names
+# whose public repositories let a reader reconstruct the credential-shaped
+# names unaided. See security/INCIDENT-2026-07-25-*.md, "Publication decision".
+security/leaked_token_repos.redacted.json
 
 # OS junk files
 Thumbs.db
