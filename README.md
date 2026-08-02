@@ -2,6 +2,7 @@
 
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)
+[![CI](https://github.com/adityasharma1307/qresp/actions/workflows/tests.yml/badge.svg)](https://github.com/adityasharma1307/qresp/actions/workflows/tests.yml)
 ![Tests](https://img.shields.io/badge/Tests-1261%20passing-brightgreen.svg)
 ![FIPS 204](https://img.shields.io/badge/FIPS%20204%20ACVP-180%2F180-brightgreen.svg)
 ![Self-signed release](https://img.shields.io/badge/v0.1.0-self--signed%20hybrid%20PQC-blueviolet.svg)
@@ -419,11 +420,27 @@ dependency on `huggingface_hub`, `transformers` or `datasets`.
 
 ## Citing this work
 
+**Living repository** (signing, identity registration, multi-registry results):
+
 ```bibtex
 @misc{sharma2026qresp,
   author       = {Sharma, Aditya},
-  title        = {{QResP}: Quantum-Resilient Provenance Audit for
+  title        = {{QResP}: Quantum-Resilient Provenance for
                   Machine Learning Supply Chains},
+  year         = {2026},
+  howpublished = {CS F376 Design Project, BITS Pilani Dubai Campus},
+  url          = {https://github.com/adityasharma1307/qresp},
+  note         = {Supervisor: Dr.\ Tamizharasan Periyasamy},
+}
+```
+
+**Phase I archive** (frozen report, figures, and the 2026-05-21 pilot dataset;
+not modified further):
+
+```bibtex
+@misc{sharma2026qresp-pilot,
+  author       = {Sharma, Aditya},
+  title        = {{QResP} Phase I archive},
   year         = {2026},
   howpublished = {CS F376 Design Project, BITS Pilani Dubai Campus},
   url          = {https://github.com/adityasharma1307/qresp-pilot},

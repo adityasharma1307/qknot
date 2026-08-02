@@ -44,11 +44,12 @@ name" field, or a script creating repos programmatically passes the token where
 the name argument belongs. The result is a public repository whose name is a
 credential.
 
-**Twelve accounts have more than one.** `Amina-DS`, `Fasenok`, `JamesG101`,
-`Lepertery`, `LouayN`, `Micoze`, `OrbelinaML`, `Sathvik077`, `aadickk`,
-`ashwink2718`, `ct685`, `satouyuuba`. Repeated occurrences on one account point
-to a repeatable workflow error rather than a one-off slip, which suggests the
-underlying interface or tutorial is inviting the mistake.
+**Twelve accounts have more than one** such repository (out of 147 distinct
+accounts). Repeated occurrences on one account point to a repeatable workflow
+error rather than a one-off slip, which suggests the underlying interface or
+tutorial is inviting the mistake. Account names are withheld from this public
+log for the same reason the full redacted list is not published (see
+"Publication decision").
 
 ## What has NOT been established
 
