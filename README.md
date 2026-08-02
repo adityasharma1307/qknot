@@ -8,7 +8,6 @@
 ![PQ-safe found](https://img.shields.io/badge/PQ--safe%20signatures%20found%20in%20audit-0-red.svg)
 
 > Phase I and II of *Quantum-Resilient Provenance for Machine Learning Supply Chains*
-> CS F376 Design Project, BITS Pilani Dubai Campus, 2025–26.
 > Supervisor: Dr. Tamizharasan Periyasamy.
 
 ## Status
