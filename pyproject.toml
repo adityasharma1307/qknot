@@ -47,6 +47,13 @@ dependencies = [
 transparency = [
     "rfc3161-client>=0.1",   # same implementation sigstore-python verifies with
 ]
+# OIDC identity-token acquisition for `qresp register`, and the TUF client
+# behind `qresp trust-material`. Not needed if you pass --identity-token
+# yourself and fetch a trusted_root.json some other way -- `sign`/`verify`
+# (without --registration) need none of this.
+register = [
+    "sigstore>=3.0",
+]
 analysis = [
     "pandas>=2.2",
     "matplotlib>=3.9",

@@ -4,30 +4,46 @@
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)
 ![Models audited](https://img.shields.io/badge/Repositories%20audited-20%2C000-green.svg)
 ![PQ-safe](https://img.shields.io/badge/PQ--safe%20repositories-0-red.svg)
-![Tests](https://img.shields.io/badge/Tests-833%20passing-brightgreen.svg)
+![Tests](https://img.shields.io/badge/Tests-1261%20passing-brightgreen.svg)
 ![FIPS 204](https://img.shields.io/badge/FIPS%20204%20ACVP-180%2F180-brightgreen.svg)
 
 > Phase I and II of *Quantum-Resilient Provenance for Machine Learning Supply Chains*
 > CS F376 Design Project, BITS Pilani Dubai Campus, 2025–26.
 > Supervisor: Dr. Tamizharasan Periyasamy.
 
-> **Working repository, currently private.** Phase I as published (report,
-> figures, and the 2026-05-21 dataset) is archived at
-> [adityasharma1307/qresp](https://github.com/adityasharma1307/qresp) and is not
-> modified. Development continues here.
->
-> **Before making this repository public**, read item 0 of
-> [`docs/OPEN-QUESTIONS.md`](docs/OPEN-QUESTIONS.md). One file needs a decision
-> at that moment, and it is the kind of decision that is easy to miss.
+## Status
 
-`qresp` does two things. It **audits** the cryptographic provenance of public
-machine learning models on HuggingFace, classifying each by quantum
-vulnerability; and it **signs** artefacts with a non-separable hybrid signature
-that remains compatible with existing OpenSSF Model Signing verifiers.
+Phase I (the audit) and Phase II (hybrid signing and PQC identity
+registration) are both implemented and tested against production
+infrastructure where it matters, not only simulated: the Sigstore /
+Fulcio / Rekor chain, an end-to-end key registration, and the live revocation
+search have each been run against real Sigstore and locked with a passing
+test. 1261 tests pass offline; 57 more are skipped by default because they
+need network access or a captured fixture (see
+[`docs/RUNBOOK.md`](docs/RUNBOOK.md)). What is deliberately left undecided is
+tracked in [`docs/OPEN-QUESTIONS.md`](docs/OPEN-QUESTIONS.md); what is and is
+not protected is stated plainly, in both directions, in
+[`docs/THREAT-MODEL.md`](docs/THREAT-MODEL.md).
 
-The audit establishes that the gap is real and near-total. The signing pipeline
-is a response to it, and is deliberately independent of both HuggingFace and
-machine learning: it signs bytes, and works for anything that needs signing.
+Phase I as originally submitted (report, figures, and the 2026-05-21 dataset)
+is archived unmodified at
+[adityasharma1307/qresp](https://github.com/adityasharma1307/qresp); this
+repository is where development continues, and has grown past a single
+semester's scope.
+
+`qresp` does three things. It **audits** the cryptographic provenance of
+public packages — currently HuggingFace, npm and PyPI — classifying each by
+quantum vulnerability; it **signs** artefacts with a non-separable hybrid
+signature that remains compatible with existing OpenSSF Model Signing
+verifiers; and it **registers** a post-quantum key against your existing
+(classical) OIDC identity, so a signature made today stays attributable after
+classical algorithms are broken.
+
+The audit establishes that the gap is real and near-total. Signing and
+registration are the response to it, and are deliberately independent of both
+HuggingFace and machine learning: they operate on bytes and identities, and
+work for anything that needs signing — firmware, datasets, documents,
+container images.
 
 The accompanying end-semester report is available in [`docs/report.pdf`](docs/report.pdf).
 
@@ -111,7 +127,7 @@ one leaves the other attesting to its absence.
 | **Signed** | DSSE PAE over the whole statement — attestation and metadata included |
 | **Conformance** | 180 NIST ACVP FIPS 204 vectors, byte-exact, run offline on every test invocation |
 
-### Identity: registering a PQC key off classical PKI, durably
+### Identity & attribution: registering a PQC key off classical PKI, durably
 
 Fulcio will certify a P-256 key against your OIDC identity. It will not certify
 an ML-DSA key. So QResP uses the classical certificate **while it is still
@@ -119,15 +135,56 @@ valid** to vouch for the post-quantum key, and logs that vouching in
 transparency — the log timestamp then proves the binding predates the classical
 algorithm's deprecation, so it survives it.
 
+**The full path, end to end:**
+
 ```bash
-qresp register --out ./my-registration            # OIDC -> Fulcio -> Rekor
-qresp verify-registration --bundle ./my-registration/bundle.json \
-    --fulcio-roots <your trust store> --log-key <the log's key>
+# 0. Get a real trust store, once (or whenever it goes stale)
+qresp trust-material --out ./trust
+
+# 1. Register a PQC key against your OIDC identity (opens a browser for
+#    the login unless --identity-token or --oauth-force-oob is given)
+qresp register --out ./my-registration \
+    --fulcio-roots ./trust/fulcio_roots.pem --log-key ./trust/rekor.pub
+
+# 2. Sign an artefact -- registration is independent of signing
+qresp sign ./my-model --out model.bundle.json --context model-release
+
+# 3. Verify BOTH the signature and who it belongs to
+qresp verify ./my-model --bundle model.bundle.json --context model-release \
+    --registration ./my-registration/bundle.json \
+    --fulcio-roots ./trust/fulcio_roots.pem --log-key ./trust/rekor.pub \
+    --check-revocations
 ```
 
 `register` will not hand back a bundle it cannot itself verify, and
-`verify-registration` names *how* the key was trusted — `direct`, or
+`verify` / `verify-registration` name *how* the key was trusted — `direct`, or
 `rescued-by-timestamp` — rather than a bare yes.
+
+**Always pass `--fulcio-roots` and `--log-key`.** Without them, `register`
+falls back to trusting whatever certificate chain Fulcio itself handed back in
+the moment — that proves internal consistency, not third-party trust — and
+`verify --registration` / `verify-registration` refuse to run at all, on
+purpose: attribution needs a trust store, and the CLI will not invent one.
+`qresp trust-material` pulls a real one from Sigstore's production TUF root
+(the same mechanism `sigstore-python` itself uses); see its `--help` for what
+it does, and `--staging` if you're testing against Sigstore's staging
+instance. Test-only material also exists
+(`tests/signing/fixtures/registration/`) but is exactly that — fine for trying
+the CLI, not for trusting a real registration.
+
+**OIDC needs a browser** by default (`register`'s step 1 opens one for the
+identity login). On a machine with no usable browser — SSH session, container,
+CI — pass `--oauth-force-oob` for a URL to open elsewhere and a code to paste
+back, or `--identity-token` if you already have a token.
+
+**Revocation search is honest about what it did not check.**
+`--check-revocations` searches Rekor live and authenticates every candidate it
+finds through the same inclusion-proof/checkpoint/SET path as everything else
+— but a Rekor `hashedrekord` entry stores a digest, not a statement, so an
+entry whose content cannot be retrieved comes back as `NOT ESTABLISHED`, never
+a silent "no revocations". See
+[`docs/REGISTRATION-SPEC.md`, section 9.1](docs/REGISTRATION-SPEC.md#91-revocation-search-and-the-limit-it-exposed-2026-08-02)
+for the full reasoning and what this feature does and does not prove.
 
 This path is verified against **live Sigstore**, not simulated: a real Fulcio
 certificate and a real Rekor entry are captured and run through the full
@@ -135,9 +192,11 @@ verification chain, including the temporal rescue at an instant past the
 classical disallow date
 ([`tests/signing/test_registration_fixture.py`](tests/signing/test_registration_fixture.py),
 captured by [`scripts/register/capture_registration.py`](scripts/register/capture_registration.py);
-the test skips cleanly if you have not captured a fixture). Design, two rounds
-of expert review, and the honest residuals:
-[`docs/REGISTRATION-SPEC.md`](docs/REGISTRATION-SPEC.md).
+the test skips cleanly if you have not captured a fixture), and the revocation
+search adapter has separately been run and validated against live Rekor
+(`scripts/verify/check_revocation_search.py`) — 5/5 log entries fetched and
+authenticated on production data. Design, two rounds of expert review, and the
+honest residuals: [`docs/REGISTRATION-SPEC.md`](docs/REGISTRATION-SPEC.md).
 
 ### Benchmarks
 
@@ -220,12 +279,39 @@ For development (tests, linter):
 pip install -e ".[dev]"
 ```
 
+For `qresp register` and `qresp trust-material` (OIDC login, the TUF client):
+
+```bash
+pip install -e ".[register]"
+```
+
+`sign`, `verify` (without `--registration`), and the audit commands need none
+of this — `qresp.signing`'s core does not depend on `sigstore` at all.
+
 > **Windows note:** if `qresp` is not found after install, the Python
-> Scripts directory may not be on your PATH. Find it with:
+> Scripts directory may not be on your PATH. Either add it:
 > ```
 > python -c "import sysconfig; print(sysconfig.get_path('scripts'))"
 > ```
-> Then add the printed path to your PATH environment variable.
+> and put the printed path on your PATH, or skip PATH entirely and always
+> invoke the module form, which works regardless:
+> ```
+> python -m qresp sign ./my-model --out model.bundle.json
+> ```
+
+### What needs a network, and what doesn't
+
+| Works fully offline | Needs network (and sometimes a browser) |
+|---|---|
+| `qresp sign` / `qresp verify` (no `--registration`) | `qresp register` (OIDC login, Fulcio, Rekor) |
+| `qresp verify --registration` / `verify-registration`, given a bundle and a trust store you already have | `qresp trust-material` (fetches Sigstore's TUF root) |
+| `qresp entropy` | `--check-revocations` (searches Rekor live) |
+| Almost the whole test suite (1261 of 1318 tests) | `qresp scan` / `audit-npm` / `audit-pypi` (query the registries) |
+| | The 57 skipped tests, and a handful that need a captured live fixture |
+
+So a fresh clone with no network at all can still sign, verify signatures,
+verify a registration you already hold the trust material for, and run
+nearly the entire test suite.
 
 ---
 
@@ -407,8 +493,10 @@ qresp2/
 │   ├── signing/        Phase II, including the package-boundary test
 │   └── adversarial/    attempts to make the audit lie
 ├── data/               date-stamped datasets and sampling manifests
-├── docs/               DATASETS.md, RUNBOOK.md, report, figures
-└── security/           responsible-disclosure material
+├── docs/               DATASETS.md, RUNBOOK.md, REGISTRATION-SPEC.md, report, figures
+├── security/           responsible-disclosure material
+├── SECURITY.md         how to report a vulnerability in this code
+└── CONTRIBUTING.md     how the codebase is organised, and what a PR needs
 ```
 
 **`qresp.signing` does not import `qresp.audit`, and never will.** The audit
