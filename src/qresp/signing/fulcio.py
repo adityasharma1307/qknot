@@ -22,7 +22,13 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
-__all__ = ["ChainError", "FulcioIdentity", "verify_chain", "verify_message"]
+__all__ = [
+    "ChainError",
+    "FulcioIdentity",
+    "identity_from_leaf",
+    "verify_chain",
+    "verify_message",
+]
 
 # Fulcio records the OIDC issuer in a private X.509v3 extension. The v1 form
 # (1.1) stored the raw issuer string; the v2 form (1.8) wraps it in DER. Both
@@ -208,6 +214,29 @@ def _build_path(leaf: Any, by_subject: dict[str, Any], trusted_subjects: set[str
     raise ChainError(
         f"certificate path exceeds the maximum length of {_MAX_CHAIN_LENGTH}; "
         f"refusing to follow an unbounded chain")
+
+
+def identity_from_leaf(leaf_der: bytes) -> FulcioIdentity:
+    """Parse the OIDC identity and issuer a Fulcio leaf carries -- NO chain check.
+
+    For the `register` orchestrator, which must fill a registration's identity
+    and issuer FROM the certificate Fulcio issued, never free-type them: the
+    payload's claimed identity must be exactly what the cert attests, and the
+    verifier cross-checks that (step 4). This is a parse only; trust in the
+    certificate is established separately by `verify_chain`.
+    """
+    leaf = _load(leaf_der)
+    identity = _identity_from_certificate(leaf)
+    issuer = _issuer_from_certificate(leaf)
+    if identity is None:
+        raise ChainError(
+            "leaf certificate has no SAN identity; it names no subject to "
+            "register")
+    if issuer is None:
+        raise ChainError(
+            "leaf certificate carries no OIDC issuer extension; its identity "
+            "cannot be attributed to an issuer")
+    return FulcioIdentity(identity=identity, issuer=issuer)
 
 
 def verify_chain(

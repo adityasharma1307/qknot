@@ -64,6 +64,7 @@ __all__ = [
     "hashedrekord_body",
     "hashedrekord_digest",
     "leaf_hash",
+    "log_entry_from_rekor",
     "verify_checkpoint",
     "verify_inclusion_root",
     "verify_log_entry",
@@ -362,6 +363,61 @@ class LogEntry:
             )
         except (KeyError, ValueError) as exc:
             raise InclusionError(f"log entry is malformed: {exc}") from exc
+
+
+def _lenient_b64(value: str) -> bytes:
+    """Base64-decode, tolerating missing padding (some Rekor JSON omits it)."""
+    return base64.b64decode(value + "=" * (-len(value) % 4))
+
+
+def _checkpoint_text(checkpoint: Any) -> str:
+    """The checkpoint note text, whether Rekor gave it as a bare string or the
+    protobuf-JSON `{"envelope": ...}` wrapper. Both appear in the wild."""
+    if isinstance(checkpoint, str):
+        return checkpoint
+    if isinstance(checkpoint, dict) and "envelope" in checkpoint:
+        return str(checkpoint["envelope"])
+    raise InclusionError(
+        "checkpoint is neither a note string nor an {envelope} object")
+
+
+def log_entry_from_rekor(entry: dict[str, Any]) -> LogEntry:
+    """Map a Rekor TransparencyLogEntry (as JSON) into a LogEntry.
+
+    THE ONE place the live-Rekor response shape is translated, shared by the
+    `register` orchestrator and by tests, so the mapping cannot drift between the
+    code that writes bundles and the code that reads them. It is a shape
+    translation only -- every trust decision still happens in `verify_log_entry`.
+
+    Two Rekor subtleties are handled here so nothing downstream has to:
+
+      * the GLOBAL `logIndex` (top level, what the SET signs) and the
+        shard-local `inclusionProof.logIndex` (what the Merkle proof is against)
+        are DIFFERENT on a sharded log; both are carried through;
+      * int64 fields may arrive as JSON strings (protobuf-JSON) or numbers, so
+        they are coerced with `int(...)`.
+
+    The `rootHash`/`treeSize` inside the inclusion proof are intentionally NOT
+    read: the trustworthy root and size come from the signed checkpoint, so
+    taking them from here would reintroduce a free field.
+    """
+    try:
+        proof = entry["inclusionProof"]
+        return LogEntry(
+            entry_body=_lenient_b64(entry["canonicalizedBody"]),
+            log_index=int(entry["logIndex"]),
+            proof_index=int(proof["logIndex"]),
+            inclusion_proof=[_lenient_b64(h) for h in proof["hashes"]],
+            checkpoint=_checkpoint_text(proof["checkpoint"]),
+            log_id=_lenient_b64(entry["logId"]["keyId"]),
+            integrated_time=int(entry["integratedTime"]),
+            set_signature=_lenient_b64(
+                entry["inclusionPromise"]["signedEntryTimestamp"]),
+        )
+    except (KeyError, ValueError, TypeError) as exc:
+        raise InclusionError(
+            f"Rekor response is not a mappable TransparencyLogEntry: {exc}"
+        ) from exc
 
 
 def verify_log_entry(

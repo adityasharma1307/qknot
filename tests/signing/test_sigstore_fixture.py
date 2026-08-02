@@ -22,9 +22,9 @@ from cryptography import x509
 
 from qresp.signing.fulcio import verify_chain
 from qresp.signing.rekor import (
-    LogEntry,
     hashedrekord_digest,
     leaf_hash,
+    log_entry_from_rekor,
     verify_checkpoint,
     verify_inclusion_root,
     verify_log_entry,
@@ -102,18 +102,11 @@ class TestComposedVerifyLogEntryOnRealBytes:
         key_path = FIXTURES / "rekor_key.der"
         if not key_path.exists():
             pytest.skip("no rekor key in fixture")
-        proof = tlog["inclusionProof"]
+        # The SHARED mapper turns the raw Rekor response into a LogEntry -- the
+        # same helper qresp register uses -- so this proves the mapper on real
+        # bytes and the composed verification in one shot.
+        entry = log_entry_from_rekor(tlog)
         body = _b64(tlog["canonicalizedBody"])
-        entry = LogEntry(
-            entry_body=body,
-            log_index=int(tlog["logIndex"]),           # GLOBAL: the SET signs this
-            proof_index=int(proof["logIndex"]),        # shard-local: Merkle proof
-            inclusion_proof=[_b64(h) for h in proof["hashes"]],
-            checkpoint=proof["checkpoint"]["envelope"],
-            log_id=_b64(tlog["logId"]["keyId"]),
-            integrated_time=int(tlog["integratedTime"]),
-            set_signature=_b64(tlog["inclusionPromise"]["signedEntryTimestamp"]),
-        )
         # expected_preimage is what a verifier already holds: the digest the
         # proven body commits to. On a real registration this equals
         # rekord_preimage(payloadType, payload); here the body is an artefact's.
@@ -125,22 +118,18 @@ class TestComposedVerifyLogEntryOnRealBytes:
             int(tlog["integratedTime"]), tz=timezone.utc)
         assert t.tzinfo is not None
 
+    def test_the_mapper_carries_both_indices_from_a_sharded_response(self, tlog):
+        """The global logIndex (SET) and the shard-local inclusionProof.logIndex
+        (Merkle) are distinct on real Rekor; the mapper must keep them apart."""
+        entry = log_entry_from_rekor(tlog)
+        assert entry.log_index == int(tlog["logIndex"])
+        assert entry.proof_index == int(tlog["inclusionProof"]["logIndex"])
+
     def test_a_wrong_preimage_is_rejected_on_real_bytes(self, tlog):
         key_path = FIXTURES / "rekor_key.der"
         if not key_path.exists():
             pytest.skip("no rekor key in fixture")
-        proof = tlog["inclusionProof"]
-        body = _b64(tlog["canonicalizedBody"])
-        entry = LogEntry(
-            entry_body=body,
-            log_index=int(tlog["logIndex"]),           # GLOBAL: the SET signs this
-            proof_index=int(proof["logIndex"]),        # shard-local: Merkle proof
-            inclusion_proof=[_b64(h) for h in proof["hashes"]],
-            checkpoint=proof["checkpoint"]["envelope"],
-            log_id=_b64(tlog["logId"]["keyId"]),
-            integrated_time=int(tlog["integratedTime"]),
-            set_signature=_b64(tlog["inclusionPromise"]["signedEntryTimestamp"]),
-        )
+        entry = log_entry_from_rekor(tlog)
         after = datetime.fromtimestamp(
             int(tlog["integratedTime"]), tz=timezone.utc) + timedelta(days=1)
         with pytest.raises(Exception, match="different digest|another entry"):

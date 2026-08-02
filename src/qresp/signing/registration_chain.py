@@ -32,7 +32,7 @@ from .registration import (
     verify_proof_of_possession,
     verify_revocation,
 )
-from .rekor import LogEntry, verify_log_entry
+from .rekor import InclusionError, LogEntry, verify_log_entry
 from .temporal import BindingBasis, binding_trust
 
 __all__ = [
@@ -113,10 +113,15 @@ def verify_registration_chain(
     registration = verify_proof_of_possession(bundle.envelope)
 
     # Step 6 FIRST: inclusion gives the upper bound T, which the short-lived
-    # Fulcio cert must be validated against -- see the module docstring.
+    # Fulcio cert must be validated against -- see the module docstring. An
+    # inclusion failure is a registration failure, surfaced as one (uniform with
+    # the step-3 chain wrapping below) so every caller sees a RegistrationError.
     preimage = bundle.envelope.rekord_preimage
-    upper_bound = verify_log_entry(
-        bundle.log_entry, preimage, log_public_key, at_time=now)
+    try:
+        upper_bound = verify_log_entry(
+            bundle.log_entry, preimage, log_public_key, at_time=now)
+    except InclusionError as exc:
+        raise RegistrationError(f"transparency inclusion: {exc}") from exc
 
     # Step 3: the Fulcio chain, validated AS OF T, not now.
     try:
