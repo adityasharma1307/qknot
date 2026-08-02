@@ -51,6 +51,32 @@ class RegistrationBundle:
     intermediate_certificates: list[bytes]    # DER; the leaf is in the envelope
     log_entry: LogEntry
 
+    def to_dict(self) -> dict[str, Any]:
+        import base64
+
+        return {
+            "envelope": self.envelope.to_dict(),
+            "intermediateCertificates": [
+                base64.b64encode(c).decode("ascii")
+                for c in self.intermediate_certificates],
+            "logEntry": self.log_entry.to_dict(),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> RegistrationBundle:
+        import base64
+
+        try:
+            return cls(
+                envelope=HybridSignedRegistration.from_dict(data["envelope"]),
+                intermediate_certificates=[
+                    base64.b64decode(c, validate=True)
+                    for c in data.get("intermediateCertificates", [])],
+                log_entry=LogEntry.from_dict(data["logEntry"]),
+            )
+        except KeyError as exc:
+            raise RegistrationError(f"registration bundle missing {exc}") from exc
+
 
 @dataclass(frozen=True)
 class TrustedBinding:

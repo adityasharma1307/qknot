@@ -110,6 +110,42 @@ class LogEntry:
     integrated_time: int          # epoch seconds; the upper bound T
     tree_head_signature: bytes    # the log's signature over the signed tree head
 
+    def to_dict(self) -> dict[str, Any]:
+        import base64
+
+        return {
+            "bodySha256": base64.b64encode(self.body_sha256).decode("ascii"),
+            "entryLeaf": base64.b64encode(self.entry_leaf).decode("ascii"),
+            "logIndex": self.log_index,
+            "treeSize": self.tree_size,
+            "inclusionProof": [base64.b64encode(h).decode("ascii")
+                               for h in self.inclusion_proof],
+            "rootHash": base64.b64encode(self.root_hash).decode("ascii"),
+            "integratedTime": self.integrated_time,
+            "treeHeadSignature": base64.b64encode(
+                self.tree_head_signature).decode("ascii"),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> LogEntry:
+        import base64
+
+        try:
+            return cls(
+                body_sha256=base64.b64decode(data["bodySha256"], validate=True),
+                entry_leaf=base64.b64decode(data["entryLeaf"], validate=True),
+                log_index=int(data["logIndex"]),
+                tree_size=int(data["treeSize"]),
+                inclusion_proof=[base64.b64decode(h, validate=True)
+                                 for h in data["inclusionProof"]],
+                root_hash=base64.b64decode(data["rootHash"], validate=True),
+                integrated_time=int(data["integratedTime"]),
+                tree_head_signature=base64.b64decode(
+                    data["treeHeadSignature"], validate=True),
+            )
+        except (KeyError, ValueError) as exc:
+            raise InclusionError(f"log entry is malformed: {exc}") from exc
+
     @staticmethod
     def signed_tree_head(root_hash: bytes, tree_size: int) -> bytes:
         """The canonical bytes the log signs. Kept as one function so the

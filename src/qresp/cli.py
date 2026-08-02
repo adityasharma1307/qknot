@@ -509,3 +509,97 @@ def verify_artefact(
     if entropy:
         console.print(f"  entropy (claimed) : quantum_seeded={entropy['quantum_seeded']} "
                       f"verifiable={entropy['externally_verifiable_sources']}")
+
+
+@app.command("verify-registration")
+def verify_registration_cmd(
+    bundle: Path = typer.Option(..., "--bundle",
+                                help="The registration bundle JSON."),
+    fulcio_roots: Path = typer.Option(
+        ..., "--fulcio-roots",
+        help="A file or directory of trusted Fulcio root certificates (DER or "
+             "PEM). Never hardcoded: this is your trust store."),
+    log_key: Path = typer.Option(..., "--log-key",
+                                 help="The transparency log's public key (DER)."),
+    at: str | None = typer.Option(
+        None, "--at", help="Verify as of this RFC 3339 instant, for asking how "
+                           "the binding will look in the future. Default: now."),
+    artifact_signed_at: str | None = typer.Option(
+        None, "--artifact-signed-at",
+        help="If given, also check notAfter and revocation against this "
+             "artefact signing time and print the authorised PQC key."),
+) -> None:
+    """Verify a key registration and report how the PQC key was trusted.
+
+    Resolves the whole chain -- proof of possession, Fulcio identity,
+    transparency inclusion, and the temporal decision -- and names the basis it
+    trusted (direct, or rescued-by-timestamp) rather than a bare yes. A verdict
+    that hides its basis is what this design exists to avoid.
+    """
+    import base64
+    from datetime import datetime
+
+    from .signing.registration import RegistrationError
+    from .signing.registration_chain import (
+        RegistrationBundle,
+        verify_registration_chain,
+    )
+
+    def _load_certs(path: Path) -> list[bytes]:
+        from cryptography import x509
+        from cryptography.hazmat.primitives.serialization import Encoding
+
+        paths = sorted(path.iterdir()) if path.is_dir() else [path]
+        out: list[bytes] = []
+        for p in paths:
+            raw = p.read_bytes()
+            try:                                   # PEM may hold several
+                certs = x509.load_pem_x509_certificates(raw)
+                out.extend(c.public_bytes(Encoding.DER) for c in certs)
+            except (ValueError, TypeError):
+                out.append(raw)                    # already DER
+        return out
+
+    try:
+        parsed = RegistrationBundle.from_dict(
+            json.loads(bundle.read_text(encoding="utf-8")))
+        roots = _load_certs(fulcio_roots)
+        key_der = log_key.read_bytes()
+        now = datetime.fromisoformat(at.replace("Z", "+00:00")) if at else None
+    except (OSError, ValueError, RegistrationError) as exc:
+        console.print(f"[red]could not read inputs: {exc}")
+        raise typer.Exit(2) from None
+
+    try:
+        binding = verify_registration_chain(
+            parsed, fulcio_roots=roots, log_public_key=key_der, now=now)
+    except RegistrationError as exc:
+        console.print("[bold red]REGISTRATION NOT TRUSTED[/bold red]")
+        console.print(str(exc))
+        raise typer.Exit(1) from None
+
+    console.print("[bold green]REGISTRATION TRUSTED[/bold green]")
+    console.print(f"  identity        : {binding.identity}")
+    console.print(f"  issuer          : {binding.issuer}")
+    console.print(f"  pqc algorithm   : {binding.pqc_algorithm}")
+    basis_colour = "green" if binding.basis.value == "direct" else "yellow"
+    console.print(f"  basis           : [{basis_colour}]{binding.basis.value}")
+    console.print(f"  valid as of     : {binding.valid_as_of.isoformat()} "
+                  f"(the log's integratedTime)")
+    console.print(f"  pqc public key  : "
+                  f"{base64.b64encode(binding.pqc_public_key).decode()[:32]}...")
+
+    if artifact_signed_at is not None:
+        from .signing.registration import NotYetRegistered
+        from .signing.registration_chain import authorize_for_artifact
+
+        signing_time = datetime.fromisoformat(
+            artifact_signed_at.replace("Z", "+00:00"))
+        try:
+            key = authorize_for_artifact(binding, signing_time)
+        except (NotYetRegistered, RegistrationError) as exc:
+            console.print(f"  [red]does NOT cover an artefact signed at "
+                          f"{artifact_signed_at}: {exc}")
+            raise typer.Exit(1) from None
+        console.print(f"  [green]covers the artefact; verify its signature "
+                      f"against {base64.b64encode(key).decode()[:32]}...")
