@@ -1,27 +1,30 @@
 """Transparency inclusion (spec step 6), against a Merkle tree built in the test.
 
 A reference RFC 6962 tree is constructed locally, an inclusion proof generated
-for a leaf, and the verifier checked against it -- so the proof math and the
-signed-tree-head check are exercised with real proofs, not mocks.
+for a leaf, and the verifier checked against it -- so the proof math, the signed
+checkpoint (STH) and the signed entry timestamp (SET) are exercised with real
+proofs and REAL Rekor formats (signed by a test key), not mocks. The very same
+formats are verified against production bytes in test_sigstore_fixture.py.
 """
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from qresp.signing.rekor import (
     InclusionError,
-    LogEntry,
     hashedrekord_body,
     leaf_hash,
     verify_inclusion_root,
     verify_log_entry,
 )
+
+from ._rekor_doubles import make_log_entry
 
 
 def _h(left, right):
@@ -86,20 +89,23 @@ def test_an_index_outside_the_tree_is_refused():
         verify_inclusion_root(9, 8, leaf_hash(b"x"), [])
 
 
-def _log_entry(preimage, entries, index, log_key, integrated=None):
-    """`entries` are entry BODIES; entries[index] must commit to `preimage`."""
+def _log_entry(entries, index, log_key, integrated=None):
+    """A LogEntry with a real-format checkpoint + SET over a locally built tree.
+
+    `entries` are entry BODIES; the checkpoint names the tree's real root, so an
+    honest entry verifies and any tamper fails the reconstruction-vs-checkpoint
+    or SET check.
+    """
     tree = RefTree(entries)
-    root = tree.root()
-    tree_size = len(entries)
-    sth = LogEntry.signed_tree_head(root, tree_size)
-    sig = log_key.sign(sth, ec.ECDSA(hashes.SHA256()))
-    return LogEntry(
+    when = integrated or (datetime.now(timezone.utc) - timedelta(days=1))
+    return make_log_entry(
         entry_body=entries[index],
-        log_index=index, tree_size=tree_size,
-        inclusion_proof=tree.proof(index), root_hash=root,
-        integrated_time=int((integrated or datetime.now(timezone.utc)
-                             - timedelta(days=1)).timestamp()),
-        tree_head_signature=sig)
+        log_index=index,
+        tree_size=len(entries),
+        root_hash=tree.root(),
+        inclusion_proof=tree.proof(index),
+        integrated_time=int(when.timestamp()),
+        key=log_key)
 
 
 class TestFullEntryVerification:
@@ -112,7 +118,7 @@ class TestFullEntryVerification:
         preimage = hashlib.sha256(b"registration").digest()
         entries = [hashedrekord_body(preimage) if i == 2 else f"e{i}".encode()
                    for i in range(5)]
-        entry = _log_entry(preimage, entries, 2, self.log_key)
+        entry = _log_entry(entries, 2, self.log_key)
         t = verify_log_entry(entry, preimage, self.log_pub)
         assert isinstance(t, datetime) and t.tzinfo is not None
 
@@ -123,47 +129,80 @@ class TestFullEntryVerification:
         real = hashlib.sha256(b"alice-registration").digest()
         entries = [hashedrekord_body(real) if i == 1 else f"e{i}".encode()
                    for i in range(4)]
-        entry = _log_entry(real, entries, 1, self.log_key)   # honest proof
+        entry = _log_entry(entries, 1, self.log_key)         # honest proof
         attacker = hashlib.sha256(b"mallory-registration").digest()
         with pytest.raises(InclusionError, match="different digest|another entry"):
             verify_log_entry(entry, attacker, self.log_pub)
 
     def test_an_entry_body_not_matching_its_leaf_fails_inclusion(self):
         """Swap the body for a different hashedrekord after the proof was built:
-        the leaf hash changes, so inclusion no longer reconstructs the root."""
+        the leaf hash changes, so inclusion no longer reconstructs the signed
+        checkpoint root."""
         real = hashlib.sha256(b"r").digest()
         entries = [hashedrekord_body(real) if i == 0 else f"e{i}".encode()
                    for i in range(4)]
-        entry = _log_entry(real, entries, 0, self.log_key)
-        swapped = LogEntry(
-            entry_body=hashedrekord_body(hashlib.sha256(b"other").digest()),
-            log_index=entry.log_index, tree_size=entry.tree_size,
-            inclusion_proof=entry.inclusion_proof, root_hash=entry.root_hash,
-            integrated_time=entry.integrated_time,
-            tree_head_signature=entry.tree_head_signature)
-        with pytest.raises(InclusionError):
+        entry = _log_entry(entries, 0, self.log_key)
+        swapped = dataclasses.replace(
+            entry, entry_body=hashedrekord_body(hashlib.sha256(b"other").digest()))
+        with pytest.raises(InclusionError, match="reconstruct"):
             verify_log_entry(swapped, hashlib.sha256(b"other").digest(), self.log_pub)
+
+    def test_a_checkpoint_root_the_proof_does_not_reach_is_refused(self):
+        """A real inclusion proof for one entry cannot be presented under a
+        checkpoint that signs a different root: reconstruction won't match."""
+        real = hashlib.sha256(b"r").digest()
+        entries = [hashedrekord_body(real) if i == 2 else f"e{i}".encode()
+                   for i in range(5)]
+        entry = _log_entry(entries, 2, self.log_key)
+        # a checkpoint over an unrelated root, validly signed by the same log
+        from ._rekor_doubles import signed_checkpoint
+        foreign = signed_checkpoint(5, hashlib.sha256(b"nope").digest(), self.log_key)
+        tampered = dataclasses.replace(entry, checkpoint=foreign)
+        with pytest.raises(InclusionError, match="reconstruct"):
+            verify_log_entry(tampered, real, self.log_pub)
 
     def test_a_non_hashedrekord_body_is_refused(self):
         entries = [b"not-a-hashedrekord" for _ in range(3)]
-        entry = _log_entry(b"x" * 32, entries, 0, self.log_key)
+        entry = _log_entry(entries, 0, self.log_key)
         with pytest.raises(InclusionError, match="not a parseable hashedrekord"):
             verify_log_entry(entry, b"x" * 32, self.log_pub)
 
-    def test_a_tree_head_signed_by_the_wrong_key_is_refused(self):
+    def test_a_checkpoint_signed_by_the_wrong_key_is_refused(self):
         preimage = hashlib.sha256(b"r").digest()
         entries = [hashedrekord_body(preimage) if i == 1 else f"e{i}".encode()
                    for i in range(4)]
-        entry = _log_entry(preimage, entries, 1, self.log_key)
+        entry = _log_entry(entries, 1, self.log_key)
         other = ec.generate_private_key(ec.SECP256R1()).public_key().public_bytes(
             Encoding.DER, PublicFormat.SubjectPublicKeyInfo)
         with pytest.raises(InclusionError, match="log's public key"):
             verify_log_entry(entry, preimage, other)
 
+    def test_a_set_for_a_different_time_is_refused(self):
+        """The SET authenticates integratedTime: rewriting the claimed time
+        without re-signing breaks the SET signature."""
+        preimage = hashlib.sha256(b"r").digest()
+        entries = [hashedrekord_body(preimage) if i == 1 else f"e{i}".encode()
+                   for i in range(4)]
+        entry = _log_entry(entries, 1, self.log_key)
+        moved = dataclasses.replace(entry, integrated_time=entry.integrated_time - 99999)
+        with pytest.raises(InclusionError, match="log's public key|log signature"):
+            verify_log_entry(moved, preimage, self.log_pub)
+
+    def test_an_entry_from_a_different_log_is_refused(self):
+        """logID must be SHA-256 of the trusted log key; an entry whose SET was
+        signed by another log cannot be presented under this verifier's key."""
+        preimage = hashlib.sha256(b"r").digest()
+        entries = [hashedrekord_body(preimage) if i == 1 else f"e{i}".encode()
+                   for i in range(4)]
+        other_key = ec.generate_private_key(ec.SECP256R1())
+        entry = _log_entry(entries, 1, other_key)            # signed by other log
+        with pytest.raises(InclusionError, match="different log|log's public key"):
+            verify_log_entry(entry, preimage, self.log_pub)
+
     def test_an_empty_log_key_is_a_config_error(self):
         preimage = hashlib.sha256(b"r").digest()
         entries = [hashedrekord_body(preimage), b"x"]
-        entry = _log_entry(preimage, entries, 0, self.log_key)
+        entry = _log_entry(entries, 0, self.log_key)
         with pytest.raises(InclusionError, match="Configuration error"):
             verify_log_entry(entry, preimage, b"")
 
@@ -171,6 +210,6 @@ class TestFullEntryVerification:
         preimage = hashlib.sha256(b"r").digest()
         entries = [hashedrekord_body(preimage), b"x"]
         future = datetime.now(timezone.utc) + timedelta(days=3650)
-        entry = _log_entry(preimage, entries, 0, self.log_key, integrated=future)
+        entry = _log_entry(entries, 0, self.log_key, integrated=future)
         with pytest.raises(InclusionError, match="future"):
             verify_log_entry(entry, preimage, self.log_pub)

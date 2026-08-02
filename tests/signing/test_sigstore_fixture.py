@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import base64
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -21,9 +22,12 @@ from cryptography import x509
 
 from qresp.signing.fulcio import verify_chain
 from qresp.signing.rekor import (
+    LogEntry,
     hashedrekord_digest,
     leaf_hash,
+    verify_checkpoint,
     verify_inclusion_root,
+    verify_log_entry,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -98,24 +102,67 @@ class TestRekorInclusionOnRealBytes:
         digest = hashedrekord_digest(body)
         assert len(digest) == 32                 # a sha256 the real body committed to
 
-    def test_the_real_checkpoint_signature_verifies(self, tlog):
+    def test_our_verify_checkpoint_reads_a_real_signed_tree_head(self, tlog):
+        """The production verify_checkpoint parses and verifies a REAL Rekor
+        checkpoint, returning the tree size and root the log actually signed."""
         key_path = FIXTURES / "rekor_key.der"
         if not key_path.exists():
             pytest.skip("no rekor key in fixture")
-        from cryptography.hazmat.primitives import hashes
-        from cryptography.hazmat.primitives.asymmetric import ec, ed25519
-        from cryptography.hazmat.primitives.serialization import load_der_public_key
-
         note = tlog["inclusionProof"]["checkpoint"]["envelope"]
-        text, _, sigblock = note.partition("\n\n")
-        signed = (text + "\n").encode("utf-8")
-        sigline = next(ln for ln in sigblock.splitlines()
-                       if ln.startswith("— ") or ln.startswith("- "))
-        signature = base64.b64decode(sigline.split(" ", 2)[2])[4:]
-        key = load_der_public_key(key_path.read_bytes())
-        if isinstance(key, ec.EllipticCurvePublicKey):
-            key.verify(signature, signed, ec.ECDSA(hashes.SHA256()))
-        elif isinstance(key, ed25519.Ed25519PublicKey):
-            key.verify(signature, signed)
-        else:
-            pytest.skip(f"unhandled rekor key type {type(key).__name__}")
+        tree_size, root = verify_checkpoint(note, key_path.read_bytes())
+        assert tree_size == int(tlog["inclusionProof"]["treeSize"])
+        assert root == _b64(tlog["inclusionProof"]["rootHash"])
+
+
+class TestComposedVerifyLogEntryOnRealBytes:
+    """The composed API on production bytes: verify_log_entry authenticates the
+    digest, the checkpoint root, the SET time, and the log identity end-to-end
+    against a real Rekor entry -- no test double anywhere in the path."""
+
+    def test_verify_log_entry_authenticates_a_real_entry_end_to_end(self, tlog):
+        key_path = FIXTURES / "rekor_key.der"
+        if not key_path.exists():
+            pytest.skip("no rekor key in fixture")
+        proof = tlog["inclusionProof"]
+        body = _b64(tlog["canonicalizedBody"])
+        entry = LogEntry(
+            entry_body=body,
+            log_index=int(tlog["logIndex"]),           # GLOBAL: the SET signs this
+            proof_index=int(proof["logIndex"]),        # shard-local: Merkle proof
+            inclusion_proof=[_b64(h) for h in proof["hashes"]],
+            checkpoint=proof["checkpoint"]["envelope"],
+            log_id=_b64(tlog["logId"]["keyId"]),
+            integrated_time=int(tlog["integratedTime"]),
+            set_signature=_b64(tlog["inclusionPromise"]["signedEntryTimestamp"]),
+        )
+        # expected_preimage is what a verifier already holds: the digest the
+        # proven body commits to. On a real registration this equals
+        # rekord_preimage(payloadType, payload); here the body is an artefact's.
+        expected = hashedrekord_digest(body)
+        after = datetime.fromtimestamp(
+            int(tlog["integratedTime"]), tz=timezone.utc) + timedelta(days=1)
+        t = verify_log_entry(entry, expected, key_path.read_bytes(), at_time=after)
+        assert t == datetime.fromtimestamp(
+            int(tlog["integratedTime"]), tz=timezone.utc)
+        assert t.tzinfo is not None
+
+    def test_a_wrong_preimage_is_rejected_on_real_bytes(self, tlog):
+        key_path = FIXTURES / "rekor_key.der"
+        if not key_path.exists():
+            pytest.skip("no rekor key in fixture")
+        proof = tlog["inclusionProof"]
+        body = _b64(tlog["canonicalizedBody"])
+        entry = LogEntry(
+            entry_body=body,
+            log_index=int(tlog["logIndex"]),           # GLOBAL: the SET signs this
+            proof_index=int(proof["logIndex"]),        # shard-local: Merkle proof
+            inclusion_proof=[_b64(h) for h in proof["hashes"]],
+            checkpoint=proof["checkpoint"]["envelope"],
+            log_id=_b64(tlog["logId"]["keyId"]),
+            integrated_time=int(tlog["integratedTime"]),
+            set_signature=_b64(tlog["inclusionPromise"]["signedEntryTimestamp"]),
+        )
+        after = datetime.fromtimestamp(
+            int(tlog["integratedTime"]), tz=timezone.utc) + timedelta(days=1)
+        with pytest.raises(Exception, match="different digest|another entry"):
+            verify_log_entry(entry, b"\x11" * 32, key_path.read_bytes(), at_time=after)

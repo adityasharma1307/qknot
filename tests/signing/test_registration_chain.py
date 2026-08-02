@@ -33,8 +33,10 @@ from qresp.signing.registration_chain import (
     authorize_for_artifact,
     verify_registration_chain,
 )
-from qresp.signing.rekor import LogEntry, leaf_hash
+from qresp.signing.rekor import leaf_hash
 from qresp.signing.temporal import BindingBasis
+
+from ._rekor_doubles import make_log_entry
 
 ISSUER_OID_V1 = x509.ObjectIdentifier("1.3.6.1.4.1.57264.1.1")
 IDENTITY = "alice@example.com"
@@ -130,12 +132,10 @@ class Harness:
             "application/vnd.qresp.hybrid-key-registration+json", payload)
         entry_bytes = hashedrekord_body(preimage)
         root = leaf_hash(entry_bytes)
-        sth = LogEntry.signed_tree_head(root, 1)
-        entry = LogEntry(
-            entry_body=entry_bytes, log_index=0, tree_size=1,
-            inclusion_proof=[], root_hash=root,
-            integrated_time=int(self.log_time.timestamp()),
-            tree_head_signature=self.log_key.sign(sth, ec.ECDSA(hashes.SHA256())))
+        entry = make_log_entry(
+            entry_body=entry_bytes, log_index=0, tree_size=1, root_hash=root,
+            inclusion_proof=[], integrated_time=int(self.log_time.timestamp()),
+            key=self.log_key)
         return RegistrationBundle(envelope=env, intermediate_certificates=[],
                                   log_entry=entry), reg
 
@@ -220,12 +220,10 @@ class TestItRejectsTampering:
         from qresp.signing.rekor import hashedrekord_body
         eb = hashedrekord_body(preimage)
         root = leaf_hash(eb)
-        entry = LogEntry(
-            entry_body=eb, log_index=0, tree_size=1,
-            inclusion_proof=[], root_hash=root,
-            integrated_time=int(h.log_time.timestamp()),
-            tree_head_signature=h.log_key.sign(
-                LogEntry.signed_tree_head(root, 1), ec.ECDSA(hashes.SHA256())))
+        entry = make_log_entry(
+            entry_body=eb, log_index=0, tree_size=1, root_hash=root,
+            inclusion_proof=[], integrated_time=int(h.log_time.timestamp()),
+            key=h.log_key)
         bad = RegistrationBundle(env, [], entry)
         with pytest.raises(Exception, match="attests identity"):
             verify_registration_chain(
