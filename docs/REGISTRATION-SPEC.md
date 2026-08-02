@@ -357,6 +357,7 @@ network-captured bytes.
 | **integration fixture from a REAL Fulcio leaf + REAL Rekor inclusion** | **DONE -- all checks pass on production bytes** |
 | Residual 2 -- production soundness of `verify_log_entry` (real checkpoint + SET) | **done** (`bd676ea`); composed end-to-end on real bytes |
 | Residual 1 -- path discovery in `verify_chain` (unordered CA pool) | **done** (`0e029df`); validates the real leaf from the raw pool |
+| Residual 3 -- a real registration through full section 4 | **done** (`c5fe2f8`); real Fulcio cert + Rekor entry, trusted binding + temporal rescue on production bytes |
 
 ### Production parity: verified, 2026-08-02
 
@@ -415,23 +416,31 @@ be done outside the module. Both are now closed, in `src/`:
   Locked by `test_fulcio_chain.py::TestPathDiscovery`; the production fixture now
   validates the real leaf from the raw unordered pool.
 
-### Residual 3: orchestrator built and offline-locked; one real capture remains
+### Residual 3: CLOSED -- a real registration verifies on production bytes (2026-08-02)
 
 3. **The `register` orchestrator is built** (`signing/register.py`) as a thin
    8-step composition behind a `FulcioClient`/`RekorClient` seam, with a shared
    `log_entry_from_rekor` mapper and a MANDATORY round-trip verify before it
-   returns a bundle. It is fully tested offline against fake clients that mint
-   the same trust stack the suite uses (`test_register.py`): DIRECT binding,
-   identity-from-cert, temporal rescue, and the round-trip gate refusing an
-   unverifiable bundle. The shared mapper is additionally locked against the
-   REAL Rekor bytes already captured.
+   returns a bundle. Tested offline against fake clients (`test_register.py`):
+   DIRECT binding, identity-from-cert, temporal rescue, round-trip gate.
 
-   What remains is the one thing that cannot run offline: a REAL Fulcio cert +
-   Rekor entry for a registration, captured via
-   `scripts/register/capture_registration.py` on a machine with network + browser
-   OIDC, and locked by `test_registration_fixture.py` (full section 4 -> trusted
-   binding; temporal rescue past the classical disallow date; skips until the
-   fixture exists). The network adapters in that script are the only code not
-   exercised by CI -- but `register()` verifies the bundle end to end before the
-   script writes it, so a bad capture is never saved, and any adapter drift fails
-   loudly at capture time rather than silently producing a bogus fixture.
+   And now proven on PRODUCTION bytes. One real registration was captured end to
+   end against live Fulcio + Rekor (`scripts/register/capture_registration.py`):
+   a real Fulcio cert over a real P-256 key, a real Rekor entry (checkpoint +
+   SET), run through `verify_registration_chain` with no special cases.
+   `test_registration_fixture.py` RUNS (3 passed): full section 4 -> trusted
+   binding; a tampered-payload rejection; and the temporal rescue past the
+   classical disallow date. The ML-DSA-87 signature made at capture time verifies
+   in a SEPARATE backend install -- real cross-implementation FIPS-204 interop.
+
+   Three honest fixes the real capture surfaced, none in the trust core: the
+   REST client normalises Rekor's HEX rootHash/hashes to the base64 the bundle
+   format uses (the verifier reconstructs the SIGNED checkpoint root, so a
+   mis-decode failed loudly, not silently); `verify_log_entry` allows a 1-minute
+   clock-skew on the "not in the future" sanity check (a real entry landed 0.4s
+   ahead of the local clock; immaterial to the rescue's multi-year windows); and
+   `register` verifies as of a fresh instant taken after the network round-trip.
+
+   All three residuals are now closed in `src/`. What remains is product
+   breadth, not trust logic: wiring `register` into the CLI, the artefact-plus-
+   registration composition command, and a live revocation-search path.
