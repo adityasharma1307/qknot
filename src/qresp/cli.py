@@ -666,7 +666,8 @@ def _verify_with_registration(
     target: Path, artefact: Any, registration: Path,
     fulcio_roots: Path | None, log_key: Path | None,
     mode: Any, context: str, artefact_signed_at: str | None,
-    at: str | None = None,
+    at: str | None = None, check_revocations: bool = False,
+    rekor_url: str = "https://rekor.sigstore.dev",
 ) -> None:
     """The composed verdict: a valid artefact, attributed to an identity."""
     from datetime import datetime
@@ -699,10 +700,27 @@ def _verify_with_registration(
         console.print(f"[red]could not read inputs: {exc}")
         raise typer.Exit(2) from None
 
+    # Revocations. Either we look, or the verdict says we did not -- it never
+    # claims a key is live merely because nobody checked.
+    search = None
+    if check_revocations:
+        from .signing.registration import HybridRegistration, _key_fingerprint
+        from .signing.revocation_search import find_revocations
+        from .signing.sigstore_clients import RekorRevocationSearchClient
+
+        payload = HybridRegistration.from_payload(reg_bundle.envelope.payload)
+        console.print(f"  searching {rekor_url} for revocations of "
+                      f"{payload.identity} ...")
+        search = find_revocations(
+            payload.identity, _key_fingerprint(payload.pqc_key.public_key),
+            client=RekorRevocationSearchClient(rekor_url),
+            log_public_key=key_der, now=as_of)
+
     try:
         verdict = verify_artefact_against_registration(
             target, artefact, reg_bundle, fulcio_roots=roots,
             log_public_key=key_der, mode=mode, context=context.encode(),
+            revocation_search=search,
             artefact_signed_at=signed_at, now=as_of)
     except VerificationFailed as exc:
         console.print("[bold red]VERIFICATION FAILED[/bold red]")
@@ -739,6 +757,19 @@ def _verify_with_registration(
                       "sets no notAfter and no revocation was supplied, so "
                       "there was nothing to rule on; this is 'unchecked', not "
                       "'passed'.")
+    # Revocation status, always stated -- including when it was not established.
+    outcome = verdict.revocation_search.outcome.value
+    if verdict.revocation_status_is_conclusive:
+        console.print(f"  revocations       : {outcome} "
+                      f"({verdict.revocation_search.candidates_examined} log "
+                      f"entr(ies) examined)")
+    else:
+        console.print(f"  [yellow]revocations       : NOT ESTABLISHED "
+                      f"({outcome}). {verdict.revocation_search.detail}")
+        if not check_revocations:
+            console.print("  [yellow]                    pass --check-revocations "
+                          "to search the log.")
+
     if verdict.signing_time_source is SigningTimeSource.SUPPLIED:
         console.print("  [yellow]note              : the signing time was "
                       "asserted on the command line, not proven.")
@@ -778,6 +809,14 @@ def verify_artefact(
         help="Judge the attribution as of this RFC 3339 instant instead of now "
              "-- for asking how it will look after the classical algorithm is "
              "disallowed. Only meaningful with --registration."),
+    check_revocations: bool = typer.Option(
+        False, "--check-revocations",
+        help="Search the transparency log for revocations of the registered "
+             "key. WITHOUT this, the verdict says revocation was NOT CHECKED "
+             "rather than pretending the key is live."),
+    rekor_url: str = typer.Option(
+        "https://rekor.sigstore.dev", "--rekor-url",
+        help="The log to search with --check-revocations."),
 ) -> None:
     """Verify an artefact against a bundle, and report what was checked.
 
@@ -808,7 +847,8 @@ def verify_artefact(
     if registration is not None:
         _verify_with_registration(
             target, parsed, registration, fulcio_roots, log_key,
-            chosen, context, artefact_signed_at, at)
+            chosen, context, artefact_signed_at, at,
+            check_revocations, rekor_url)
         return
     if (fulcio_roots is not None or log_key is not None
             or artefact_signed_at or at):

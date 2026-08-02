@@ -47,6 +47,7 @@ from .registration_chain import (
     authorize_for_artifact,
     verify_registration_chain,
 )
+from .revocation_search import RevocationSearch, not_searched, supplied
 from .sign import SignedArtefact, VerifyMode, verify
 from .temporal import BindingBasis
 
@@ -77,7 +78,17 @@ class AuthorisedArtefact:
     signing_time: datetime | None
     signing_time_source: SigningTimeSource
     coverage_checked: bool              # were notAfter/revocation actually ruled on?
+    revocation_search: RevocationSearch  # what was (or was not) established
     artefact_report: dict[str, Any]     # what `verify` checked, verbatim
+
+    @property
+    def revocation_status_is_conclusive(self) -> bool:
+        """Whether "not revoked" was ESTABLISHED rather than merely unobserved.
+
+        A caller that renders this verdict must surface a False here. It is the
+        difference between "the log says this key is live" and "nobody looked".
+        """
+        return self.revocation_search.is_conclusive
 
 
 def _trusted_upper_bound(signed: SignedArtefact) -> datetime | None:
@@ -103,6 +114,7 @@ def verify_artefact_against_registration(
     mode: VerifyMode = VerifyMode.STRICT,
     context: bytes = b"",
     revocations: list[tuple[SignedRevocation, datetime]] | None = None,
+    revocation_search: RevocationSearch | None = None,
     artefact_signed_at: datetime | None = None,
     now: datetime | None = None,
     policies: dict[str, Any] | None = None,
@@ -126,7 +138,19 @@ def verify_artefact_against_registration(
         registration, fulcio_roots=fulcio_roots, log_public_key=log_public_key,
         now=now, policies=policies)
 
-    # 3. When was the artefact signed? Evidence, or honestly absent.
+    # 3. Revocations. Either the caller already holds them, or a search was
+    #    run and carries its own outcome. Both are recorded; neither is allowed
+    #    to become a bare empty list, because "found none" and "did not look"
+    #    are different answers and only one of them is reassuring.
+    if revocation_search is not None:
+        search = revocation_search
+    elif revocations:
+        search = supplied(revocations)
+    else:
+        search = not_searched()
+    known_revocations = list(search.revocations)
+
+    # 4. When was the artefact signed? Evidence, or honestly absent.
     if artefact_signed_at is not None:
         signing_time: datetime | None = artefact_signed_at
         source = SigningTimeSource.SUPPLIED
@@ -135,10 +159,10 @@ def verify_artefact_against_registration(
     else:
         signing_time, source = None, SigningTimeSource.UNESTABLISHED
 
-    # 4. Coverage: notAfter and revocation, keyed to that signing time.
+    # 5. Coverage: notAfter and revocation, keyed to that signing time.
     if signing_time is not None:
         authorised_key = authorize_for_artifact(
-            binding, signing_time, revocations=revocations, now=now,
+            binding, signing_time, revocations=known_revocations, now=now,
             policies=policies)
         coverage_checked = True
     else:
@@ -151,16 +175,17 @@ def verify_artefact_against_registration(
                 f"signing time, so whether it is covered cannot be decided. "
                 f"Supply one (a timestamp, or an explicit assertion) rather than "
                 f"treat an unanswerable question as a pass.")
-        if revocations:
+        if known_revocations:
             raise RegistrationError(
-                "revocations were supplied, but this artefact carries no "
-                "trustworthy signing time, so whether it was signed before or "
-                "after the revocation cannot be decided. That is not a pass.")
+                f"{len(known_revocations)} revocation(s) exist for this key, but "
+                f"this artefact carries no trustworthy signing time, so whether "
+                f"it was signed before or after the revocation cannot be "
+                f"decided. That is not a pass.")
         # No notAfter and no revocations: the checks are vacuous, not skipped.
         authorised_key = binding.pqc_public_key
         coverage_checked = False
 
-    # 5. THE JOIN. The artefact must have been signed under the very key the
+    # 6. THE JOIN. The artefact must have been signed under the very key the
     #    registration authorises. Without this the two verifications above are
     #    unrelated facts and the verdict would be a non sequitur.
     signed_under = artefact.public_keys.get(binding.pqc_algorithm)
@@ -187,5 +212,6 @@ def verify_artefact_against_registration(
         signing_time=signing_time,
         signing_time_source=source,
         coverage_checked=coverage_checked,
+        revocation_search=search,
         artefact_report=report,
     )

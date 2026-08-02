@@ -38,6 +38,7 @@ __all__ = [
     "REKOR_URL",
     "FulcioRestClient",
     "RekorRestClient",
+    "RekorRevocationSearchClient",
     "acquire_identity_token",
     "rekor_public_key_der",
 ]
@@ -233,6 +234,85 @@ class RekorRestClient:
         }
         self.last_mapped = mapped
         return mapped
+
+
+class RekorRevocationSearchClient:
+    """Searches a live Rekor for entries naming an identity.
+
+    Implements `RevocationSearchClient`. Rekor's index can be queried by email,
+    which returns entry UUIDs; each is then fetched and reshaped into the
+    canonical form the shared mapper reads.
+
+    IT CANNOT RETURN THE REVOCATION STATEMENTS THEMSELVES. A `hashedrekord`
+    stores a digest, so the log proves that a statement was logged and when, but
+    cannot produce a statement the verifier has never seen. `statement_source`
+    supplies them -- a published feed, a directory, an internal service --
+    keyed by the digest the log holds. Without it, entries come back opaque and
+    `find_revocations` reports the honest UNKNOWN rather than an all-clear.
+    """
+
+    def __init__(self, base_url: str = REKOR_URL,
+                 statement_source: dict[str, dict[str, str]] | None = None):
+        self.base_url = base_url
+        # digest hex -> {"payload": b64, "signature": b64}
+        self.statement_source = statement_source or {}
+
+    def search_by_identity(self, identity: str) -> list[dict[str, Any]]:
+        import requests
+
+        found = _post(f"{self.base_url}/api/v1/index/retrieve",
+                      {"email": identity})
+        uuids = found if isinstance(found, list) else []
+        entries: list[dict[str, Any]] = []
+        for uuid in uuids:
+            resp = requests.get(
+                f"{self.base_url}/api/v1/log/entries/{uuid}", timeout=30)
+            if not resp.ok:
+                # One unreachable entry must not look like "no revocation":
+                # raising makes the whole search FAILED, which is the honest
+                # outcome when part of the answer is missing.
+                raise SigstoreClientError(
+                    f"log entry {uuid} could not be fetched (HTTP "
+                    f"{resp.status_code}); the revocation search is incomplete")
+            (_uuid, entry), = resp.json().items()
+            mapped = _map_entry(entry)
+            digest = _entry_digest_hex(mapped)
+            if digest and digest in self.statement_source:
+                mapped["qrespRevocation"] = self.statement_source[digest]
+            entries.append(mapped)
+        return entries
+
+
+def _map_entry(entry: dict[str, Any]) -> dict[str, Any]:
+    """A Rekor REST log entry in the canonical bundle shape (hex -> base64)."""
+    verification = entry["verification"]
+    proof = verification["inclusionProof"]
+    return {
+        "canonicalizedBody": entry["body"],
+        "logIndex": entry["logIndex"],
+        "logId": {"keyId": _hex_to_b64(entry["logID"])},
+        "integratedTime": entry["integratedTime"],
+        "inclusionPromise": {
+            "signedEntryTimestamp": verification["signedEntryTimestamp"]},
+        "inclusionProof": {
+            "logIndex": proof["logIndex"],
+            "rootHash": _hex_to_b64(proof["rootHash"]),
+            "treeSize": proof["treeSize"],
+            "hashes": [_hex_to_b64(h) for h in proof["hashes"]],
+            "checkpoint": proof["checkpoint"],
+        },
+    }
+
+
+def _entry_digest_hex(mapped: dict[str, Any]) -> str | None:
+    """The digest a hashedrekord entry commits to, for statement lookup."""
+    from .rekor import InclusionError, hashedrekord_digest
+
+    try:
+        body = base64.b64decode(mapped["canonicalizedBody"])
+        return hashedrekord_digest(body).hex()
+    except (InclusionError, KeyError, ValueError):
+        return None
 
 
 def rekor_public_key_der(base_url: str = REKOR_URL) -> bytes:

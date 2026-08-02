@@ -161,3 +161,84 @@ class TestSigningTimeDiscipline:
                 artefact_signed_at=datetime.datetime(
                     2028, 6, 1, tzinfo=datetime.timezone.utc),
                 now=_now())
+
+
+class TestRevocationIsNeverAssumedAway:
+    """A verdict must distinguish "the log says this key is live" from
+    "nobody looked". The second must not read as the first."""
+
+    def _search(self, outcome, revocations=()):
+        from qresp.signing.revocation_search import RevocationSearch
+
+        return RevocationSearch(outcome, revocations=list(revocations),
+                                detail="test")
+
+    def test_by_default_the_revocation_status_is_not_conclusive(self):
+        h = Harness()
+        artefact, _ = _signed_artefact(h.pqc_pub, h.pqc_sk)
+        verdict = verify_artefact_against_registration(
+            ARTEFACT, artefact, _registration_for(h),
+            fulcio_roots=[_root(h)], log_public_key=h.log_pub, now=_now())
+        assert verdict.revocation_status_is_conclusive is False
+
+    def test_a_completed_search_finding_nothing_is_conclusive(self):
+        from qresp.signing.revocation_search import RevocationSearchOutcome
+
+        h = Harness()
+        artefact, _ = _signed_artefact(h.pqc_pub, h.pqc_sk)
+        verdict = verify_artefact_against_registration(
+            ARTEFACT, artefact, _registration_for(h),
+            fulcio_roots=[_root(h)], log_public_key=h.log_pub, now=_now(),
+            revocation_search=self._search(RevocationSearchOutcome.NONE_FOUND))
+        assert verdict.revocation_status_is_conclusive is True
+
+    def test_a_failed_search_is_carried_into_the_verdict_not_dropped(self):
+        from qresp.signing.revocation_search import RevocationSearchOutcome
+
+        h = Harness()
+        artefact, _ = _signed_artefact(h.pqc_pub, h.pqc_sk)
+        verdict = verify_artefact_against_registration(
+            ARTEFACT, artefact, _registration_for(h),
+            fulcio_roots=[_root(h)], log_public_key=h.log_pub, now=_now(),
+            revocation_search=self._search(RevocationSearchOutcome.FAILED))
+        assert verdict.revocation_search.outcome is RevocationSearchOutcome.FAILED
+        assert verdict.revocation_status_is_conclusive is False
+
+    def test_a_found_revocation_kills_a_later_artefact(self):
+        """The point of searching: a revocation dated before the artefact was
+        signed means the signature is not trusted."""
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.primitives.asymmetric import ec
+
+        from qresp.signing.dsse import pae
+        from qresp.signing.registration import (
+            REVOCATION_PAYLOAD_TYPE,
+            Revocation,
+            SignedRevocation,
+            _key_fingerprint,
+        )
+        from qresp.signing.revocation_search import RevocationSearchOutcome
+
+        h = Harness()
+        artefact, _ = _signed_artefact(h.pqc_pub, h.pqc_sk)
+        revocation = Revocation(
+            identity="alice@example.com",
+            pqc_key_fingerprint=_key_fingerprint(h.pqc_pub),
+            reason="key compromised", revoked_at="2026-01-01T00:00:00Z")
+        payload = revocation.to_payload()
+        # signed by the registration's classical anchor -- the ordinary path
+        signature = h.classical_priv.sign(
+            pae(REVOCATION_PAYLOAD_TYPE, payload),
+            ec.ECDSA(hashes.SHA256()))
+        search = self._search(
+            RevocationSearchOutcome.FOUND,
+            [(SignedRevocation(payload=payload, signature=signature),
+              h.log_time)])
+        with pytest.raises(RegistrationError, match="revoked"):
+            verify_artefact_against_registration(
+                ARTEFACT, artefact, _registration_for(h),
+                fulcio_roots=[_root(h)], log_public_key=h.log_pub,
+                revocation_search=search,
+                artefact_signed_at=datetime.datetime(
+                    2026, 6, 1, tzinfo=datetime.timezone.utc),
+                now=_now())

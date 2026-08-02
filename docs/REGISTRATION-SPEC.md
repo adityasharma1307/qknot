@@ -441,6 +441,50 @@ be done outside the module. Both are now closed, in `src/`:
    ahead of the local clock; immaterial to the rescue's multi-year windows); and
    `register` verifies as of a fresh instant taken after the network round-trip.
 
-   All three residuals are now closed in `src/`. What remains is product
-   breadth, not trust logic: wiring `register` into the CLI, the artefact-plus-
-   registration composition command, and a live revocation-search path.
+   All three residuals are now closed in `src/`. The product surface on top of
+   them is built too: `qresp register`, `qresp verify --registration` (the
+   composed verdict), and `--check-revocations` (the live search).
+
+### 9.1 Revocation search, and the limit it exposed (2026-08-02)
+
+`authorize_for_artifact` takes revocations as input, which is the right offline
+API. The live search (`signing/revocation_search.py`, `--check-revocations`)
+finds them, authenticating every candidate through the SAME `verify_log_entry`
+path -- inclusion proof, signed checkpoint, SET -- so a "revocation" that the
+log does not carry is worth nothing.
+
+**The honesty rule is the whole feature.** A search returns an OUTCOME, never a
+bare list, because these are different answers:
+
+| outcome | meaning | conclusive? |
+|---|---|---|
+| `found` | authenticated revocations exist for this key | yes |
+| `none-found` | searched; none | yes |
+| `supplied` | the caller provided them; no search run | yes |
+| `not-searched` | nobody looked | **no** |
+| `failed` | the search broke, or candidates could not be examined | **no** |
+
+Collapsing `failed`/`not-searched` into "no revocations" would hand a clean
+verdict to anyone who can make the search fail -- block the network, rate-limit
+the verifier -- which is far cheaper than attacking any of the cryptography. The
+CLI therefore prints `revocations: NOT ESTABLISHED` rather than staying silent,
+and `AuthorisedArtefact.revocation_status_is_conclusive` makes a caller branch
+on it.
+
+Two subtler cases are also inconclusive rather than clear, both tested:
+
+* a candidate NAMING this key that fails to authenticate. It may be a real
+  revocation whose proof someone damaged precisely so it would be skipped;
+* the **suppression** direction generally: silently ignoring an unreadable
+  candidate is the same unearned all-clear reached from the other side.
+
+**A STRUCTURAL LIMIT, stated plainly.** Rekor's `hashedrekord` stores a DIGEST,
+not the document. The log can prove a given revocation was logged and when, but
+it cannot hand a verifier a statement it has never seen. So a revocation needs a
+DISTRIBUTION channel as well as a log -- a published feed, a repository, an
+internal service -- and the log's job is to authenticate and timestamp what that
+channel serves. That is the right division (the channel need not be trusted,
+because a statement it serves is only honoured once the log proves it), but it
+is a real deployment requirement, not something the log provides for free. When
+entries exist whose statements cannot be obtained, the outcome is `failed`, not
+`none-found`.

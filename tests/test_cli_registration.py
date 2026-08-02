@@ -260,3 +260,49 @@ def test_verify_reports_the_rescued_basis_for_an_old_registration(tmp_path):
     assert result.exit_code == 0, result.output
     assert "rescued-by-timestamp" in _flat(result.output)
     assert "asserted on the command line" in _flat(result.output)
+
+
+def test_verify_says_revocation_was_not_established_by_default(tmp_path):
+    """Silence about revocation would read as an all-clear. It must not."""
+    h = Harness()
+    artefact, art_bundle = _signed_artefact_files(tmp_path, h)
+    reg_bundle, roots, key = _write_bundle(tmp_path, h)
+    result = runner.invoke(app, ["verify", str(artefact),
+                                 "--bundle", str(art_bundle),
+                                 "--registration", str(reg_bundle),
+                                 "--fulcio-roots", str(roots),
+                                 "--log-key", str(key)])
+    assert result.exit_code == 0, result.output
+    flat = _flat(result.output)
+    assert "revocations" in flat
+    assert "NOT ESTABLISHED" in flat
+    assert "--check-revocations" in flat
+
+
+def test_verify_reports_a_failed_revocation_search_rather_than_ignoring_it(
+        tmp_path, monkeypatch):
+    """An attacker who can break the search must not thereby get a clean
+    verdict: blocking a network call is far cheaper than breaking a signature."""
+    import qresp.signing.sigstore_clients as clients
+
+    class Unreachable:
+        def __init__(self, *_a, **_k):
+            pass
+
+        def search_by_identity(self, identity):
+            raise ConnectionError("log unreachable")
+
+    monkeypatch.setattr(clients, "RekorRevocationSearchClient", Unreachable)
+    h = Harness()
+    artefact, art_bundle = _signed_artefact_files(tmp_path, h)
+    reg_bundle, roots, key = _write_bundle(tmp_path, h)
+    result = runner.invoke(app, ["verify", str(artefact),
+                                 "--bundle", str(art_bundle),
+                                 "--registration", str(reg_bundle),
+                                 "--fulcio-roots", str(roots),
+                                 "--log-key", str(key),
+                                 "--check-revocations"])
+    flat = _flat(result.output)
+    assert "NOT ESTABLISHED" in flat
+    assert "failed" in flat
+    assert "NOT evidence that no revocation exists" in flat
