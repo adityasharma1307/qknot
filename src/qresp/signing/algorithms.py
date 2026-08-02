@@ -118,6 +118,7 @@ REGISTRY: dict[str, AlgorithmSpec] = {
         note="Shor-vulnerable. Note that published quantum resource estimates "
              "for ECDLP-256 target secp256k1 rather than P-256; the distinction "
              "matters and should not be blurred when citing them.",
+        backend="ecdsa-p256",
     ),
     "ecdsa-p384": AlgorithmSpec(
         algorithm="ecdsa-p384",

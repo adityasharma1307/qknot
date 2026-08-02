@@ -206,6 +206,82 @@ class Ed25519Backend:
 
 
 # ---------------------------------------------------------------------------
+# ECDSA P-256
+# ---------------------------------------------------------------------------
+class EcdsaP256Backend:
+    """ECDSA over NIST P-256 via `cryptography` (OpenSSL, constant-time).
+
+    The classical anchor a Fulcio certificate attests. Public keys are SPKI DER
+    and signatures are DER-encoded, so a key or signature taken straight from an
+    X.509 certificate verifies without re-encoding -- which is the whole point
+    of the classical half being the one PKI already understands. Shor-vulnerable,
+    which is exactly why it is paired with a post-quantum key.
+    """
+
+    algorithm = "ecdsa-p256"
+    quantum_resistant = False
+    side_channel_resistant = True
+    side_channel_status = SideChannelStatus.ASSERTED
+    signature_size = 72          # max DER-encoded P-256 signature
+
+    def __init__(self) -> None:
+        from cryptography.hazmat.primitives.asymmetric import ec  # noqa: F401
+
+    def keygen(self, seed: bytes | None = None) -> tuple[bytes, bytes]:
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import ec
+
+        if seed is not None:
+            private = ec.derive_private_key(
+                int.from_bytes(seed[:32], "big") % ec.SECP256R1().key_size
+                or 1, ec.SECP256R1())
+        else:
+            private = ec.generate_private_key(ec.SECP256R1())
+        pub = private.public_key().public_bytes(
+            serialization.Encoding.DER,
+            serialization.PublicFormat.SubjectPublicKeyInfo)
+        priv = private.private_bytes(
+            serialization.Encoding.DER,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption())
+        return pub, priv
+
+    def sign(self, secret_key: bytes, message: bytes) -> bytes:
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import ec
+
+        key = serialization.load_der_private_key(secret_key, password=None)
+        if not isinstance(key, ec.EllipticCurvePrivateKey):
+            raise ValueError(
+                f"ecdsa-p256 secret key decoded to a {type(key).__name__}, "
+                f"not an EC key")
+        return key.sign(message, ec.ECDSA(hashes.SHA256()))
+
+    def verify(self, public_key: bytes, message: bytes, signature: bytes) -> bool:
+        from cryptography.exceptions import InvalidSignature
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import ec
+
+        try:
+            key = serialization.load_der_public_key(public_key)
+            if not isinstance(key, ec.EllipticCurvePublicKey):
+                return False
+            key.verify(signature, message, ec.ECDSA(hashes.SHA256()))
+            return True
+        except (InvalidSignature, ValueError):
+            return False
+
+    def describe(self) -> dict[str, object]:
+        return BackendInfo(
+            algorithm=self.algorithm,
+            implementation="cryptography (OpenSSL)",
+            quantum_resistant=False, side_channel_resistant=True,
+            suitable_exposures=["offline", "online"],
+            caveats=["Shor-vulnerable: the classical anchor, paired with a PQC key"],
+        ).to_dict()
+
+
+# ---------------------------------------------------------------------------
 # ML-DSA
 # ---------------------------------------------------------------------------
 ML_DSA_SIGNATURE_SIZES = {"ml-dsa-44": 2420, "ml-dsa-65": 3309, "ml-dsa-87": 4627}
@@ -607,6 +683,7 @@ def key_fingerprint(public_key: bytes) -> str:
 
 
 _BACKENDS: dict[str, Any] = {
+    "ecdsa-p256": lambda **kw: EcdsaP256Backend(),
     "ed25519": lambda **kw: Ed25519Backend(),
     "ml-dsa-44": lambda **kw: MlDsaBackend("ml-dsa-44", **kw),
     "ml-dsa-65": lambda **kw: MlDsaBackend("ml-dsa-65", **kw),
