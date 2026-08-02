@@ -260,26 +260,34 @@ basis it trusted -- direct or rescued-by-timestamp -- rather than a bare yes.
 `--at` asks how the binding looks at a future instant; `--artifact-signed-at`
 additionally runs notAfter and revocation and prints the authorised PQC key.
 
-### `qresp register` -- the real protocol, NOT "two network calls"
+### `qresp register` -- BUILT as a thin orchestrator behind a client seam
 
 An earlier note under-scoped this as two sockets. It is a small protocol, and
-an implementer must budget for all of it:
+`signing/register.py` now implements all of it as a THIN orchestrator -- it
+composes the sealed pieces and reimplements no checkpoint/SET/chain math:
 
-    1. OIDC: device/browser flow, token exchange, the audience Fulcio expects
-    2. classical keygen (ephemeral P-256) or load an existing key
-    3. Fulcio: CSR with proof-of-possession against the OIDC token -> leaf cert
+    1. OIDC + Fulcio: certify the classical key (FulcioClient)         [SEAM]
+    2. classical keygen (ephemeral P-256)                              [OURS]
+    3. hold the long-term PQC key                                      [OURS]
     4. build the dual-signed registration envelope (classical + PQC)   [OURS]
+       identity + issuer taken FROM the cert, never free-typed
     5. submit a hashedrekord (digest = rekord_preimage, signature =
-       signatures[0]) to the log
-    6. fetch the inclusion proof + checkpoint/SET, wait for integration
-    7. assemble the RegistrationBundle to disk                          [OURS]
-    8. revocation is a SEPARATE path: build + submit a revocation, and a live
-       verifier needs a log-search to FIND revocations (offline
-       `authorize_for_artifact` takes them as input, which is correct)
+       the classical DSSE signature) to the log (RekorClient)          [SEAM]
+    6. fetch the inclusion proof + checkpoint/SET (the client response) [SEAM]
+    7. map the response into a LogEntry (log_entry_from_rekor, shared)  [OURS]
+    8. assemble the RegistrationBundle AND verify it end to end before
+       returning -- a bundle that logs but does not verify is a failure [OURS]
+       (revocation stays a SEPARATE path, as before)
 
-Steps 1-3 and 5-6 are the network surface, against Fulcio and the log. Steps 4
-and 7 -- the cryptographic assembly -- are already built and tested. Only steps
-1-3 and 5-6, and the checkpoint/SET parsing they entail, remain.
+The two network operations (steps 1 and 5-6) live behind a Protocol seam
+(`FulcioClient`, `RekorClient`), so the orchestration is pure, offline-tested
+logic (`test_register.py`, fake clients minting the same trust stack): the
+emitted bundle verifies to a DIRECT binding, identity comes from the cert, the
+temporal rescue holds, and the mandatory round-trip REFUSES an unverifiable
+bundle. The real-network adapter and the one-time capture are
+`scripts/register/capture_registration.py`, run on a machine with network +
+browser OIDC; the captured bundle is locked by `test_registration_fixture.py`
+(skips until present). That capture is the only step that cannot run offline.
 
 ### Still a composition step: artefact verification end to end
 
@@ -407,11 +415,23 @@ be done outside the module. Both are now closed, in `src/`:
   Locked by `test_fulcio_chain.py::TestPathDiscovery`; the production fixture now
   validates the real leaf from the raw unordered pool.
 
-### The one residual that remains
+### Residual 3: orchestrator built and offline-locked; one real capture remains
 
-3. **This was an artefact bundle, not a qresp registration**, so the digest in
-   the fixture is Rekor's artefact digest, not a registration pre-image. The two
-   production consumers (chain discovery, log entry) are now proven end-to-end on
-   real bytes; the full step-1-to-8 chain on a real REGISTRATION -- including the
-   temporal rescue -- awaits `qresp register` producing one. This is composition
-   of proven, production-shaped consumers, not reopened trust logic.
+3. **The `register` orchestrator is built** (`signing/register.py`) as a thin
+   8-step composition behind a `FulcioClient`/`RekorClient` seam, with a shared
+   `log_entry_from_rekor` mapper and a MANDATORY round-trip verify before it
+   returns a bundle. It is fully tested offline against fake clients that mint
+   the same trust stack the suite uses (`test_register.py`): DIRECT binding,
+   identity-from-cert, temporal rescue, and the round-trip gate refusing an
+   unverifiable bundle. The shared mapper is additionally locked against the
+   REAL Rekor bytes already captured.
+
+   What remains is the one thing that cannot run offline: a REAL Fulcio cert +
+   Rekor entry for a registration, captured via
+   `scripts/register/capture_registration.py` on a machine with network + browser
+   OIDC, and locked by `test_registration_fixture.py` (full section 4 -> trusted
+   binding; temporal rescue past the classical disallow date; skips until the
+   fixture exists). The network adapters in that script are the only code not
+   exercised by CI -- but `register()` verifies the bundle end to end before the
+   script writes it, so a bad capture is never saved, and any adapter drift fails
+   loudly at capture time rather than silently producing a bogus fixture.
