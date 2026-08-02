@@ -342,11 +342,13 @@ network-captured bytes.
 |---|---|
 | Bug 1 -- classical sig bound to the Fulcio leaf, SPKI equality | **fixed** (`1e0b5ff`); adversarial test: cert for key B, payload names key A -> reject |
 | Bug 2 -- digest parsed from the proven leaf, no free digest field | **fixed** (`9829792`); adversarial tests: rebind a real proof -> reject; swap the body -> inclusion fails |
-| Gap 3 -- STH is a labelled TEST DOUBLE, spec/code agree | **done**; `qresp-sth-v1-TESTDOUBLE`, and step-6 prose corrected |
+| Gap 3 -- STH format | **superseded**: fake `qresp-sth-v1` RETIRED; `verify_checkpoint` verifies the REAL Rekor note, tests sign the same real format |
 | Gap 4 -- `register` framed as its real 8-step protocol, not two sockets | **done** (section 7) |
 | single-sig `KeyRegistration` marked transitional | **done** |
 | artefact-plus-registration as one command | **noted as an unbuilt composition step** (section 7) |
 | **integration fixture from a REAL Fulcio leaf + REAL Rekor inclusion** | **DONE -- all checks pass on production bytes** |
+| Residual 2 -- production soundness of `verify_log_entry` (real checkpoint + SET) | **done** (`bd676ea`); composed end-to-end on real bytes |
+| Residual 1 -- path discovery in `verify_chain` (unordered CA pool) | **done** (`0e029df`); validates the real leaf from the raw pool |
 
 ### Production parity: verified, 2026-08-02
 
@@ -367,17 +369,49 @@ absent). All five checks passed on FIRST contact with production bytes:
   the log's own claim, so the qresp-sth-v1 test double's job is covered by
   working code against a real SET.
 
-### The three residuals that remain, stated honestly
+### Second review pass (2026-08-02): residuals 1 and 2 closed
 
-1. **Path building lives in the harness, not `verify_chain`.** A real trusted
-   root is an unordered CA pool; `verify_chain` still requires ordered
-   intermediates. A production verifier needs path discovery, and the fixture
-   test does it in `_ordered_path` rather than in the module. This is a real,
-   now-evidenced limitation to close before shipping.
-2. **The working checkpoint-note verifier lives in the script/test, not
-   `rekor.py`.** It should move in to REPLACE `qresp-sth-v1-TESTDOUBLE` for
-   production, keeping the double only for unit tests.
-3. **This was an artefact bundle, not a qresp registration**, so the digest here
-   is Rekor's artefact digest, not a registration pre-image. The two production
-   consumers are proven; the full step-1-to-8 chain on a real REGISTRATION
-   awaits `qresp register` producing one.
+The reviewer classified the residuals more sharply. Residual 2 was NOT "polish":
+it was a hole in the **production soundness of `verify_log_entry`**, because the
+only signed-tree-head format that function accepted was a home-grown test double
+-- so a real adapter would either reject real Rekor material or fake a signature
+around a real root. Residual 1 was an **API-honesty** gate, not a forgery hole:
+wrong intermediate order failed closed for honest inputs, but the ordering had to
+be done outside the module. Both are now closed, in `src/`:
+
+* **Residual 2 -- `verify_log_entry` authenticates real Rekor material.**
+  `rekor.verify_checkpoint` parses and verifies a REAL Rekor checkpoint
+  (Go-sumdb signed note) and RETURNS the `(tree_size, root)` the log signed; the
+  inclusion proof must reconstruct THAT signed root, not a submitted field.
+  `rekor.verify_set` verifies the SET (`inclusionPromise`), so `integratedTime`
+  -- the number the whole temporal rescue turns on -- is the log's signed claim,
+  not an unauthenticated field (this went one step beyond the literal ask: a
+  verified root with an unverified time would have left the softest input to the
+  rescue open). `logID == SHA-256(log key)` binds the entry to the trusted log.
+  The `qresp-sth-v1` fake format is RETIRED, not hidden: unit tests now sign the
+  SAME real formats with a test key (`tests/signing/_rekor_doubles.py`). Real
+  bytes taught one thing offline tests could not -- a sharded log has TWO
+  indices: the SET signs the GLOBAL `logIndex`, the Merkle proof uses the
+  shard-local `inclusionProof.logIndex` (`proof_index < tree_size <= log_index`).
+  `LogEntry` now carries both. Locked by
+  `test_sigstore_fixture.py::TestComposedVerifyLogEntryOnRealBytes`, which runs
+  `verify_log_entry` end-to-end on the real entry.
+
+* **Residual 1 -- `verify_chain` does path discovery.** It takes the
+  intermediates and the trusted roots as UNORDERED pools and finds
+  leaf -> intermediate(s) -> root itself (`_build_path`, length-capped and
+  loop-guarded), so a TUF `trusted_root.json` CA pool is passed as-is. The two
+  pools stay separate on purpose -- collapsing to one would let a bundle supply
+  its own anchors -- and trusted roots index first, so a look-alike cannot shadow
+  a real root. The duplicate path builders in the harness and script are deleted.
+  Locked by `test_fulcio_chain.py::TestPathDiscovery`; the production fixture now
+  validates the real leaf from the raw unordered pool.
+
+### The one residual that remains
+
+3. **This was an artefact bundle, not a qresp registration**, so the digest in
+   the fixture is Rekor's artefact digest, not a registration pre-image. The two
+   production consumers (chain discovery, log entry) are now proven end-to-end on
+   real bytes; the full step-1-to-8 chain on a real REGISTRATION -- including the
+   temporal rescue -- awaits `qresp register` producing one. This is composition
+   of proven, production-shaped consumers, not reopened trust logic.
