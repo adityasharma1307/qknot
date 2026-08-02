@@ -69,8 +69,32 @@ def _tlog_entry(material: dict) -> dict:
     return entries[0]
 
 
+def _from_trusted_root_json(path: Path) -> tuple[list[bytes], list[bytes]]:
+    """Parse Fulcio CA certs and Rekor public keys from a TUF trusted_root.json.
+
+    Version-proof: the TUF trusted-root protobuf-JSON is stable where the
+    changeable Python API is not. Returns (all CA certs across authorities,
+    Rekor public keys) -- the CA list holds both intermediates and roots; the
+    script does the path building.
+    """
+    data = json.loads(path.read_text(encoding="utf-8"))
+    ca_certs: list[bytes] = []
+    for ca in data.get("certificateAuthorities", []):
+        for cert in ca.get("certChain", {}).get("certificates", []):
+            ca_certs.append(_b64(cert["rawBytes"]))
+    rekor_keys: list[bytes] = []
+    for tlog in data.get("tlogs", []):
+        pk = tlog.get("publicKey", {})
+        if pk.get("rawBytes"):
+            rekor_keys.append(_b64(pk["rawBytes"]))
+    return ca_certs, rekor_keys
+
+
 def _trust_root(args: argparse.Namespace) -> tuple[list[bytes], bytes | None]:
     """Fulcio roots and the Rekor public key, from files or the sigstore TUF root."""
+    if args.trusted_root:
+        ca_certs, rekor_keys = _from_trusted_root_json(Path(args.trusted_root))
+        return ca_certs, (rekor_keys[0] if rekor_keys else None)
     if args.fulcio_root:
         from cryptography import x509
         from cryptography.hazmat.primitives.serialization import Encoding
@@ -123,8 +147,11 @@ def main(argv: list[str] | None = None) -> int:
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--bundle", type=Path, required=True,
                         help="A .sigstore bundle from `sigstore sign`.")
+    parser.add_argument("--trusted-root", type=Path, default=None,
+                        help="A TUF trusted_root.json (find ~ -name trusted_root.json). "
+                             "The version-proof source of Fulcio CAs + Rekor keys.")
     parser.add_argument("--fulcio-root", type=Path, default=None,
-                        help="Fulcio root cert (PEM/DER). Default: sigstore TUF.")
+                        help="Fulcio root cert (PEM/DER), if not using --trusted-root.")
     parser.add_argument("--rekor-key", type=Path, default=None,
                         help="Rekor public key (DER). Needed to check the "
                              "checkpoint signature; the RFC 6962 root check runs "
@@ -154,14 +181,43 @@ def main(argv: list[str] | None = None) -> int:
     cert = x509.load_der_x509_certificate(leaf)
     at = cert.not_valid_before_utc.replace(tzinfo=timezone.utc)
     print(f"  leaf subject : {cert.subject.rfc4514_string()}")
+    print(f"  leaf issuer  : {cert.issuer.rfc4514_string()}")
     print(f"  valid from   : {cert.not_valid_before_utc.isoformat()}")
-    print(f"  roots loaded : {len(roots)}, intermediates in bundle: {len(intermediates)}")
-    try:
-        identity = verify_chain(leaf, intermediates, roots, at_time=at)
-        print(f"  [OK] identity = {identity.identity!r}  issuer = {identity.issuer!r}")
-    except ChainError as exc:
-        print(f"  [GAP] verify_chain rejected a real leaf: {exc}")
-        print("        ^ this is exactly the kind of production quirk to report.")
+
+    # Path building: our verify_chain wants ORDERED intermediates and a matching
+    # root; the trusted root gives an unordered CA pool. Build the path here by
+    # matching issuer -> subject. That verify_chain cannot do this itself is a
+    # finding: a production verifier needs path discovery, not a fixed list.
+    pool = {x509.load_der_x509_certificate(d).subject.rfc4514_string():
+            (d, x509.load_der_x509_certificate(d)) for d in roots}
+    ordered_intermediates: list[bytes] = []
+    node = cert
+    root_der = None
+    for _ in range(8):
+        parent = pool.get(node.issuer.rfc4514_string())
+        if parent is None:
+            break
+        parent_der, parent_cert = parent
+        if parent_cert.subject == parent_cert.issuer:      # self-signed = root
+            root_der = parent_der
+            break
+        ordered_intermediates.append(parent_der)
+        node = parent_cert
+    print(f"  CA pool      : {len(pool)} certs; built {len(ordered_intermediates)} "
+          f"intermediate(s); root {'found' if root_der else 'NOT FOUND'}")
+    if len(intermediates):
+        ordered_intermediates = intermediates + ordered_intermediates
+
+    if root_der is None:
+        print("  [GAP] could not build a path from the leaf to a self-signed root "
+              "in the trusted-root pool. Report the leaf issuer and pool subjects.")
+    else:
+        try:
+            identity = verify_chain(leaf, ordered_intermediates, [root_der], at_time=at)
+            print(f"  [OK] identity = {identity.identity!r}  issuer = {identity.issuer!r}")
+        except ChainError as exc:
+            print(f"  [GAP] verify_chain rejected a real leaf: {exc}")
+            print("        ^ exactly the production quirk to report to the expert.")
 
     print("\n" + "=" * 70)
     print("2. REKOR INCLUSION  (RFC 6962 math against a real entry)")
@@ -180,6 +236,7 @@ def main(argv: list[str] | None = None) -> int:
             computed = verify_inclusion_root(
                 log_index, tree_size, leaf_hash(body), hashes)
             match = computed == root_hash
+            print(f"  our leaf_hash(canonicalizedBody) = {leaf_hash(body).hex()[:24]}...")
             print(f"  logIndex={log_index} treeSize={tree_size} "
                   f"proof_hashes={len(hashes)}")
             if match:
