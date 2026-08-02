@@ -346,17 +346,38 @@ network-captured bytes.
 | Gap 4 -- `register` framed as its real 8-step protocol, not two sockets | **done** (section 7) |
 | single-sig `KeyRegistration` marked transitional | **done** |
 | artefact-plus-registration as one command | **noted as an unbuilt composition step** (section 7) |
-| **integration fixture from a REAL Fulcio leaf + REAL Rekor inclusion** | **OPEN -- needs captured bytes** |
+| **integration fixture from a REAL Fulcio leaf + REAL Rekor inclusion** | **DONE -- all checks pass on production bytes** |
 
-### The one open item, stated honestly
+### Production parity: verified, 2026-08-02
 
-Every test here mints its own trust stack, so it proves the logic against
-*self-consistent* bytes. It does not yet prove the logic against *production*
-Fulcio/Rekor bytes -- a real Fulcio leaf carries EKUs, CT poison/SCT extensions
-and issuer-extension forms the minted certs omit, and a real Rekor entry is a
-canonical hashedrekord body, not this module's minimal one. Before anyone claims
-"production-shape consumption", capture one real Fulcio leaf DER and one real
-Rekor inclusion + checkpoint (recorded offline is fine) and add a fixture that
-runs the verifier against them. That is the step that de-risks the adapter, and
-it is the right thing to do BEFORE wiring live clients -- wiring first would
-cement adapters around bytes the verifier has never actually seen.
+A real Sigstore bundle was captured (`sigstore sign`) and every production-byte
+consumer was run against it (`scripts/verify/check_sigstore_fixture.py`; locked
+in as `tests/signing/test_sigstore_fixture.py`, which skips if the fixture is
+absent). All five checks passed on FIRST contact with production bytes:
+
+* `fulcio.verify_chain` validated a real Fulcio leaf -- empty subject, EKU, SCT,
+  the identity in the SAN and the issuer in the private 1.1/1.8 extension -- and
+  extracted `aditya.137.sharma@gmail.com` via `https://github.com/login/oauth`.
+* `rekor.verify_inclusion_root` reconstructed the checkpoint root of a real
+  **2,199,132,077-entry** tree from a 16-hash proof: the RFC 6962 inner/border
+  split and `leaf_hash = SHA-256(0x00 || body)` are Rekor-correct.
+* `hashedrekord_digest` parsed the digest out of Rekor's REAL entry body -- the
+  Bug-2 parser reads the production shape, not only the test double.
+* The REAL checkpoint note signature verified under the Rekor key: the root is
+  the log's own claim, so the qresp-sth-v1 test double's job is covered by
+  working code against a real SET.
+
+### The three residuals that remain, stated honestly
+
+1. **Path building lives in the harness, not `verify_chain`.** A real trusted
+   root is an unordered CA pool; `verify_chain` still requires ordered
+   intermediates. A production verifier needs path discovery, and the fixture
+   test does it in `_ordered_path` rather than in the module. This is a real,
+   now-evidenced limitation to close before shipping.
+2. **The working checkpoint-note verifier lives in the script/test, not
+   `rekor.py`.** It should move in to REPLACE `qresp-sth-v1-TESTDOUBLE` for
+   production, keeping the double only for unit tests.
+3. **This was an artefact bundle, not a qresp registration**, so the digest here
+   is Rekor's artefact digest, not a registration pre-image. The two production
+   consumers are proven; the full step-1-to-8 chain on a real REGISTRATION
+   awaits `qresp register` producing one.
