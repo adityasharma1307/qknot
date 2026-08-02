@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
-__all__ = ["ChainError", "FulcioIdentity", "verify_chain"]
+__all__ = ["ChainError", "FulcioIdentity", "verify_chain", "verify_message"]
 
 # Fulcio records the OIDC issuer in a private X.509v3 extension. The v1 form
 # (1.1) stored the raw issuer string; the v2 form (1.8) wraps it in DER. Both
@@ -80,6 +80,35 @@ def _verify_signed_by(child: Any, issuer: Any) -> None:
         raise ChainError(
             f"{child.subject.rfc4514_string()} is not signed by "
             f"{issuer.subject.rfc4514_string()}") from exc
+
+
+def verify_message(certificate_der: bytes, message: bytes, signature: bytes) -> None:
+    """Verify `signature` over `message` under a certificate's public key.
+
+    Used for the classical half of a registration's proof of possession: the
+    signature must be made by the key the Fulcio certificate attests, so it is
+    verified under the LEAF's key directly rather than under a self-asserted
+    key in the payload. Handles the key types a Fulcio leaf can hold; raises
+    ChainError on any failure so the caller treats it as a rejection.
+    """
+    from cryptography.exceptions import InvalidSignature
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.asymmetric import ec, ed25519, padding, rsa
+
+    key = _load(certificate_der).public_key()
+    try:
+        if isinstance(key, ec.EllipticCurvePublicKey):
+            key.verify(signature, message, ec.ECDSA(hashes.SHA256()))
+        elif isinstance(key, rsa.RSAPublicKey):
+            key.verify(signature, message, padding.PKCS1v15(), hashes.SHA256())
+        elif isinstance(key, ed25519.Ed25519PublicKey):
+            key.verify(signature, message)
+        else:
+            raise ChainError(
+                f"certificate key type {type(key).__name__} is not supported")
+    except InvalidSignature as exc:
+        raise ChainError(
+            "signature does not verify under the certificate's key") from exc
 
 
 def _within_validity(certificate: Any, at_time: datetime) -> None:

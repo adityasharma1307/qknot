@@ -600,30 +600,67 @@ def sign_hybrid_registration(
 
 
 def verify_proof_of_possession(envelope: HybridSignedRegistration) -> HybridRegistration:
-    """Both keys signed the same statement. Returns the parsed registration.
+    """Both keys signed the same statement, and the classical one is the key the
+    Fulcio certificate attests. Returns the parsed registration.
 
-    Steps 2 and 5 of the verification algorithm together: the classical
-    signature verifies under the key in the payload (identity side), and the
-    PQC signature verifies under the PQC key in the payload (possession side).
-    Neither alone is enough -- one lets an attacker register a key they do not
-    hold, the other lets them claim an identity they cannot prove.
+    Steps 2 and 5. There are THREE checks, not two, and the third was the hole
+    an expert review found: the classical signature must verify under the key in
+    the FULCIO LEAF, not under the self-asserted `classicalKey` in the payload.
 
-    This does NOT verify the Fulcio chain or the identity cross-check; those are
-    steps 3-4 and depend on trust roots supplied to the full verifier. It
-    establishes only that whoever built this envelope controls both private
-    keys.
+    Without it, an attacker holding a genuine Fulcio certificate for their own
+    identity (key B) could put an arbitrary key A in the payload, sign the
+    statement with A, and attach the real certificate for B. Possession would
+    pass on A, the chain and identity cross-check would pass on B, and the
+    Fulcio attestation would never have covered the key that actually signed the
+    statement. So:
+
+      * the payload's `classicalKey` is required byte-equal to the leaf's SPKI,
+        which stops the statement renaming the key Fulcio attested; and
+      * the classical signature is verified under that key -- now provably the
+        leaf's -- closing the gap.
+
+    The PQC signature verifies under the payload's `pqcKey` (possession of the
+    key being registered). This still does not validate the chain to a trusted
+    root; that is steps 3-4 in the full verifier. It establishes that whoever
+    built this holds both private keys AND that the classical key is the one the
+    attached certificate is for.
     """
+    from cryptography import x509
+    from cryptography.hazmat.primitives.serialization import (
+        Encoding,
+        PublicFormat,
+    )
+
     from .backends import get_backend
+    from .fulcio import ChainError, verify_message
 
     registration = HybridRegistration.from_payload(envelope.payload)
     signed = envelope.signed_bytes
 
-    classical = get_backend(registration.classical_key.algorithm)
-    if not classical.verify(registration.classical_key.public_key, signed,
-                            envelope.classical_signature):
+    # The classical key MUST be the one the certificate attests, byte for byte.
+    try:
+        leaf = x509.load_der_x509_certificate(envelope.classical_certificate_der)
+    except Exception as exc:  # noqa: BLE001
         raise RegistrationError(
-            "classical signature does not verify under the classicalKey in the "
-            "payload -- the identity side of the proof of possession fails")
+            f"classical certificate does not parse: {exc}") from exc
+    leaf_spki = leaf.public_key().public_bytes(
+        Encoding.DER, PublicFormat.SubjectPublicKeyInfo)
+    if leaf_spki != registration.classical_key.public_key:
+        raise RegistrationError(
+            "the payload's classicalKey is not the key the certificate attests. "
+            "The statement cannot rename the key Fulcio certified; the classical "
+            "signature must be made by, and verified under, the leaf's key.")
+
+    # Verify the classical signature UNDER THE LEAF'S KEY (not the backend, so
+    # the key type follows the certificate rather than a raw-vs-SPKI encoding).
+    try:
+        verify_message(envelope.classical_certificate_der, signed,
+                       envelope.classical_signature)
+    except ChainError as exc:
+        raise RegistrationError(
+            f"classical signature does not verify under the certificate's key "
+            f"-- the identity side of the proof of possession fails: {exc}"
+        ) from exc
 
     pqc = get_backend(registration.pqc_key.algorithm)
     if not pqc.verify(registration.pqc_key.public_key, signed,
