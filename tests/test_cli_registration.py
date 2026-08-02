@@ -16,6 +16,12 @@ from tests.signing.test_registration_chain import Harness
 runner = CliRunner()
 
 
+def _flat(output: str) -> str:
+    """Rich wraps at the console width, so a phrase can be split across lines.
+    Collapse whitespace before asserting on wording."""
+    return " ".join(output.split())
+
+
 def _write_bundle(tmp_path, harness, not_after=None):
     bundle, _ = harness.bundle(not_after=not_after)
     bundle_path = tmp_path / "registration.json"
@@ -167,3 +173,90 @@ def test_register_refuses_a_half_supplied_pqc_key_pair(tmp_path, monkeypatch):
                                  "--pqc-public-key", str(pub)])
     assert result.exit_code == 2
     assert "must be given together" in result.output
+
+
+# ---------------------------------------------------------------------------
+# `qresp verify --registration`: the composed verdict. Not "is this signature
+# valid" but "whose signature is it, and can that attribution still be trusted".
+# ---------------------------------------------------------------------------
+
+def _signed_artefact_files(tmp_path, harness, pqc_of_harness=True):
+    """Sign a real artefact, optionally with the key the harness registered."""
+    from qresp.signing.bundle import build_bundle
+    from qresp.signing.sign import KeyPair, key_fingerprint, keygen, sign
+
+    artefact = tmp_path / "model.bin"
+    artefact.write_bytes(b"the model weights")
+    keys = keygen(suite=["ed25519", "ml-dsa-87"])
+    if pqc_of_harness:
+        keys.keys["ml-dsa-87"] = KeyPair(
+            algorithm="ml-dsa-87", public_key=harness.pqc_pub,
+            secret_key=harness.pqc_sk,
+            fingerprint=key_fingerprint(harness.pqc_pub))
+    signed = sign(artefact, keys)
+    bundle_path = tmp_path / "artefact.bundle.json"
+    bundle_path.write_text(json.dumps(build_bundle(signed)), encoding="utf-8")
+    return artefact, bundle_path
+
+
+def test_verify_with_registration_attributes_the_signature(tmp_path):
+    h = Harness()
+    artefact, art_bundle = _signed_artefact_files(tmp_path, h)
+    reg_bundle, roots, key = _write_bundle(tmp_path, h)
+    result = runner.invoke(app, ["verify", str(artefact),
+                                 "--bundle", str(art_bundle),
+                                 "--registration", str(reg_bundle),
+                                 "--fulcio-roots", str(roots),
+                                 "--log-key", str(key)])
+    assert result.exit_code == 0, result.output
+    assert "VERIFIED AND ATTRIBUTED" in result.output
+    assert "alice@example.com" in _flat(result.output)
+    assert "basis" in result.output and "direct" in _flat(result.output)
+    # honest about the unchecked coverage question
+    assert "not checked" in _flat(result.output)
+
+
+def test_verify_refuses_to_attribute_an_unregistered_key(tmp_path):
+    """Both halves are individually valid; they are about different keys. The
+    command must not report a signature as someone's when it is not."""
+    h = Harness()
+    artefact, art_bundle = _signed_artefact_files(tmp_path, h, pqc_of_harness=False)
+    reg_bundle, roots, key = _write_bundle(tmp_path, h)
+    result = runner.invoke(app, ["verify", str(artefact),
+                                 "--bundle", str(art_bundle),
+                                 "--registration", str(reg_bundle),
+                                 "--fulcio-roots", str(roots),
+                                 "--log-key", str(key)])
+    assert result.exit_code == 1
+    assert "NOT ATTRIBUTABLE" in result.output
+    assert "does not authorise" in _flat(result.output)
+
+
+def test_verify_with_registration_requires_a_trust_store(tmp_path):
+    h = Harness()
+    artefact, art_bundle = _signed_artefact_files(tmp_path, h)
+    reg_bundle, _roots, _key = _write_bundle(tmp_path, h)
+    result = runner.invoke(app, ["verify", str(artefact),
+                                 "--bundle", str(art_bundle),
+                                 "--registration", str(reg_bundle)])
+    assert result.exit_code == 2
+    assert "requires --fulcio-roots" in _flat(result.output)
+
+
+def test_verify_reports_the_rescued_basis_for_an_old_registration(tmp_path):
+    """The product sentence in the case the whole design exists for: the
+    classical anchor is long dead, and the attribution still holds."""
+    logged = datetime.datetime(2028, 1, 1, tzinfo=datetime.timezone.utc)
+    h = Harness(log_time=logged)
+    artefact, art_bundle = _signed_artefact_files(tmp_path, h)
+    reg_bundle, roots, key = _write_bundle(tmp_path, h)
+    result = runner.invoke(app, ["verify", str(artefact),
+                                 "--bundle", str(art_bundle),
+                                 "--registration", str(reg_bundle),
+                                 "--fulcio-roots", str(roots),
+                                 "--log-key", str(key),
+                                 "--artefact-signed-at", "2028-06-01T00:00:00Z",
+                                 "--at", "2040-01-01T00:00:00Z"])
+    assert result.exit_code == 0, result.output
+    assert "rescued-by-timestamp" in _flat(result.output)
+    assert "asserted on the command line" in _flat(result.output)

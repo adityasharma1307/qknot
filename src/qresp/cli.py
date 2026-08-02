@@ -14,7 +14,7 @@ import logging
 import sys
 from collections import Counter
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import typer
 from rich.console import Console
@@ -458,14 +458,156 @@ def sign_artefact(
                   "reproduce them.")
 
 
+def _load_cert_pool(path: Path) -> list[bytes]:
+    """Certificates from a DER/PEM file, a directory of them, or a TUF
+    trusted_root.json. The pool is unordered; verify_chain discovers the path."""
+    import base64 as b64
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives.serialization import Encoding
+
+    if path.is_file() and path.suffix == ".json":
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return [b64.b64decode(cert["rawBytes"])
+                for ca in data.get("certificateAuthorities", [])
+                for cert in ca.get("certChain", {}).get("certificates", [])]
+    paths = sorted(path.iterdir()) if path.is_dir() else [path]
+    out: list[bytes] = []
+    for p in paths:
+        raw = p.read_bytes()
+        try:
+            out.extend(c.public_bytes(Encoding.DER)
+                       for c in x509.load_pem_x509_certificates(raw))
+        except (ValueError, TypeError):
+            out.append(raw)
+    return out
+
+
+def _verify_with_registration(
+    target: Path, artefact: Any, registration: Path,
+    fulcio_roots: Path | None, log_key: Path | None,
+    mode: Any, context: str, artefact_signed_at: str | None,
+    at: str | None = None,
+) -> None:
+    """The composed verdict: a valid artefact, attributed to an identity."""
+    from datetime import datetime
+
+    from .signing.composed import (
+        SigningTimeSource,
+        verify_artefact_against_registration,
+    )
+    from .signing.registration import RegistrationError
+    from .signing.registration_chain import RegistrationBundle
+    from .signing.sign import VerificationFailed
+
+    if fulcio_roots is None or log_key is None:
+        console.print("[red]--registration requires --fulcio-roots and "
+                      "--log-key: attribution needs a trust store, and this "
+                      "command will not invent one.")
+        raise typer.Exit(2)
+
+    try:
+        reg_bundle = RegistrationBundle.from_dict(
+            json.loads(registration.read_text(encoding="utf-8")))
+        roots = _load_cert_pool(fulcio_roots)
+        key_der = log_key.read_bytes()
+        signed_at = (datetime.fromisoformat(
+            artefact_signed_at.replace("Z", "+00:00"))
+            if artefact_signed_at else None)
+        as_of = (datetime.fromisoformat(at.replace("Z", "+00:00"))
+                 if at else None)
+    except (OSError, ValueError, RegistrationError) as exc:
+        console.print(f"[red]could not read inputs: {exc}")
+        raise typer.Exit(2) from None
+
+    try:
+        verdict = verify_artefact_against_registration(
+            target, artefact, reg_bundle, fulcio_roots=roots,
+            log_public_key=key_der, mode=mode, context=context.encode(),
+            artefact_signed_at=signed_at, now=as_of)
+    except VerificationFailed as exc:
+        console.print("[bold red]VERIFICATION FAILED[/bold red]")
+        console.print(str(exc))
+        raise typer.Exit(1) from None
+    except RegistrationError as exc:
+        # The signature may well be valid; what failed is the attribution.
+        console.print("[bold red]NOT ATTRIBUTABLE[/bold red]")
+        console.print(str(exc))
+        raise typer.Exit(1) from None
+
+    report = verdict.artefact_report
+    basis_colour = "green" if verdict.basis.value == "direct" else "yellow"
+    console.print("[bold green]VERIFIED AND ATTRIBUTED[/bold green]")
+    console.print(f"  signed by         : [bold]{verdict.identity}[/bold] "
+                  f"(via {verdict.issuer})")
+    console.print(f"  key               : {verdict.pqc_algorithm}, vouched for "
+                  f"by that identity")
+    console.print(f"  basis             : [{basis_colour}]{verdict.basis.value}")
+    console.print(f"  registered by     : "
+                  f"{verdict.registration_logged_at.isoformat()} "
+                  f"(the log's integratedTime)")
+    console.print(f"  mode              : {report['mode']}")
+    console.print(f"  algorithms checked: {report['algorithms_checked']}")
+    console.print(f"  quantum resistant : {report['quantum_resistant']}")
+
+    if verdict.coverage_checked:
+        console.print(f"  covers this sig   : yes, at "
+                      f"{verdict.signing_time.isoformat()} "  # type: ignore[union-attr]
+                      f"({verdict.signing_time_source.value})")
+    else:
+        console.print("  [yellow]covers this sig   : not checked -- the artefact "
+                      "carries no trustworthy signing time. The registration "
+                      "sets no notAfter and no revocation was supplied, so "
+                      "there was nothing to rule on; this is 'unchecked', not "
+                      "'passed'.")
+    if verdict.signing_time_source is SigningTimeSource.SUPPLIED:
+        console.print("  [yellow]note              : the signing time was "
+                      "asserted on the command line, not proven.")
+    for finding in report["temporal"]["findings"]:
+        colour = "red" if finding.startswith("[critical]") else "yellow"
+        console.print(f"    [{colour}]{finding}")
+    for warning in report["warnings"]:
+        console.print(f"  [yellow]warning: {warning}")
+
+
 @app.command("verify")
 def verify_artefact(
     target: Path = typer.Argument(..., help="File or directory to verify."),
     bundle: Path = typer.Option(..., "--bundle", help="The signature bundle."),
     mode: str = typer.Option("strict", "--mode", help="strict | classical | pqc."),
     context: str = typer.Option("", "--context", help="Must match signing."),
+    registration: Path | None = typer.Option(
+        None, "--registration",
+        help="A registration bundle. Given this, the verdict also says WHO the "
+             "signing key belongs to, and on what basis. Needs --fulcio-roots "
+             "and --log-key."),
+    fulcio_roots: Path | None = typer.Option(
+        None, "--fulcio-roots",
+        help="Trusted Fulcio roots (DER/PEM file or directory). Your trust "
+             "store; required with --registration."),
+    log_key: Path | None = typer.Option(
+        None, "--log-key",
+        help="The transparency log's public key (DER). Required with "
+             "--registration."),
+    artefact_signed_at: str | None = typer.Option(
+        None, "--artefact-signed-at",
+        help="ASSERT when the artefact was signed (RFC 3339), so notAfter and "
+             "revocation can be ruled on. Labelled as an assertion in the "
+             "output -- it is not evidence."),
+    at: str | None = typer.Option(
+        None, "--at",
+        help="Judge the attribution as of this RFC 3339 instant instead of now "
+             "-- for asking how it will look after the classical algorithm is "
+             "disallowed. Only meaningful with --registration."),
 ) -> None:
-    """Verify an artefact against a bundle, and report what was checked."""
+    """Verify an artefact against a bundle, and report what was checked.
+
+    With --registration, this answers the question that actually matters:
+    not merely "is this signature valid" but "whose signature is it, and can
+    that attribution still be trusted". The registration's PQC key must be the
+    very key the artefact was signed under -- otherwise a valid signature and a
+    valid registration would be two unrelated facts.
+    """
     from .signing.bundle import parse_bundle
     from .signing.sign import VerificationFailed, VerifyMode, verify
 
@@ -480,6 +622,19 @@ def verify_artefact(
     except (OSError, ValueError) as exc:
         console.print(f"[red]could not read the bundle: {exc}")
         raise typer.Exit(2) from None
+
+    # With --registration, the artefact and the identity are verified together
+    # and the join between them is enforced. Without it, this is the plain
+    # "is the signature valid" check, unchanged.
+    if registration is not None:
+        _verify_with_registration(
+            target, parsed, registration, fulcio_roots, log_key,
+            chosen, context, artefact_signed_at, at)
+        return
+    if (fulcio_roots is not None or log_key is not None
+            or artefact_signed_at or at):
+        console.print("[yellow]--fulcio-roots/--log-key/--artefact-signed-at "
+                      "--at only apply with --registration; ignoring them.")
 
     try:
         report = verify(target, parsed, mode=chosen, context=context.encode())
