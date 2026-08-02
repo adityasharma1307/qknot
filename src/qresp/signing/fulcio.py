@@ -169,18 +169,71 @@ def _identity_from_certificate(certificate: Any) -> str | None:
     return None
 
 
+_MAX_CHAIN_LENGTH = 16
+
+
+def _build_path(leaf: Any, by_subject: dict[str, Any], trusted_subjects: set[str]) -> list[Any]:
+    """Discover an ordered path leaf -> ... from an UNORDERED CA pool.
+
+    A real trust store -- a TUF `trusted_root.json`, a directory of PEMs -- is an
+    unordered pool, not the pre-sorted `[leaf, intermediate, ..., root]` list a
+    caller would otherwise have to build. Discovery follows issuer==subject links
+    through the pool until it reaches a trusted anchor or a self-signed cert, and
+    is length-capped and loop-guarded so a crafted pool cannot make it spin.
+
+    Ordering only; NO trust is decided here. Each discovered link's signature and
+    the anchor's trust are checked by the caller.
+    """
+    path = [leaf]
+    node = leaf
+    seen = {node.subject.rfc4514_string()}
+    for _ in range(_MAX_CHAIN_LENGTH):
+        subject = node.subject.rfc4514_string()
+        issuer = node.issuer.rfc4514_string()
+        if subject in trusted_subjects:
+            return path                     # reached a trusted anchor as a node
+        if issuer == subject:
+            return path                     # self-signed; anchor check decides trust
+        parent = by_subject.get(issuer)
+        if parent is None:
+            return path                     # issuer not in pool; anchor check fails
+        parent_subject = parent.subject.rfc4514_string()
+        if parent_subject in seen:
+            raise ChainError(
+                f"certificate path loops at {parent_subject!r}; a pool that "
+                f"cross-signs itself cannot terminate at a root")
+        seen.add(parent_subject)
+        path.append(parent)
+        node = parent
+    raise ChainError(
+        f"certificate path exceeds the maximum length of {_MAX_CHAIN_LENGTH}; "
+        f"refusing to follow an unbounded chain")
+
+
 def verify_chain(
     leaf_der: bytes,
     intermediate_ders: list[bytes],
     trusted_root_ders: list[bytes],
     at_time: datetime | None = None,
 ) -> FulcioIdentity:
-    """Validate leaf -> intermediates -> a trusted root, and return the identity.
+    """Validate a leaf to a trusted root through an UNORDERED CA pool.
 
-    Steps 3 and 4 of the spec. Configuration is checked before any
-    attacker-controlled bytes are parsed: an empty trust store is a
-    configuration error, not a verification failure, and must not be reachable
-    by a crafted leaf. This mirrors `transparency.verify_timestamp`.
+    Steps 3 and 4 of the spec. `intermediate_ders` (from the bundle, untrusted)
+    and `trusted_root_ders` (the verifier's trust store) are each an unordered
+    pool: the caller does NOT pre-sort them into a chain. Path discovery
+    (`_build_path`) does the ordering, so a real `trusted_root.json` CA pool can
+    be passed as-is.
+
+    The two pools are kept separate deliberately -- collapsing them into one
+    "ca_pool" would let a bundle supply its own trust anchors. Trust is decided
+    only at the anchor step, and only `trusted_root_ders` can anchor. When a
+    subject appears in both pools the trusted bytes win, so a bundle cannot
+    shadow a real root with a look-alike.
+
+    Configuration is checked before any attacker-controlled bytes are parsed: an
+    empty trust store is a configuration error, not a verification failure, and
+    must not be reachable by a crafted leaf. This mirrors
+    `transparency.verify_timestamp`.
     """
     if not trusted_root_ders:
         raise ChainError(
@@ -194,28 +247,41 @@ def verify_chain(
     intermediates = [_load(d) for d in intermediate_ders]
     roots = [_load(d) for d in trusted_root_ders]
 
-    # Build the path leaf -> ... and verify each link, then that the last link
-    # was signed by a trusted root. Kept explicit rather than delegated to a
-    # TLS-oriented verifier, because Fulcio identities live in a SAN URI and a
-    # custom issuer extension, not in a DNS name a server verifier expects.
-    chain = [leaf, *intermediates]
-    for certificate in chain:
+    # A subject -> cert index for path discovery. Trusted roots are inserted
+    # FIRST so that if an untrusted intermediate carries a trusted root's subject
+    # name, the trusted bytes win and the look-alike is ignored.
+    trusted_subjects = {r.subject.rfc4514_string() for r in roots}
+    by_subject: dict[str, Any] = {}
+    for cert in [*roots, *intermediates]:
+        by_subject.setdefault(cert.subject.rfc4514_string(), cert)
+
+    # Discover the ordered path, then verify each cert is time-valid and each
+    # link is actually signed by its issuer. Kept explicit rather than delegated
+    # to a TLS-oriented verifier, because Fulcio identities live in a SAN URI and
+    # a custom issuer extension, not in a DNS name a server verifier expects.
+    path = _build_path(leaf, by_subject, trusted_subjects)
+    for certificate in path:
         _within_validity(certificate, at_time)
+    for child, issuer_cert in zip(path, path[1:], strict=False):
+        _verify_signed_by(child, issuer_cert)
 
-    for child, issuer in zip(chain, chain[1:], strict=False):
-        _verify_signed_by(child, issuer)
-
-    top = chain[-1]
-    roots_by_subject = {r.subject.rfc4514_string(): r for r in roots}
-    anchor = roots_by_subject.get(top.issuer.rfc4514_string())
-    if anchor is None:
-        raise ChainError(
-            f"the chain terminates at an issuer "
-            f"({top.issuer.rfc4514_string()}) that is not among the trusted "
-            f"roots. The chain may be valid but it is not anchored in this "
-            f"verifier's trust store.")
-    _within_validity(anchor, at_time)
-    _verify_signed_by(top, anchor)
+    # Anchor: the top of the discovered path must be a trusted root, or be signed
+    # by one. Both arise: the pool may include the root as a node (so the top IS
+    # the root), or terminate at an intermediate whose issuer is a trusted root.
+    top = path[-1]
+    if top.subject.rfc4514_string() in trusted_subjects:
+        _within_validity(top, at_time)      # top IS a trusted root (trusted bytes)
+    else:
+        roots_by_subject = {r.subject.rfc4514_string(): r for r in roots}
+        anchor = roots_by_subject.get(top.issuer.rfc4514_string())
+        if anchor is None:
+            raise ChainError(
+                f"the chain terminates at an issuer "
+                f"({top.issuer.rfc4514_string()}) that is not among the trusted "
+                f"roots. The chain may be valid but it is not anchored in this "
+                f"verifier's trust store.")
+        _within_validity(anchor, at_time)
+        _verify_signed_by(top, anchor)
 
     identity = _identity_from_certificate(leaf)
     issuer = _issuer_from_certificate(leaf)

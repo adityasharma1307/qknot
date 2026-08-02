@@ -131,3 +131,92 @@ class TestItRejects:
             verify_chain(no_issuer.public_bytes(Encoding.DER),
                          [inter.public_bytes(Encoding.DER)],
                          [root.public_bytes(Encoding.DER)])
+
+
+class TestPathDiscovery:
+    """verify_chain builds the path from an UNORDERED pool (residual 1): callers
+    no longer pre-sort intermediates, and a TUF-style CA pool works as-is."""
+
+    def _two_level(self):
+        root_key, root_name, root = _ca("Disco Root")
+        ia_key, ia_name, ia = _ca("Disco IA", root_key, root_name)   # signed by root
+        ib_key, ib_name, ib = _ca("Disco IB", ia_key, ia_name)       # signed by IA
+        _leaf_key, leaf = _leaf(ib_key, ib_name)                     # signed by IB
+        return root, [ia, ib], leaf
+
+    def test_intermediates_in_any_order_validate(self):
+        root, inters, leaf = self._two_level()
+        ders = [c.public_bytes(Encoding.DER) for c in inters]
+        for order in ([0, 1], [1, 0]):
+            fid = verify_chain(leaf.public_bytes(Encoding.DER),
+                               [ders[i] for i in order],
+                               [root.public_bytes(Encoding.DER)])
+            assert fid.identity == "alice@example.com"
+
+    def test_an_unordered_ca_pool_as_roots_validates(self):
+        """The trusted_root.json shape: root AND intermediates in one unordered
+        trusted pool, no separate intermediates argument."""
+        root, inters, leaf = self._two_level()
+        pool = [c.public_bytes(Encoding.DER)
+                for c in [inters[1], root, inters[0]]]        # shuffled
+        fid = verify_chain(leaf.public_bytes(Encoding.DER), [], pool)
+        assert fid.issuer == "https://accounts.google.com"
+
+    def test_an_unrelated_extra_ca_in_the_pool_is_ignored(self):
+        root, inters, leaf = self._two_level()
+        _k, _n, junk = _ca("Unrelated CA")
+        fid = verify_chain(
+            leaf.public_bytes(Encoding.DER),
+            [inters[0].public_bytes(Encoding.DER),
+             inters[1].public_bytes(Encoding.DER),
+             junk.public_bytes(Encoding.DER)],
+            [root.public_bytes(Encoding.DER)])
+        assert fid.identity == "alice@example.com"
+
+    def test_a_lookalike_root_in_the_bundle_cannot_shadow_the_real_root(self):
+        """An untrusted cert carrying the real root's subject name but a
+        different key must not displace the trusted root: trusted bytes win."""
+        root, inters, leaf = self._two_level()
+        fake_key = ec.generate_private_key(ec.SECP256R1())
+        rn = root.subject
+        fake = (x509.CertificateBuilder().subject_name(rn).issuer_name(rn)
+                .public_key(fake_key.public_key())
+                .serial_number(x509.random_serial_number())
+                .not_valid_before(NOW - datetime.timedelta(days=1))
+                .not_valid_after(NOW + datetime.timedelta(days=365))
+                .add_extension(x509.BasicConstraints(ca=True, path_length=None),
+                               critical=True)
+                .sign(fake_key, hashes.SHA256()))
+        fid = verify_chain(
+            leaf.public_bytes(Encoding.DER),
+            [inters[0].public_bytes(Encoding.DER),
+             inters[1].public_bytes(Encoding.DER),
+             fake.public_bytes(Encoding.DER)],          # shadow attempt
+            [root.public_bytes(Encoding.DER)])
+        assert fid.identity == "alice@example.com"
+
+    def test_a_cross_signed_loop_is_refused(self):
+        ka = ec.generate_private_key(ec.SECP256R1())
+        kb = ec.generate_private_key(ec.SECP256R1())
+        na = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Loop A")])
+        nb = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Loop B")])
+
+        def _ca_named(subject, subject_key, issuer, issuer_key):
+            return (x509.CertificateBuilder()
+                    .subject_name(subject).issuer_name(issuer)
+                    .public_key(subject_key.public_key())
+                    .serial_number(x509.random_serial_number())
+                    .not_valid_before(NOW - datetime.timedelta(days=1))
+                    .not_valid_after(NOW + datetime.timedelta(days=365))
+                    .add_extension(x509.BasicConstraints(ca=True, path_length=None),
+                                   critical=True)
+                    .sign(issuer_key, hashes.SHA256()))
+
+        a = _ca_named(na, ka, nb, kb)          # A signed by B
+        b = _ca_named(nb, kb, na, ka)          # B signed by A -> a loop
+        _lk, leaf = _leaf(ka, na)              # leaf issued by A
+        _rk, _rn, root = _ca("Loop Trusted Root")
+        with pytest.raises(ChainError, match="loops|not among"):
+            verify_chain(leaf.public_bytes(Encoding.DER),
+                         [a.public_bytes(Encoding.DER), b.public_bytes(Encoding.DER)],
+                         [root.public_bytes(Encoding.DER)])

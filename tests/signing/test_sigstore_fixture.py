@@ -55,35 +55,14 @@ def tlog():
     return json.loads((FIXTURES / "tlog_entry.json").read_text(encoding="utf-8"))
 
 
-def _ordered_path(leaf_der, pool):
-    """Build leaf -> intermediate(s) -> root from the unordered CA pool, the way
-    a production verifier must. That verify_chain needs this done for it is a
-    known limitation, recorded in docs/REGISTRATION-SPEC.md section 9."""
-    pool_by_subject = {
-        x509.load_der_x509_certificate(d).subject.rfc4514_string():
-        (d, x509.load_der_x509_certificate(d)) for d in pool}
-    node = x509.load_der_x509_certificate(leaf_der)
-    intermediates, root = [], None
-    for _ in range(8):
-        parent = pool_by_subject.get(node.issuer.rfc4514_string())
-        if parent is None:
-            break
-        der, cert = parent
-        if cert.subject == cert.issuer:
-            root = der
-            break
-        intermediates.append(der)
-        node = cert
-    return intermediates, root
-
-
 class TestFulcioChainOnRealBytes:
-    def test_a_real_fulcio_leaf_validates_and_yields_the_identity(self, leaf, ca_pool):
-        intermediates, root = _ordered_path(leaf, ca_pool)
-        assert root is not None, "no self-signed root in the captured CA pool"
+    def test_a_real_fulcio_leaf_validates_from_an_unordered_pool(self, leaf, ca_pool):
+        """verify_chain now does path discovery: the real CA pool is passed
+        UNORDERED (as a TUF trusted_root.json presents it), and the verifier
+        finds leaf -> intermediate(s) -> root itself -- no harness pre-sorting."""
         cert = x509.load_der_x509_certificate(leaf)
         at = cert.not_valid_before_utc
-        identity = verify_chain(leaf, intermediates, [root], at_time=at)
+        identity = verify_chain(leaf, [], ca_pool, at_time=at)
         assert "@" in identity.identity          # a real OIDC subject
         assert identity.issuer.startswith("https://")
 

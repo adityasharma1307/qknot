@@ -239,40 +239,19 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  leaf issuer  : {cert.issuer.rfc4514_string()}")
     print(f"  valid from   : {cert.not_valid_before_utc.isoformat()}")
 
-    # Path building: our verify_chain wants ORDERED intermediates and a matching
-    # root; the trusted root gives an unordered CA pool. Build the path here by
-    # matching issuer -> subject. That verify_chain cannot do this itself is a
-    # finding: a production verifier needs path discovery, not a fixed list.
-    pool = {x509.load_der_x509_certificate(d).subject.rfc4514_string():
-            (d, x509.load_der_x509_certificate(d)) for d in roots}
-    ordered_intermediates: list[bytes] = []
-    node = cert
-    root_der = None
-    for _ in range(8):
-        parent = pool.get(node.issuer.rfc4514_string())
-        if parent is None:
-            break
-        parent_der, parent_cert = parent
-        if parent_cert.subject == parent_cert.issuer:      # self-signed = root
-            root_der = parent_der
-            break
-        ordered_intermediates.append(parent_der)
-        node = parent_cert
-    print(f"  CA pool      : {len(pool)} certs; built {len(ordered_intermediates)} "
-          f"intermediate(s); root {'found' if root_der else 'NOT FOUND'}")
-    if len(intermediates):
-        ordered_intermediates = intermediates + ordered_intermediates
-
-    if root_der is None:
-        print("  [GAP] could not build a path from the leaf to a self-signed root "
-              "in the trusted-root pool. Report the leaf issuer and pool subjects.")
-    else:
-        try:
-            identity = verify_chain(leaf, ordered_intermediates, [root_der], at_time=at)
-            print(f"  [OK] identity = {identity.identity!r}  issuer = {identity.issuer!r}")
-        except ChainError as exc:
-            print(f"  [GAP] verify_chain rejected a real leaf: {exc}")
-            print("        ^ exactly the production quirk to report to the expert.")
+    # verify_chain now does path discovery itself (residual 1, closed): hand it
+    # the whole UNORDERED trusted-root CA pool plus any bundle intermediates and
+    # let it find leaf -> intermediate(s) -> root. No path building in this
+    # harness any more -- the one true path builder lives in fulcio.verify_chain.
+    print(f"  CA pool      : {len(roots)} trusted CA certs (unordered), "
+          f"{len(intermediates)} bundle intermediate(s)")
+    try:
+        identity = verify_chain(leaf, intermediates, roots, at_time=at)
+        print(f"  [OK] identity = {identity.identity!r}  issuer = {identity.issuer!r}")
+        print("       (path discovered from the unordered pool by verify_chain)")
+    except ChainError as exc:
+        print(f"  [GAP] verify_chain rejected a real leaf: {exc}")
+        print("        ^ exactly the production quirk to report to the expert.")
 
     print("\n" + "=" * 70)
     print("2. REKOR INCLUSION  (RFC 6962 math against a real entry)")
