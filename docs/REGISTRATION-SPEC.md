@@ -488,3 +488,23 @@ because a statement it serves is only honoured once the log proves it), but it
 is a real deployment requirement, not something the log provides for free. When
 entries exist whose statements cannot be obtained, the outcome is `failed`, not
 `none-found`.
+
+**Validated on live Rekor, 2026-08-02** (`scripts/verify/check_revocation_search.py`).
+The index returned 5 entries for the captured identity; all 5 were fetched,
+mapped and AUTHENTICATED -- inclusion proof, signed checkpoint and SET -- with 0
+unauthenticated. So the search adapter's transport, its HEX-to-base64 mapping and
+its verification all work on production bytes, and the inconclusive verdict is
+purely the digest limit above, demonstrated rather than asserted.
+
+The validation script separates the two reasons a candidate can be unexaminable
+-- *opaque* (authenticates, but no statement available: expected) versus
+*unauthentic* (the fetch/map/verify path is broken: a defect). `find_revocations`
+deliberately merges them into one inconclusive outcome, which is right for a
+verdict and useless for validating an adapter; without the split, a broken
+adapter and the structural limit print the same message.
+
+An incidental finding worth recording: those five entries are the artefact
+capture plus four registration attempts, **including the two that failed
+verification**. Rekor accepted and logged them; `register` still refused to call
+them successful. The step-8 round-trip gate is visible in the log doing exactly
+its job -- "it logged" really is not "it verified".
