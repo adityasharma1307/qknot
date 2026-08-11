@@ -9,6 +9,7 @@
 ![Self-signed release](https://img.shields.io/badge/v0.1.1-self--signed%20hybrid%20PQC-blueviolet.svg)
 ![PQ-safe found](https://img.shields.io/badge/PQ--safe%20signatures%20found%20in%20audit-0-red.svg)
 [![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.21886269-blue.svg)](https://doi.org/10.5281/zenodo.21886269)
+![PyPI](https://img.shields.io/pypi/v/qknot.svg)
 
 > Phase I and II of *Quantum-Resilient Provenance for Software Supply Chains*
 > Supervisor: Dr. Tamizharasan Periyasamy.
