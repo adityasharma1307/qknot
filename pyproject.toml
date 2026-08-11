@@ -17,11 +17,16 @@ keywords = ["post-quantum", "cryptography", "software-supply-chain", "code-signi
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Security :: Cryptography",
+    "Topic :: Software Development :: Build Tools",
+    "Typing :: Typed",
 ]
 dependencies = [
     "huggingface_hub>=0.24",
@@ -73,6 +78,14 @@ dev = [
     "nbformat>=5.10",
     "ipykernel>=6.29",
 ]
+
+[project.urls]
+Homepage = "https://github.com/adityasharma1307/qknot"
+Repository = "https://github.com/adityasharma1307/qknot"
+Documentation = "https://github.com/adityasharma1307/qknot#readme"
+Issues = "https://github.com/adityasharma1307/qknot/issues"
+Changelog = "https://github.com/adityasharma1307/qknot/blob/main/docs/RELEASE-NOTES-v0.1.1.md"
+DOI = "https://doi.org/10.5281/zenodo.21886269"
 
 [project.scripts]
 qknot = "qknot.cli:app"

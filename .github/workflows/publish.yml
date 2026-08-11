@@ -1,0 +1,76 @@
+name: publish
+
+# Publishes to PyPI when a release is published on GitHub.
+#
+# No API token. This uses PyPI Trusted Publishing (OIDC): GitHub mints a
+# short-lived identity token for this specific workflow in this specific
+# repository, and PyPI exchanges it for an equally short-lived upload token.
+# There is no long-lived secret to leak, and nothing to rotate.
+#
+# The `id-token: write` permission below is what allows that token to be
+# minted, and it is also what lets PyPI attach a publish attestation to the
+# uploaded files -- provenance tying these exact artefacts to this exact
+# workflow run. For a project about supply-chain provenance, shipping without
+# it would be a poor advertisement.
+#
+# Note this is provenance about the BUILD, and is separate from the project's
+# own hybrid PQC signature over the release tarball (see release/README.md).
+# They answer different questions: PyPI's attestation says "GitHub Actions
+# built this from this commit"; the QKnot bundle says "this identity signed
+# these bytes, with an algorithm that survives a quantum adversary".
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:        # manual re-run, e.g. after a failed upload
+
+jobs:
+  build:
+    name: Build distributions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Gate the upload on the suite passing. A release that cannot pass its
+      # own tests should not reach PyPI, where versions cannot be reused.
+      - name: Install and test
+        run: |
+          pip install -e ".[dev]"
+          ruff check src/ tests/ scripts/
+          python -m pytest -q
+
+      - name: Build sdist and wheel
+        run: |
+          pip install build
+          python -m build
+
+      - name: Check metadata renders on PyPI
+        run: |
+          pip install twine
+          twine check dist/*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: distributions
+          path: dist/
+
+  publish:
+    name: Publish to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi          # must match the environment named in the
+                               # Trusted Publisher config on PyPI
+    permissions:
+      id-token: write          # required for OIDC; do not remove
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: distributions
+          path: dist/
+
+      - name: Publish
+        uses: pypa/gh-action-pypi-publish@release/v1
