@@ -10,8 +10,8 @@ from __future__ import annotations
 from typer.main import get_command
 from typer.testing import CliRunner
 
-import qresp.cli as cli_module
-from qresp.cli import app
+import qknot.cli as cli_module
+from qknot.cli import app
 
 runner = CliRunner()
 
@@ -59,11 +59,11 @@ def test_running_a_command_with_help_exits_cleanly():
 
 def test_the_main_guard_is_last_so_python_m_sees_every_command():
     """`if __name__ == '__main__': app()` once sat in the middle of the module,
-    before the signing commands were defined, so `python -m qresp.cli sign`
+    before the signing commands were defined, so `python -m qknot.cli sign`
     reported 'No such command' while the console script worked."""
     source = __import__("pathlib").Path(cli_module.__file__).read_text(encoding="utf-8")
     guard = source.index('if __name__ == "__main__":')
     last_command = source.rindex("@app.command")
     assert guard > last_command, (
         "the __main__ guard must come after every @app.command, or commands "
-        "defined below it are invisible to `python -m qresp.cli`")
+        "defined below it are invisible to `python -m qknot.cli`")

@@ -90,7 +90,7 @@ the vectors through `sign()` fails all 60 sigGen cases — which is what happene
 on the first run, and it looks like a broken implementation rather than a wrong
 entry point.
 
-Because ACVP validates the internal algorithm while `qresp.signing` calls the
+Because ACVP validates the internal algorithm while `qknot.signing` calls the
 external one, `TestTheExternalWrapper` additionally asserts the composition:
 `sign(msg, ctx)` must equal `_sign_internal(0x00 || len(ctx) || ctx || msg)`.
 Without that link, the path actually used in production would be unvalidated.

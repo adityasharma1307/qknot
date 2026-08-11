@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Runs the full QResP 20,000-model stratified audit end to end.
+    Runs the full QKnot 20,000-model stratified audit end to end.
 
 .DESCRIPTION
     Five steps, each resumable and independently runnable:
@@ -127,7 +127,7 @@ function Get-LineCount($Path) {
 # ---------------------------------------------------------------------------
 # Pre-flight
 # ---------------------------------------------------------------------------
-Write-Banner "QResP 20k stratified audit  |  snapshot $Date  |  seed $Seed"
+Write-Banner "QKnot 20k stratified audit  |  snapshot $Date  |  seed $Seed"
 
 # Native commands below may write to stderr without failing, so the strict
 # preference is relaxed around them and exit codes are checked explicitly.
@@ -139,24 +139,24 @@ if ($LASTEXITCODE -ne 0) { $ErrorActionPreference = $previous; throw "python not
 
 # The package must be importable AND must resolve to this repository.
 #
-# Checking only that `import qresp` succeeds is not enough. An editable install
+# Checking only that `import qknot` succeeds is not enough. An editable install
 # left over from a previous checkout will satisfy the import while pointing at
 # a different source tree, and the run would then silently execute the wrong
 # code -- old enough, in this project's case, to predate the rate-limit
 # handling. Verify the resolved path, not just the import.
-$resolved = (python -c "import qresp, os; print(os.path.dirname(os.path.abspath(qresp.__file__)))" 2>$null)
-$expected = Join-Path $RepoRoot 'src\qresp'
+$resolved = (python -c "import qknot, os; print(os.path.dirname(os.path.abspath(qknot.__file__)))" 2>$null)
+$expected = Join-Path $RepoRoot 'src\qknot'
 
 if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($resolved)) {
-    Write-Host "qresp is not installed. Installing in editable mode..." -ForegroundColor Yellow
+    Write-Host "qknot is not installed. Installing in editable mode..." -ForegroundColor Yellow
     python -m pip install -e . --quiet
     if ($LASTEXITCODE -ne 0) { $ErrorActionPreference = $previous; throw "pip install -e . failed." }
-    $resolved = (python -c "import qresp, os; print(os.path.dirname(os.path.abspath(qresp.__file__)))" 2>$null)
+    $resolved = (python -c "import qknot, os; print(os.path.dirname(os.path.abspath(qknot.__file__)))" 2>$null)
 }
 
 if ($resolved.Trim().TrimEnd('\') -ne $expected.TrimEnd('\')) {
     Write-Host @"
-qresp resolves to a different source tree than this repository:
+qknot resolves to a different source tree than this repository:
 
     imported from : $resolved
     expected      : $expected
@@ -167,17 +167,17 @@ Reinstalling from here so the run uses this repository's code.
     python -m pip install -e . --force-reinstall --no-deps --quiet
     if ($LASTEXITCODE -ne 0) { $ErrorActionPreference = $previous; throw "pip install -e . failed." }
 
-    $resolved = (python -c "import qresp, os; print(os.path.dirname(os.path.abspath(qresp.__file__)))" 2>$null)
+    $resolved = (python -c "import qknot, os; print(os.path.dirname(os.path.abspath(qknot.__file__)))" 2>$null)
     if ($resolved.Trim().TrimEnd('\') -ne $expected.TrimEnd('\')) {
         $ErrorActionPreference = $previous
         throw @"
-qresp still resolves to $resolved rather than $expected.
+qknot still resolves to $resolved rather than $expected.
 Refusing to run: the audit would execute code from the wrong checkout.
-Try:  python -m pip uninstall -y qresp   then rerun this script.
+Try:  python -m pip uninstall -y qknot   then rerun this script.
 "@
     }
 }
-Write-Host "qresp resolves to $resolved" -ForegroundColor Green
+Write-Host "qknot resolves to $resolved" -ForegroundColor Green
 
 $ErrorActionPreference = $previous
 
@@ -228,7 +228,7 @@ if ($Step -in @('all', 'head')) {
         Write-Host "$HeadOut already has $before rows. Resuming." -ForegroundColor Yellow
     }
     Invoke-Step 'head' {
-        python -m qresp scan --n $HeadN --out $HeadOut @TokenArgs
+        python -m qknot scan --n $HeadN --out $HeadOut @TokenArgs
     }
     $after = Get-LineCount $HeadOut
     Write-Host "Head stratum: $after rows in $HeadOut" -ForegroundColor Green
@@ -292,7 +292,7 @@ if ($Step -in @('all', 'tail')) {
         Write-Host "Completed models are skipped before their metadata is requested." -ForegroundColor DarkGray
     }
     Invoke-Step 'tail' {
-        python -m qresp scan-ids --ids $SampleFile --out $TailOut @TokenArgs
+        python -m qknot scan-ids --ids $SampleFile --out $TailOut @TokenArgs
     }
     $after = Get-LineCount $TailOut
     Write-Host "Long-tail stratum: $after of $target rows in $TailOut" -ForegroundColor Green

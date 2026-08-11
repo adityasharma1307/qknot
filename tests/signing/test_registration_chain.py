@@ -20,21 +20,21 @@ from cryptography.hazmat.primitives.serialization import (
 )
 from cryptography.x509.oid import NameOID
 
-from qresp.signing.backends import get_backend
-from qresp.signing.registration import (
+from qknot.signing.backends import get_backend
+from qknot.signing.registration import (
     HybridRegistration,
     KeyRef,
     Revocation,
     SignedRevocation,
     _key_fingerprint,
 )
-from qresp.signing.registration_chain import (
+from qknot.signing.registration_chain import (
     RegistrationBundle,
     authorize_for_artifact,
     verify_registration_chain,
 )
-from qresp.signing.rekor import leaf_hash
-from qresp.signing.temporal import BindingBasis
+from qknot.signing.rekor import leaf_hash
+from qknot.signing.temporal import BindingBasis
 
 from ._rekor_doubles import make_log_entry
 
@@ -116,20 +116,20 @@ class Harness:
     def bundle(self, not_after=None):
         reg = self.registration(not_after)
         payload = reg.to_payload()
-        from qresp.signing.dsse import pae, rekord_preimage
-        signed_bytes = pae("application/vnd.qresp.hybrid-key-registration+json", payload)
+        from qknot.signing.dsse import pae, rekord_preimage
+        signed_bytes = pae("application/vnd.qknot.hybrid-key-registration+json", payload)
         # classical signature made with the cert's EC key directly
         classical_sig = self.classical_priv.sign(signed_bytes, ec.ECDSA(hashes.SHA256()))
         pqc_sig = self.pqc.sign(self.pqc_sk, signed_bytes)
-        from qresp.signing.registration import HybridSignedRegistration
+        from qknot.signing.registration import HybridSignedRegistration
         env = HybridSignedRegistration(
             payload=payload, classical_signature=classical_sig,
             classical_certificate_der=self.leaf_der, pqc_signature=pqc_sig)
 
         # a one-entry transparency tree over a hashedrekord body
-        from qresp.signing.rekor import hashedrekord_body
+        from qknot.signing.rekor import hashedrekord_body
         preimage = rekord_preimage(
-            "application/vnd.qresp.hybrid-key-registration+json", payload)
+            "application/vnd.qknot.hybrid-key-registration+json", payload)
         entry_bytes = hashedrekord_body(preimage)
         root = leaf_hash(entry_bytes)
         entry = make_log_entry(
@@ -206,18 +206,18 @@ class TestItRejectsTampering:
             KeyRef("ml-dsa-87", h.pqc_pub), h.log_time.isoformat())
         # re-sign the forged payload so proof-of-possession passes; the cert
         # cross-check (step 4) is what must catch it.
-        from qresp.signing.dsse import pae
-        sb = pae("application/vnd.qresp.hybrid-key-registration+json", forged.to_payload())
-        from qresp.signing.registration import HybridSignedRegistration
+        from qknot.signing.dsse import pae
+        sb = pae("application/vnd.qknot.hybrid-key-registration+json", forged.to_payload())
+        from qknot.signing.registration import HybridSignedRegistration
         env = HybridSignedRegistration(
             payload=forged.to_payload(),
             classical_signature=h.classical_priv.sign(sb, ec.ECDSA(hashes.SHA256())),
             classical_certificate_der=h.leaf_der,
             pqc_signature=h.pqc.sign(h.pqc_sk, sb))
-        from qresp.signing.dsse import rekord_preimage
+        from qknot.signing.dsse import rekord_preimage
         preimage = rekord_preimage(
-            "application/vnd.qresp.hybrid-key-registration+json", forged.to_payload())
-        from qresp.signing.rekor import hashedrekord_body
+            "application/vnd.qknot.hybrid-key-registration+json", forged.to_payload())
+        from qknot.signing.rekor import hashedrekord_body
         eb = hashedrekord_body(preimage)
         root = leaf_hash(eb)
         entry = make_log_entry(
@@ -238,7 +238,7 @@ class TestArtifactAuthorisation:
         binding = verify_registration_chain(
             bundle, fulcio_roots=[h.root.public_bytes(Encoding.DER)],
             log_public_key=h.log_pub, now=_now())
-        from qresp.signing.registration import NotYetRegistered
+        from qknot.signing.registration import NotYetRegistered
         with pytest.raises(NotYetRegistered):
             authorize_for_artifact(
                 binding, datetime.datetime(2028, 6, 1, tzinfo=datetime.timezone.utc))
@@ -262,8 +262,8 @@ class TestArtifactAuthorisation:
         # recovery-signed revocation dated before the artefact
         rev = Revocation(IDENTITY, _key_fingerprint(h.pqc_pub), "compromised",
                          "2027-01-01T00:00:00Z")
-        from qresp.signing.dsse import pae
-        sb = pae("application/vnd.qresp.key-revocation+json", rev.to_payload())
+        from qknot.signing.dsse import pae
+        sb = pae("application/vnd.qknot.key-revocation+json", rev.to_payload())
         signed = SignedRevocation(rev.to_payload(),
                                   get_backend("ml-dsa-87").sign(h.recovery_sk, sb))
         with pytest.raises(Exception, match="was revoked"):

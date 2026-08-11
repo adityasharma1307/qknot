@@ -33,7 +33,7 @@ did not reject it, the battery would be telling us nothing about anything.
 WHAT IS IMPLEMENTED, AND WHAT IS NOT
 ====================================
 SP 800-22 is a **verified four-test subset**, implemented in
-`qresp.signing.entropy.sp800_22` and validated in `tests/signing/test_sp800_22.py`.
+`qknot.signing.entropy.sp800_22` and validated in `tests/signing/test_sp800_22.py`.
 The obvious choice, `nistrng`, was tried and dropped: it overflows an int8 in
 cumulative sums, reports a p-value of 0.683 as a failure, and scores `os.urandom`
 worse than a repeating block. It called the system CSPRNG a failure on four of
@@ -148,7 +148,7 @@ def chi_square_uniformity(symbols: list[int], alphabet_size: int) -> dict[str, A
 
 
 # ---------------------------------------------------------------------------
-# SP 800-22, from qresp's own verified implementation
+# SP 800-22, from qknot's own verified implementation
 # ---------------------------------------------------------------------------
 # `nistrng` was used here first and had to be dropped. Three defects surfaced:
 #
@@ -162,12 +162,12 @@ def chi_square_uniformity(symbols: list[int], alphabet_size: int) -> dict[str, A
 # It reported `os.urandom` as failing four of ten tests. A suite that cannot
 # recognise the system CSPRNG cannot support a claim about anything else.
 #
-# `qresp.signing.entropy.sp800_22` implements four of the fifteen tests, each
+# `qknot.signing.entropy.sp800_22` implements four of the fifteen tests, each
 # checked against the worked example printed in the standard or, where the
 # recalled constant proved unreliable, against simulation. Four verified tests
 # beat fifteen unverified ones.
 def sp800_22(data: bytes) -> dict[str, Any]:
-    from qresp.signing.entropy.sp800_22 import ALPHA, run_all
+    from qknot.signing.entropy.sp800_22 import ALPHA, run_all
 
     bits = len(data) * 8
     if bits < SP800_22_ABSOLUTE_MINIMUM_BITS:
@@ -191,7 +191,7 @@ def sp800_22(data: bytes) -> dict[str, Any]:
         "tests_passed": passed,
         "tests_failed": len(tests) - passed,
         "wall_seconds": round(time.perf_counter() - started, 2),
-        "implementation": "qresp.signing.entropy.sp800_22 (verified subset)",
+        "implementation": "qknot.signing.entropy.sp800_22 (verified subset)",
         "not_implemented": [
             "binary_matrix_rank", "dft", "non_overlapping_template",
             "overlapping_template", "maurers_universal", "linear_complexity",

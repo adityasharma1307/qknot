@@ -34,8 +34,8 @@ import pytest
 
 jsonschema = pytest.importorskip("jsonschema")
 
-from qresp.signing.combiner import build_binding  # noqa: E402
-from qresp.signing.digest import digest_bytes  # noqa: E402
+from qknot.signing.combiner import build_binding  # noqa: E402
+from qknot.signing.digest import digest_bytes  # noqa: E402
 
 SCHEMA_DIR = Path(__file__).parent / "oms_schemas"
 VECTORS = SCHEMA_DIR / "vectors"
@@ -199,9 +199,9 @@ class TestOurBundlesValidateAgainstRealOms:
     def hybrid_bundle(cls, tmp_path_factory):
         pytest.importorskip("cryptography")
         pytest.importorskip("dilithium_py")
-        from qresp.signing.backends import Exposure
-        from qresp.signing.bundle import build_bundle
-        from qresp.signing.sign import keygen, sign
+        from qknot.signing.backends import Exposure
+        from qknot.signing.bundle import build_bundle
+        from qknot.signing.sign import keygen, sign
 
         root = tmp_path_factory.mktemp("artefact")
         (root / "weights.bin").write_bytes(b"w" * 512)

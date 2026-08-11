@@ -1,9 +1,9 @@
-"""Tests for qresp.model — classification rules from Table 4.1."""
+"""Tests for qknot.model — classification rules from Table 4.1."""
 from __future__ import annotations
 
 import pytest
 
-from qresp.audit.model import (
+from qknot.audit.model import (
     QLabel,
     SigAlgorithm,
     classify_algorithm,

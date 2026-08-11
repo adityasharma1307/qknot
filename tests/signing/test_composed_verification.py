@@ -16,13 +16,13 @@ pytest.importorskip("dilithium_py", reason="needs `dilithium-py`")
 
 from cryptography.hazmat.primitives.serialization import Encoding  # noqa: E402
 
-from qresp.signing.composed import (  # noqa: E402
+from qknot.signing.composed import (  # noqa: E402
     SigningTimeSource,
     verify_artefact_against_registration,
 )
-from qresp.signing.registration import RegistrationError  # noqa: E402
-from qresp.signing.sign import keygen, sign  # noqa: E402
-from qresp.signing.temporal import BindingBasis  # noqa: E402
+from qknot.signing.registration import RegistrationError  # noqa: E402
+from qknot.signing.sign import keygen, sign  # noqa: E402
+from qknot.signing.temporal import BindingBasis  # noqa: E402
 
 from .test_registration_chain import Harness  # noqa: E402
 
@@ -44,7 +44,7 @@ def _signed_artefact(pqc_public=None, pqc_secret=None):
     signed with THAT key -- so a registration can name it (or fail to)."""
     keys = keygen(suite=SUITE)
     if pqc_public is not None:
-        from qresp.signing.sign import KeyPair, key_fingerprint
+        from qknot.signing.sign import KeyPair, key_fingerprint
 
         keys.keys["ml-dsa-87"] = KeyPair(
             algorithm="ml-dsa-87", public_key=pqc_public, secret_key=pqc_secret,
@@ -113,7 +113,7 @@ class TestTheJoin:
     def test_a_tampered_artefact_fails_before_any_attribution(self):
         """The artefact's own signature is checked first: there is no point
         asking who vouched for a key if the signature does not hold."""
-        from qresp.signing.sign import VerificationFailed
+        from qknot.signing.sign import VerificationFailed
 
         h = Harness()
         artefact, _ = _signed_artefact(h.pqc_pub, h.pqc_sk)
@@ -149,7 +149,7 @@ class TestSigningTimeDiscipline:
         assert verdict.signing_time_source is SigningTimeSource.SUPPLIED
 
     def test_a_supplied_signing_time_after_notafter_is_refused(self):
-        from qresp.signing.registration import NotYetRegistered
+        from qknot.signing.registration import NotYetRegistered
 
         h = Harness()
         bundle, _ = h.bundle(not_after="2027-01-01T00:00:00Z")
@@ -168,7 +168,7 @@ class TestRevocationIsNeverAssumedAway:
     "nobody looked". The second must not read as the first."""
 
     def _search(self, outcome, revocations=()):
-        from qresp.signing.revocation_search import RevocationSearch
+        from qknot.signing.revocation_search import RevocationSearch
 
         return RevocationSearch(outcome, revocations=list(revocations),
                                 detail="test")
@@ -182,7 +182,7 @@ class TestRevocationIsNeverAssumedAway:
         assert verdict.revocation_status_is_conclusive is False
 
     def test_a_completed_search_finding_nothing_is_conclusive(self):
-        from qresp.signing.revocation_search import RevocationSearchOutcome
+        from qknot.signing.revocation_search import RevocationSearchOutcome
 
         h = Harness()
         artefact, _ = _signed_artefact(h.pqc_pub, h.pqc_sk)
@@ -193,7 +193,7 @@ class TestRevocationIsNeverAssumedAway:
         assert verdict.revocation_status_is_conclusive is True
 
     def test_a_failed_search_is_carried_into_the_verdict_not_dropped(self):
-        from qresp.signing.revocation_search import RevocationSearchOutcome
+        from qknot.signing.revocation_search import RevocationSearchOutcome
 
         h = Harness()
         artefact, _ = _signed_artefact(h.pqc_pub, h.pqc_sk)
@@ -210,14 +210,14 @@ class TestRevocationIsNeverAssumedAway:
         from cryptography.hazmat.primitives import hashes
         from cryptography.hazmat.primitives.asymmetric import ec
 
-        from qresp.signing.dsse import pae
-        from qresp.signing.registration import (
+        from qknot.signing.dsse import pae
+        from qknot.signing.registration import (
             REVOCATION_PAYLOAD_TYPE,
             Revocation,
             SignedRevocation,
             _key_fingerprint,
         )
-        from qresp.signing.revocation_search import RevocationSearchOutcome
+        from qknot.signing.revocation_search import RevocationSearchOutcome
 
         h = Harness()
         artefact, _ = _signed_artefact(h.pqc_pub, h.pqc_sk)

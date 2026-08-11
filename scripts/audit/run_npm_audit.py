@@ -5,9 +5,9 @@
         --frame   data/npm_frame_2026-07-30.txt \
         --out     data/npm_2026-07-30.jsonl
 
-Equivalent to `qresp audit-npm` with the same options; both call the same
-`qresp.audit.registry_scan.run_npm_audit`, so this script is kept for the
-invocations already recorded in the RUNBOOK and in the manifests.
+Equivalent to `qknot audit-npm` with the same options; both call the same
+`qknot.audit.registry_scan.run_npm_audit`, so this script is kept for the
+invocations already recorded in the dataset manifests.
 
 The methodology -- two strata, a re-derivable seeded sample, a resumable
 collector, and `error` never counted as `unsigned` -- is documented on the
@@ -36,7 +36,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
-from qresp.audit.registry_scan import (  # noqa: E402, F401
+from qknot.audit.registry_scan import (  # noqa: E402, F401
     DEFAULT_HEAD_SIZE,
     DEFAULT_SEED,
     DEFAULT_TAIL_SIZE,

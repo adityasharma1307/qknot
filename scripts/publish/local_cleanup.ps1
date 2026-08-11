@@ -33,8 +33,8 @@ foreach ($p in $paths) {
 Write-Host ""
 Write-Host "=== Remove local packaging / mirror scratch ===" -ForegroundColor Cyan
 $junk = @(
-    "qresp-0.1.0",
-    "qresp.git",
+    "qknot-0.1.0",
+    "qknot.git",
     "dist"
 )
 foreach ($j in $junk) {

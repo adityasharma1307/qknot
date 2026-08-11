@@ -41,7 +41,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 SEARCH = "https://registry.npmjs.org/-/v1/search"
 PAGE = 250
-UA = {"User-Agent": "qresp-audit (+https://github.com/qresp)"}
+UA = {"User-Agent": "qknot-audit (+https://github.com/qknot)"}
 
 
 def seeds() -> list[str]:

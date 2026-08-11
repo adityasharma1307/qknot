@@ -20,14 +20,14 @@ import pytest
 import requests
 from huggingface_hub.utils import HfHubHTTPError
 
-from qresp.audit.hf_client import (
+from qknot.audit.hf_client import (
     HfClientProtocol,
     ModelSummary,
     _retry_after_or_backoff,
     is_transient,
 )
-from qresp.audit.model import QLabel
-from qresp.audit.scanner import run_audit, run_audit_ids
+from qknot.audit.model import QLabel
+from qknot.audit.scanner import run_audit, run_audit_ids
 
 SIGSTORE_BUNDLE = json.dumps(
     {

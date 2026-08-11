@@ -11,9 +11,9 @@ import hmac
 
 import pytest
 
-from qresp.signing.entropy.backends import QrngUnavailable, SystemEntropyBackend, commit
-from qresp.signing.entropy.beacon import BEACON_PULSE_BYTES, BeaconPulse, NistBeaconBackend
-from qresp.signing.entropy.mixing import (
+from qknot.signing.entropy.backends import QrngUnavailable, SystemEntropyBackend, commit
+from qknot.signing.entropy.beacon import BEACON_PULSE_BYTES, BeaconPulse, NistBeaconBackend
+from qknot.signing.entropy.mixing import (
     KDF_NAME,
     NoSecretEntropy,
     hkdf,
@@ -86,7 +86,7 @@ class TestPublicRandomnessCannotBecomeAKey:
         beacon = FakePublicBeacon()
         result = mix_entropy([SystemEntropyBackend(), beacon], n_bytes=32)
         attacker_guess = hkdf(ikm=beacon.value, salt=beacon.value,
-                              info=b"qresp-signing-seed-v1|", length=32)
+                              info=b"qknot-signing-seed-v1|", length=32)
         assert result.seed != attacker_guess
 
     def test_beacon_refuses_to_serve_key_sized_requests(self):
@@ -206,7 +206,7 @@ class TestAttestExplicitSeed:
     """Registerable keys (sign --seed) still carry honest time evidence."""
 
     def test_without_beacon_still_commits_to_the_seed(self):
-        from qresp.signing.entropy.mixing import attest_explicit_seed
+        from qknot.signing.entropy.mixing import attest_explicit_seed
 
         seed = b"\x5a" * 32
         att = attest_explicit_seed(seed, use_beacon=False)
@@ -218,8 +218,8 @@ class TestAttestExplicitSeed:
     def test_key_material_is_not_mixed_with_public_witness(self):
         """Reproducibility: the same seed must produce the same keys whether
         or not a beacon pulse was recorded beside them."""
-        from qresp.signing.entropy.mixing import attest_explicit_seed
-        from qresp.signing.sign import keygen
+        from qknot.signing.entropy.mixing import attest_explicit_seed
+        from qknot.signing.sign import keygen
 
         seed = b"\x42" * 32
         a = keygen(suite=["ed25519"], seed=seed,
@@ -233,7 +233,7 @@ class TestAttestExplicitSeed:
         """--deterministic needs two attestations of the same seed to match."""
         from datetime import datetime, timezone
 
-        from qresp.signing.entropy.mixing import attest_explicit_seed
+        from qknot.signing.entropy.mixing import attest_explicit_seed
 
         seed = b"\x11" * 32
         fixed = datetime(1970, 1, 1, tzinfo=timezone.utc)
@@ -361,7 +361,7 @@ class TestBeaconBackend:
 
     def test_signature_verification_is_an_honest_stub(self):
         """It must not silently claim to have verified anything."""
-        from qresp.signing.entropy.beacon import verify_pulse_signature
+        from qknot.signing.entropy.beacon import verify_pulse_signature
         pulse = BeaconPulse(1, 1, "t", "ab" * 64, "sig", "uri")
         with pytest.raises(NotImplementedError, match="verifier can check it"):
             verify_pulse_signature(pulse, b"")
@@ -402,7 +402,7 @@ class TestBackendBugsAreNotSwallowedAsUnavailability:
             return {}
 
     def test_a_programming_error_propagates(self):
-        from qresp.signing.entropy.mixing import mix_entropy
+        from qknot.signing.entropy.mixing import mix_entropy
 
         with pytest.raises(AttributeError, match="typo in the backend"):
             mix_entropy([self._BuggyBackend()], n_bytes=32)
@@ -410,8 +410,8 @@ class TestBackendBugsAreNotSwallowedAsUnavailability:
     def test_a_genuine_outage_is_still_skipped(self):
         """The behaviour that must survive the narrowing: real unavailability
         is recorded and tolerated, not raised."""
-        from qresp.signing.entropy.backends import SystemEntropyBackend
-        from qresp.signing.entropy.mixing import mix_entropy
+        from qknot.signing.entropy.backends import SystemEntropyBackend
+        from qknot.signing.entropy.mixing import mix_entropy
 
         result = mix_entropy(
             [SystemEntropyBackend(), self._OfflineBackend()], n_bytes=32

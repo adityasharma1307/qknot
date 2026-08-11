@@ -33,7 +33,7 @@ from pathlib import Path
 
 import pytest
 
-from qresp.signing.backends import BackendUnsuitable, LibOqsBackend, MlDsaBackend
+from qknot.signing.backends import BackendUnsuitable, LibOqsBackend, MlDsaBackend
 
 VECTORS = Path(__file__).parent / "fips204_vectors"
 LEVELS = {"ML-DSA-44": "ml-dsa-44", "ML-DSA-65": "ml-dsa-65",

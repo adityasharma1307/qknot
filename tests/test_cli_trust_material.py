@@ -1,4 +1,4 @@
-"""`qresp trust-material`: fetches a real Fulcio/Rekor trust store from
+"""`qknot trust-material`: fetches a real Fulcio/Rekor trust store from
 Sigstore's production TUF root, so `register`/`verify --registration` are not
 stuck trusting fixtures or a server's own say-so.
 
@@ -26,7 +26,7 @@ from cryptography.hazmat.primitives.serialization import (
 from cryptography.x509.oid import NameOID
 from typer.testing import CliRunner
 
-from qresp.cli import app
+from qknot.cli import app
 
 pytest.importorskip("sigstore", reason="needs `sigstore` (the register extra)")
 
@@ -92,7 +92,7 @@ def test_missing_sigstore_is_reported_not_a_traceback(monkeypatch):
     result = runner.invoke(app, ["trust-material", "--out", "/tmp/unused-trust"])
     assert result.exit_code == 2
     assert "pip install sigstore" in result.output
-    assert "qresp[register]" in result.output
+    assert "qknot[register]" in result.output
 
 
 def test_a_fetch_failure_is_reported_not_a_traceback(monkeypatch, tmp_path):
@@ -113,7 +113,7 @@ def test_a_fetch_failure_is_reported_not_a_traceback(monkeypatch, tmp_path):
 
 
 def test_a_real_trusted_root_shape_is_parsed_and_written(monkeypatch, tmp_path):
-    """The part under QResP's control: given a trusted_root.json, extract
+    """The part under QKnot's control: given a trusted_root.json, extract
     every CA cert and the (first) Rekor key, and write them in the formats
     --fulcio-roots/--log-key already accept."""
     import sigstore._internal.tuf as tuf_mod

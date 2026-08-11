@@ -20,12 +20,12 @@ from pathlib import Path
 
 import pytest
 
-from qresp.audit.detect import detect_signature_files
-from qresp.audit.hf_client import ModelSummary, is_transient
-from qresp.audit.model import QLabel, SigAlgorithm, SigFormat, classify_algorithm, reconcile_labels
-from qresp.audit.parse import parse_gpg, parse_raw_signature, parse_signature
-from qresp.audit.scanner import audit_model, run_audit_ids
-from qresp.signing.entropy import (
+from qknot.audit.detect import detect_signature_files
+from qknot.audit.hf_client import ModelSummary, is_transient
+from qknot.audit.model import QLabel, SigAlgorithm, SigFormat, classify_algorithm, reconcile_labels
+from qknot.audit.parse import parse_gpg, parse_raw_signature, parse_signature
+from qknot.audit.scanner import audit_model, run_audit_ids
+from qknot.signing.entropy import (
     EntropyAttestation,
     OnFailure,
     QrngUnavailable,
@@ -333,7 +333,7 @@ class TestStatisticalClaimsCannotBeInflated:
     def _stats(self):
         import importlib.util
         spec = importlib.util.spec_from_file_location(
-            "qresp_stats", Path(__file__).resolve().parents[2] / "src" / "qresp" / "audit" / "stats.py")
+            "qknot_stats", Path(__file__).resolve().parents[2] / "src" / "qknot" / "audit" / "stats.py")
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         return module

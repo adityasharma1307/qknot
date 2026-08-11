@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Draw the Stratum B (long-tail) sample for the QResP stratified audit.
+"""Draw the Stratum B (long-tail) sample for the QKnot stratified audit.
 
 METHODS SUMMARY
 ===============
@@ -81,7 +81,7 @@ from urllib3.util.retry import Retry
 log = logging.getLogger("sample_longtail")
 
 API_URL = "https://huggingface.co/api/models"
-USER_AGENT = "qresp/0.2 (BITS Pilani CS F376 research audit)"
+USER_AGENT = "qknot/0.2 (BITS Pilani CS F376 research audit)"
 
 # The API caps page size. 1,000 is the documented maximum; the code does not
 # assume the cap holds and simply follows whatever the server returns.

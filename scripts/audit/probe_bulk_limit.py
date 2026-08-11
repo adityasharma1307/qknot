@@ -28,7 +28,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
 API = "https://api.npmjs.org/downloads/point/last-month/"
-UA = {"User-Agent": "qresp-audit (+https://github.com/qresp)"}
+UA = {"User-Agent": "qknot-audit (+https://github.com/qknot)"}
 
 
 def sample_names(count: int) -> list[str]:
@@ -91,7 +91,7 @@ def main() -> int:
         print(f"  -> {(2_686_420 + best - 1) // best:,} requests instead of "
               f"{(2_686_420 + 127) // 128:,}: "
               f"{128 / best:.0%} of the current runtime")
-        print(f"  -> set BULK_LIMIT = {best} in src/qresp/audit/npm_client.py")
+        print(f"  -> set BULK_LIMIT = {best} in src/qknot/audit/npm_client.py")
     elif best == 128:
         print("  -> the documented limit is the real limit; the current run is "
               "already\n     as cheap as this endpoint allows.")

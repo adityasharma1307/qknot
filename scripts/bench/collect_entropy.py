@@ -155,7 +155,7 @@ def collect_anu(n_bytes: int, api_key: str | None, delay: float,
     """ANU Quantum Numbers, 1024 bytes per request."""
     import requests
 
-    from qresp.signing.entropy.backends import ANU_KEYED_URL, ANU_LEGACY_URL
+    from qknot.signing.entropy.backends import ANU_KEYED_URL, ANU_LEGACY_URL
 
     started = time.strftime("%Y-%m-%dT%H:%M:%S%z")
     collected = bytearray()
@@ -228,7 +228,7 @@ def collect_beacon(n_bytes: int, delay: float, resume: Path | None,
     """
     import requests
 
-    from qresp.signing.entropy.beacon import NIST_BEACON_BASE
+    from qknot.signing.entropy.beacon import NIST_BEACON_BASE
 
     started = time.strftime("%Y-%m-%dT%H:%M:%S%z")
     session = requests.Session()

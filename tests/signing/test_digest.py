@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from qresp.signing.digest import (
+from qknot.signing.digest import (
     DEFAULT_ALGORITHM,
     ExcludedEntry,
     FileEntry,

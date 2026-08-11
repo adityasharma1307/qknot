@@ -90,7 +90,7 @@ def fetch(url: str, timeout: float = 30.0) -> bytes | None:
     try:
         response = requests.get(
             url, timeout=timeout,
-            headers={"User-Agent": "qresp-oms-drift-check/1.0",
+            headers={"User-Agent": "qknot-oms-drift-check/1.0",
                      "Accept": "application/vnd.github.raw"},
         )
     except Exception as exc:

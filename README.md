@@ -1,8 +1,8 @@
-# QResP — Quantum-Resilient Provenance
+# QKnot — Quantum-Resilient Provenance
 
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)
-[![CI](https://github.com/adityasharma1307/qresp/actions/workflows/tests.yml/badge.svg)](https://github.com/adityasharma1307/qresp/actions/workflows/tests.yml)
+[![CI](https://github.com/adityasharma1307/qknot/actions/workflows/tests.yml/badge.svg)](https://github.com/adityasharma1307/qknot/actions/workflows/tests.yml)
 ![Tests](https://img.shields.io/badge/Tests-1261%20passing-brightgreen.svg)
 ![FIPS 204](https://img.shields.io/badge/FIPS%20204%20ACVP-180%2F180-brightgreen.svg)
 ![Self-signed release](https://img.shields.io/badge/v0.1.0-self--signed%20hybrid%20PQC-blueviolet.svg)
@@ -13,7 +13,7 @@
 
 ## Status
 
-`qresp` is a **hybrid post-quantum signing and identity-registration tool**:
+`qknot` is a **hybrid post-quantum signing and identity-registration tool**:
 it signs artefacts with a non-separable Ed25519 + ML-DSA-87 signature that
 existing OpenSSF Model Signing verifiers still accept, and it binds a
 post-quantum key to your existing OIDC identity through classical PKI so a
@@ -36,7 +36,7 @@ with a real hybrid signature over its own bytes — see
 
 Phase I as originally submitted (report, figures, and the 2026-05-21 dataset)
 is archived unmodified at
-[adityasharma1307/qresp-pilot](https://github.com/adityasharma1307/qresp-pilot);
+[adityasharma1307/qknot-pilot](https://github.com/adityasharma1307/qknot-pilot);
 this repository is where development continues, and has grown past a single
 semester's scope. The accompanying end-semester report is available in
 [`docs/report.pdf`](docs/report.pdf).
@@ -61,9 +61,9 @@ Full text: [`DISCLAIMER.md`](DISCLAIMER.md). License: [`LICENSE`](LICENSE) (MIT)
 verifier still accepts.
 
 ```bash
-qresp sign ./my-model --out model.bundle.json --keys-out keys.json \
+qknot sign ./my-model --out model.bundle.json --keys-out keys.json \
     --name my-model --context model-release
-qresp verify ./my-model --bundle model.bundle.json --context model-release
+qknot verify ./my-model --bundle model.bundle.json --context model-release
 ```
 
 The design problem is that the obvious hybrid — one classical signature and one
@@ -82,7 +82,7 @@ one leaves the other attesting to its absence.
 | **Signed** | DSSE PAE over the whole statement — attestation and metadata included |
 | **Conformance** | 180 NIST ACVP FIPS 204 vectors, byte-exact, run offline on every test invocation |
 
-`qresp.signing` imports nothing from `qresp.audit` and knows nothing about
+`qknot.signing` imports nothing from `qknot.audit` and knows nothing about
 HuggingFace or machine learning. It signs bytes. That boundary is enforced by
 a test, and works for anything that needs signing — firmware, datasets,
 documents, container images, source releases (including its own — see below).
@@ -90,7 +90,7 @@ documents, container images, source releases (including its own — see below).
 ## Identity & attribution: registering a PQC key off classical PKI, durably
 
 Fulcio will certify a P-256 key against your OIDC identity. It will not certify
-an ML-DSA key. So QResP uses the classical certificate **while it is still
+an ML-DSA key. So QKnot uses the classical certificate **while it is still
 valid** to vouch for the post-quantum key, and logs that vouching in
 transparency — the log timestamp then proves the binding predates the classical
 algorithm's deprecation, so it survives it.
@@ -99,18 +99,18 @@ algorithm's deprecation, so it survives it.
 
 ```bash
 # 0. Get a real trust store, once (or whenever it goes stale)
-qresp trust-material --out ./trust
+qknot trust-material --out ./trust
 
 # 1. Register a PQC key against your OIDC identity (opens a browser for
 #    the login unless --identity-token or --oauth-force-oob is given)
-qresp register --out ./my-registration \
+qknot register --out ./my-registration \
     --fulcio-roots ./trust/fulcio_roots.pem --log-key ./trust/rekor.pub
 
 # 2. Sign an artefact -- registration is independent of signing
-qresp sign ./my-model --out model.bundle.json --context model-release
+qknot sign ./my-model --out model.bundle.json --context model-release
 
 # 3. Verify BOTH the signature and who it belongs to
-qresp verify ./my-model --bundle model.bundle.json --context model-release \
+qknot verify ./my-model --bundle model.bundle.json --context model-release \
     --registration ./my-registration/bundle.json \
     --fulcio-roots ./trust/fulcio_roots.pem --log-key ./trust/rekor.pub \
     --check-revocations
@@ -125,7 +125,7 @@ falls back to trusting whatever certificate chain Fulcio itself handed back in
 the moment — that proves internal consistency, not third-party trust — and
 `verify --registration` / `verify-registration` refuse to run at all, on
 purpose: attribution needs a trust store, and the CLI will not invent one.
-`qresp trust-material` pulls a real one from Sigstore's production TUF root
+`qknot trust-material` pulls a real one from Sigstore's production TUF root
 (the same mechanism `sigstore-python` itself uses); see its `--help` for what
 it does, and `--staging` if you're testing against Sigstore's staging
 instance. Test-only material also exists
@@ -160,14 +160,14 @@ honest residuals: [`docs/REGISTRATION-SPEC.md`](docs/REGISTRATION-SPEC.md).
 
 ## This release signs itself
 
-[`release/qresp-0.1.0.tar.gz`](release/qresp-0.1.0.tar.gz) is the v0.1.0
-source release, and [`release/qresp-0.1.0.bundle.json`](release/qresp-0.1.0.bundle.json)
-is its own hybrid signature — produced by `qresp sign` against its own
+[`release/qknot-0.1.0.tar.gz`](release/qknot-0.1.0.tar.gz) is the v0.1.0
+source release, and [`release/qknot-0.1.0.bundle.json`](release/qknot-0.1.0.bundle.json)
+is its own hybrid signature — produced by `qknot sign` against its own
 bytes, not a demo artefact:
 
 ```bash
-qresp verify release/qresp-0.1.0.tar.gz \
-    --bundle release/qresp-0.1.0.bundle.json --context qresp-release
+qknot verify release/qknot-0.1.0.tar.gz \
+    --bundle release/qknot-0.1.0.bundle.json --context qknot-release
 ```
 
 ```
@@ -207,7 +207,7 @@ straight migration.
 
 ### Run it end to end
 
-[`notebooks/qresp_demo.ipynb`](notebooks/qresp_demo.ipynb) signs
+[`notebooks/qknot_demo.ipynb`](notebooks/qknot_demo.ipynb) signs
 `openai/privacy-filter` — one of the signed repositories found in the audit
 below, currently carrying an ECDSA P-256 Sigstore signature — then attacks
 the result seven ways: artefact tampering, unsigned additions to an excluded
@@ -268,23 +268,23 @@ never counted as unsigned).
 Requires Python 3.10 or newer.
 
 ```bash
-git clone https://github.com/adityasharma1307/qresp
-cd qresp
+git clone https://github.com/adityasharma1307/qknot
+cd qknot
 pip install -e .
 ```
 
-For `qresp register` and `qresp trust-material` (OIDC login, the TUF client):
+For `qknot register` and `qknot trust-material` (OIDC login, the TUF client):
 
 ```bash
 pip install -e ".[register]"
 ```
 
 `sign`, `verify` (without `--registration`), and the audit commands need none
-of this — `qresp.signing`'s core does not depend on `sigstore` at all. For
+of this — `qknot.signing`'s core does not depend on `sigstore` at all. For
 analysis notebooks: `pip install -e ".[analysis]"`. For development (tests,
 linter): `pip install -e ".[dev]"` — see `CONTRIBUTING.md`.
 
-> **Windows note:** if `qresp` is not found after install, the Python
+> **Windows note:** if `qknot` is not found after install, the Python
 > Scripts directory may not be on your PATH. Either add it:
 > ```
 > python -c "import sysconfig; print(sysconfig.get_path('scripts'))"
@@ -292,17 +292,17 @@ linter): `pip install -e ".[dev]"` — see `CONTRIBUTING.md`.
 > and put the printed path on your PATH, or skip PATH entirely and always
 > invoke the module form, which works regardless:
 > ```
-> python -m qresp sign ./my-model --out model.bundle.json
+> python -m qknot sign ./my-model --out model.bundle.json
 > ```
 
 ### What needs a network, and what doesn't
 
 | Works fully offline | Needs network (and sometimes a browser) |
 |---|---|
-| `qresp sign` / `qresp verify` (no `--registration`) | `qresp register` (OIDC login, Fulcio, Rekor) |
-| `qresp verify --registration` / `verify-registration`, given a bundle and a trust store you already have | `qresp trust-material` (fetches Sigstore's TUF root) |
-| `qresp entropy` (falls back to CSPRNG if unreachable) | `--check-revocations` (searches Rekor live) |
-| Almost the whole test suite (1261 of 1318 tests) | `qresp scan` / `audit-npm` / `audit-pypi` (query the registries) |
+| `qknot sign` / `qknot verify` (no `--registration`) | `qknot register` (OIDC login, Fulcio, Rekor) |
+| `qknot verify --registration` / `verify-registration`, given a bundle and a trust store you already have | `qknot trust-material` (fetches Sigstore's TUF root) |
+| `qknot entropy` (falls back to CSPRNG if unreachable) | `--check-revocations` (searches Rekor live) |
+| Almost the whole test suite (1261 of 1318 tests) | `qknot scan` / `audit-npm` / `audit-pypi` (query the registries) |
 
 So a fresh clone with no network at all can still sign, verify signatures,
 verify a registration you already hold the trust material for, and run
@@ -315,8 +315,8 @@ nearly the entire test suite.
 ### Sign and verify an artefact
 
 ```bash
-qresp sign ./my-model --out model.bundle.json --keys-out keys.json
-qresp verify ./my-model --bundle model.bundle.json
+qknot sign ./my-model --out model.bundle.json --keys-out keys.json
+qknot verify ./my-model --bundle model.bundle.json
 ```
 
 Add `--deterministic` for byte-reproducible signatures. It is off by default:
@@ -339,18 +339,18 @@ packages and a `tail` sampled at random from the rest:
 
 ```bash
 # HuggingFace
-qresp scan --n 10000 --out data/head_$(date +%Y-%m-%d).jsonl --token $HF_TOKEN
+qknot scan --n 10000 --out data/head_$(date +%Y-%m-%d).jsonl --token $HF_TOKEN
 python scripts/audit/sample_longtail.py --k 10000 --seed 20260725
-qresp scan-ids --ids data/longtail_sample_$(date +%Y-%m-%d).txt \
+qknot scan-ids --ids data/longtail_sample_$(date +%Y-%m-%d).txt \
     --out data/longtail_$(date +%Y-%m-%d).jsonl --token $HF_TOKEN
 
 # PyPI
-qresp audit-pypi --out data/pypi_$(date +%Y-%m-%d).jsonl
+qknot audit-pypi --out data/pypi_$(date +%Y-%m-%d).jsonl
 
 # npm -- publishes no ranking, so both inputs are produced locally first
 python scripts/audit/fetch_npm_frame.py --out data/npm_frame.txt
 python scripts/audit/rank_npm.py        --out data/npm_ranking.json
-qresp audit-npm --ranking data/npm_ranking.json --frame data/npm_frame.txt \
+qknot audit-npm --ranking data/npm_ranking.json --frame data/npm_frame.txt \
     --out data/npm_$(date +%Y-%m-%d).jsonl
 ```
 
@@ -366,7 +366,7 @@ https://huggingface.co/settings/tokens).
 Reproduce the published statistics:
 
 ```bash
-python -m qresp.audit.stats \
+python -m qknot.audit.stats \
   --head data/head_10k_2026-07-25.jsonl \
   --tail data/longtail_10k_2026-07-25.jsonl \
   --manifest data/longtail_manifest_2026-07-25.json
@@ -383,8 +383,8 @@ and worked statistical output are in
 Two halves, deliberately separable.
 
 ```
-qresp/
-├── src/qresp/
+qknot/
+├── src/qknot/
 │   ├── signing/        PHASE II -- signing anything, reusable
 │   │   └── entropy/        attested entropy acquisition
 │   ├── audit/          PHASE I -- surveying three registries
@@ -406,13 +406,13 @@ qresp/
 └── CONTRIBUTING.md      how the codebase is organised, and what a PR needs
 ```
 
-**`qresp.signing` does not import `qresp.audit`, and never will.** The
+**`qknot.signing` does not import `qknot.audit`, and never will.** The
 signing/identity pipeline is meant to be usable by anyone who needs
 post-quantum-ready signatures with honest provenance — for firmware,
 datasets, documents, container images, anything; the audit answers a
 research question about specific registries and is the evidence for why the
 signing half exists. `tests/signing/test_package_boundary.py` fails the
-build if that separation is broken, and also if `qresp.signing` acquires a
+build if that separation is broken, and also if `qknot.signing` acquires a
 dependency on `huggingface_hub`, `transformers` or `datasets`.
 
 ---
@@ -422,13 +422,13 @@ dependency on `huggingface_hub`, `transformers` or `datasets`.
 **Living repository** (signing, identity registration, multi-registry results):
 
 ```bibtex
-@misc{sharma2026qresp,
+@misc{sharma2026qknot,
   author       = {Sharma, Aditya},
-  title        = {{QResP}: Quantum-Resilient Provenance for
+  title        = {{QKnot}: Quantum-Resilient Provenance for
                   Machine Learning Supply Chains},
   year         = {2026},
   howpublished = {CS F376 Design Project, BITS Pilani Dubai Campus},
-  url          = {https://github.com/adityasharma1307/qresp},
+  url          = {https://github.com/adityasharma1307/qknot},
   note         = {Supervisor: Dr.\ Tamizharasan Periyasamy},
 }
 ```
@@ -437,12 +437,12 @@ dependency on `huggingface_hub`, `transformers` or `datasets`.
 not modified further):
 
 ```bibtex
-@misc{sharma2026qresp-pilot,
+@misc{sharma2026qknot-pilot,
   author       = {Sharma, Aditya},
-  title        = {{QResP} Phase I archive},
+  title        = {{QKnot} Phase I archive},
   year         = {2026},
   howpublished = {CS F376 Design Project, BITS Pilani Dubai Campus},
-  url          = {https://github.com/adityasharma1307/qresp-pilot},
+  url          = {https://github.com/adityasharma1307/qknot-pilot},
 }
 ```
 

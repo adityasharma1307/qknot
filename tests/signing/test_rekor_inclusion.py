@@ -16,7 +16,7 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
-from qresp.signing.rekor import (
+from qknot.signing.rekor import (
     InclusionError,
     hashedrekord_body,
     leaf_hash,

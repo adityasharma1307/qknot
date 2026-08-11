@@ -23,15 +23,15 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.serialization import Encoding
 from cryptography.x509.oid import NameOID
 
-from qresp.audit.model import QLabel, SigAlgorithm, classify_algorithm
-from qresp.audit.pqc_oid import encode_oid, postquantum_oid_in
-from qresp.audit.pypi_client import (
+from qknot.audit.model import QLabel, SigAlgorithm, classify_algorithm
+from qknot.audit.pqc_oid import encode_oid, postquantum_oid_in
+from qknot.audit.pypi_client import (
     PostQuantumCertificate,
     ProjectFiles,
     PyPiError,
     key_algorithm_of_certificate,
 )
-from qresp.audit.pypi_scanner import audit_project
+from qknot.audit.pypi_scanner import audit_project
 
 EC_OID = bytes.fromhex("06072a8648ce3d0201")     # id-ecPublicKey
 
@@ -76,7 +76,7 @@ class TestTheGapItself:
 
     def test_the_environment_reports_its_own_pq_capability(self):
         """A negative result needs the detector's competence on the record."""
-        from qresp.audit.capability import pqc_parsing_capability
+        from qknot.audit.capability import pqc_parsing_capability
 
         capability = pqc_parsing_capability()
         assert set(capability) >= {"mlDsaKeysUsable", "mlDsaCertificatesIssuable",
@@ -88,14 +88,14 @@ class TestTheGapItself:
         negative on two machines where the module was present and working."""
         import importlib.util
 
-        from qresp.audit.capability import _mldsa_module
+        from qknot.audit.capability import _mldsa_module
         expected = importlib.util.find_spec(
             "cryptography.hazmat.primitives.asymmetric.mldsa") is not None
         assert (_mldsa_module() is not None) is expected
 
     def test_capability_is_functional_not_nominal(self):
         """Importable and working are different claims."""
-        from qresp.audit.capability import _mldsa_module, pqc_parsing_capability
+        from qknot.audit.capability import _mldsa_module, pqc_parsing_capability
 
         if _mldsa_module() is None:
             pytest.skip("no mldsa module in this environment")
@@ -105,7 +105,7 @@ class TestTheGapItself:
         """Where cryptography CAN parse it, classification must not depend on
         the OID fallback -- builds differ and a scan should not depend on
         which path it got."""
-        from qresp.audit.capability import _mldsa_module
+        from qknot.audit.capability import _mldsa_module
 
         mldsa = _mldsa_module()
         if mldsa is None:
@@ -117,7 +117,7 @@ class TestTheGapItself:
         3.5.0 the release notes name -- still exposes no ml_dsa module, because
         the bundled-wheel build decides it. A version comparison would have
         reported support that is not there."""
-        from qresp.audit.capability import scan_environment
+        from qknot.audit.capability import scan_environment
 
         environment = scan_environment()
         assert "openssl" in environment

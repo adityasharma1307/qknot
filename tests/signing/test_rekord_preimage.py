@@ -9,11 +9,11 @@ from __future__ import annotations
 
 import hashlib
 
-from qresp.signing.dsse import pae, rekord_preimage
+from qknot.signing.dsse import pae, rekord_preimage
 
 
 def test_the_preimage_is_sha256_of_the_pae_exactly():
-    payload_type = "application/vnd.qresp.key-registration+json"
+    payload_type = "application/vnd.qknot.key-registration+json"
     payload = b'{"identity":"a@example.com"}'
     assert rekord_preimage(payload_type, payload) == \
         hashlib.sha256(pae(payload_type, payload)).digest()
@@ -22,7 +22,7 @@ def test_the_preimage_is_sha256_of_the_pae_exactly():
 def test_it_covers_the_payload_not_any_surrounding_signatures():
     """Adding or reordering signatures around the payload cannot change the
     logged hash, because the hash is over the PAE of the payload alone."""
-    pt = "application/vnd.qresp.key-registration+json"
+    pt = "application/vnd.qknot.key-registration+json"
     payload = b'{"claim":"x"}'
     once = rekord_preimage(pt, payload)
     # Whatever an envelope wraps around this payload, the pre-image is fixed.

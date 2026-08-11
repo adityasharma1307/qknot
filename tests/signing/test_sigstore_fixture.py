@@ -20,8 +20,8 @@ from pathlib import Path
 import pytest
 from cryptography import x509
 
-from qresp.signing.fulcio import verify_chain
-from qresp.signing.rekor import (
+from qknot.signing.fulcio import verify_chain
+from qknot.signing.rekor import (
     hashedrekord_digest,
     leaf_hash,
     log_entry_from_rekor,
@@ -103,7 +103,7 @@ class TestComposedVerifyLogEntryOnRealBytes:
         if not key_path.exists():
             pytest.skip("no rekor key in fixture")
         # The SHARED mapper turns the raw Rekor response into a LogEntry -- the
-        # same helper qresp register uses -- so this proves the mapper on real
+        # same helper qknot register uses -- so this proves the mapper on real
         # bytes and the composed verification in one shot.
         entry = log_entry_from_rekor(tlog)
         body = _b64(tlog["canonicalizedBody"])

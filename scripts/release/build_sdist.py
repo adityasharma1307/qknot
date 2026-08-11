@@ -10,7 +10,7 @@ and `src/` -- so there is nothing to exclude in the first place.
 
     python scripts/release/build_sdist.py --version 0.1.0
 
-Produces `release/qresp-<version>.tar.gz`, deterministically enough to
+Produces `release/qknot-<version>.tar.gz`, deterministically enough to
 inspect (sorted file order) but not byte-reproducible across machines
 (gzip/tar embed mtimes) -- that is a nice-to-have, not a security property.
 The signature is what a verifier actually relies on.
@@ -26,16 +26,24 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 INCLUDE_FILES = ["pyproject.toml", "README.md", "LICENSE"]
 INCLUDE_DIRS = ["src"]
 SKIP_SEGMENTS = {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".venv"}
+# Build metadata left behind by `pip install -e .`. It lives inside src/, so a
+# naive walk sweeps it into the release -- and because it is regenerated per
+# install, it can carry a STALE package name (an `.egg-info` from before a
+# rename), shipping a tarball that contradicts its own pyproject.
+SKIP_SUFFIXES = {".egg-info", ".dist-info", ".pyc"}
 
 
 def _should_skip(path: Path) -> bool:
-    return any(seg in SKIP_SEGMENTS for seg in path.parts) or path.suffix == ".pyc"
+    if any(seg in SKIP_SEGMENTS for seg in path.parts):
+        return True
+    return any(seg.endswith(suffix)
+               for seg in path.parts for suffix in SKIP_SUFFIXES)
 
 
 def build(version: str, out_dir: Path) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
-    tarpath = out_dir / f"qresp-{version}.tar.gz"
-    prefix = f"qresp-{version}"
+    tarpath = out_dir / f"qknot-{version}.tar.gz"
+    prefix = f"qknot-{version}"
 
     with tarfile.open(tarpath, "w:gz") as tf:
         for name in INCLUDE_FILES:
@@ -62,9 +70,9 @@ def main() -> int:
         names = tf.getnames()
     print(f"built: {tarpath} ({tarpath.stat().st_size} bytes, {len(names)} files)")
     print("\nsign it with:")
-    print(f"  qresp sign {tarpath} --out {args.out}/qresp-{args.version}.bundle.json "
-          f"--keys-out {args.out}/qresp-{args.version}.keys.json "
-          f"--name qresp-{args.version} --context qresp-release")
+    print(f"  qknot sign {tarpath} --out {args.out}/qknot-{args.version}.bundle.json "
+          f"--keys-out {args.out}/qknot-{args.version}.keys.json "
+          f"--name qknot-{args.version} --context qknot-release")
     return 0
 
 

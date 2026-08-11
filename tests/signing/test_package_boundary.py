@@ -1,6 +1,6 @@
 """The reusability guarantee, enforced.
 
-`qresp.signing` is meant to be usable by anyone signing anything -- firmware,
+`qknot.signing` is meant to be usable by anyone signing anything -- firmware,
 datasets, documents, container images -- not just HuggingFace models. That is
 only true if it never reaches into the audit code. A guarantee stated in a
 docstring decays; one stated as a test does not.
@@ -12,7 +12,7 @@ import pathlib
 
 import pytest
 
-SIGNING = pathlib.Path(__file__).resolve().parents[2] / "src" / "qresp" / "signing"
+SIGNING = pathlib.Path(__file__).resolve().parents[2] / "src" / "qknot" / "signing"
 
 
 def _imported_modules(path: pathlib.Path) -> set[str]:
@@ -28,9 +28,9 @@ def _imported_modules(path: pathlib.Path) -> set[str]:
 
 @pytest.mark.parametrize("path", sorted(SIGNING.rglob("*.py")), ids=lambda p: p.name)
 def test_signing_never_imports_the_audit_package(path):
-    offenders = {m for m in _imported_modules(path) if m.startswith("qresp.audit")}
+    offenders = {m for m in _imported_modules(path) if m.startswith("qknot.audit")}
     assert not offenders, (
-        f"{path.name} imports {offenders}. qresp.signing must stay independent "
+        f"{path.name} imports {offenders}. qknot.signing must stay independent "
         f"of the HuggingFace audit so it can be reused for any artefact."
     )
 
@@ -52,11 +52,11 @@ def test_signing_package_documents_its_independence():
 
 
 class TestTheCliRespectsTheBoundaryToo:
-    """`qresp.signing` avoiding `qresp.audit` is worth little if the CLI
+    """`qknot.signing` avoiding `qknot.audit` is worth little if the CLI
     reunites them at import time.
 
     It did. `cli.py` imported `HfClient`, `QLabel` and the scanner at module
-    level, so `qresp sign` -- a pure signing operation on a local directory --
+    level, so `qknot sign` -- a pure signing operation on a local directory --
     refused to start without `tenacity`, `huggingface_hub` and `pydantic`
     installed. Someone signing a firmware image had to install a HuggingFace
     client first, which is precisely the coupling the boundary exists to
@@ -71,7 +71,7 @@ class TestTheCliRespectsTheBoundaryToo:
         import pathlib
 
         source = (pathlib.Path(__file__).resolve().parents[2]
-                  / "src" / "qresp" / "cli.py").read_text(encoding="utf-8")
+                  / "src" / "qknot" / "cli.py").read_text(encoding="utf-8")
         tree = ast.parse(source)
 
         offenders = []
@@ -80,11 +80,11 @@ class TestTheCliRespectsTheBoundaryToo:
                 if node.module.startswith("audit") or ".audit" in node.module:
                     offenders.append(node.module)
             elif isinstance(node, ast.Import):
-                offenders += [a.name for a in node.names if "qresp.audit" in a.name]
+                offenders += [a.name for a in node.names if "qknot.audit" in a.name]
 
         assert not offenders, (
             f"cli.py imports {offenders} at module level. Move it inside the "
-            f"command that needs it, so `qresp sign` runs without the audit "
+            f"command that needs it, so `qknot sign` runs without the audit "
             f"dependencies."
         )
 
@@ -96,7 +96,7 @@ class TestTheCliRespectsTheBoundaryToo:
         blocked = ("tenacity", "huggingface_hub", "pydantic")
         saved = {name: sys.modules.pop(name, None) for name in blocked}
         for name in list(sys.modules):
-            if name.startswith("qresp.cli") or name.startswith("qresp.audit"):
+            if name.startswith("qknot.cli") or name.startswith("qknot.audit"):
                 sys.modules.pop(name, None)
 
         class _Blocker:
@@ -108,7 +108,7 @@ class TestTheCliRespectsTheBoundaryToo:
 
         sys.meta_path.insert(0, _Blocker())
         try:
-            cli = importlib.import_module("qresp.cli")
+            cli = importlib.import_module("qknot.cli")
             names = {c.callback.__name__ for c in cli.app.registered_commands}
             assert "sign_artefact" in names and "verify_artefact" in names
         finally:
@@ -116,4 +116,4 @@ class TestTheCliRespectsTheBoundaryToo:
             for name, module in saved.items():
                 if module is not None:
                     sys.modules[name] = module
-            sys.modules.pop("qresp.cli", None)
+            sys.modules.pop("qknot.cli", None)

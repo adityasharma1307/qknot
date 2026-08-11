@@ -28,8 +28,8 @@ from datetime import datetime, timezone
 
 import pytest
 
-from qresp.signing.temporal import Bound, TimeEvidence, evidence_from_attestation
-from qresp.signing.transparency import (
+from qknot.signing.temporal import Bound, TimeEvidence, evidence_from_attestation
+from qknot.signing.transparency import (
     VERIFIED_TIME_THRESHOLD,
     TimestampError,
     TimestampToken,
@@ -38,7 +38,7 @@ from qresp.signing.transparency import (
     establish_time,
 )
 
-pytest.importorskip("rfc3161_client", reason="needs `qresp[transparency]`")
+pytest.importorskip("rfc3161_client", reason="needs `qknot[transparency]`")
 
 GOOD = TimestampToken(der=b"\x30\x03fake-a", url="http://tsa-a.example")
 OTHER = TimestampToken(der=b"\x30\x03fake-b", url="http://tsa-b.example")
@@ -70,7 +70,7 @@ def verifies(monkeypatch: pytest.MonkeyPatch):
             if token.der not in accepted:
                 raise TimestampError("signature does not verify")
             return accepted[token.der]
-        monkeypatch.setattr("qresp.signing.transparency.verify_timestamp", fake)
+        monkeypatch.setattr("qknot.signing.transparency.verify_timestamp", fake)
     return install
 
 
@@ -178,7 +178,7 @@ class TestFailClosed:
 
     def test_an_empty_trust_store_is_not_success(self):
         """Verifying against no roots must fail, not vacuously pass."""
-        from qresp.signing.transparency import verify_timestamp
+        from qknot.signing.transparency import verify_timestamp
         with pytest.raises(TimestampError, match="no root certificates"):
             verify_timestamp(GOOD, b"sig", tsa_certificate=object(), roots=[])
 

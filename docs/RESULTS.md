@@ -1,4 +1,4 @@
-# QResP — consolidated results
+# QKnot — consolidated results
 
 Everything measured, in one place, with the caveat that belongs beside it.
 Every figure here is reproducible from a committed artefact; where a number
@@ -47,7 +47,7 @@ behaviour, not a curiosity — and the post-quantum rate is still exactly zero.
 
 ### A note on the 2026-08-01 correction
 
-Every number above was produced by `src/qresp/audit/stats.py` after a bug
+Every number above was produced by `src/qknot/audit/stats.py` after a bug
 sweep on 2026-08-01 that fixed a stratum double-count, a loader that could not
 read `project`-keyed records, an error-retry that never retried, and a
 provenance-version mismatch. Before that sweep the npm and PyPI figures had
@@ -408,7 +408,7 @@ candidate, exploiting an unused symmetry in its lattice structure and cutting
 the operation count from ~2⁶⁴ to ~2³⁸. A separate result sped up an attack on
 7-round AES by 200–800×.
 
-**Neither touches this work.** QResP signs with ML-DSA (FIPS 204). HAWK is a
+**Neither touches this work.** QKnot signs with ML-DSA (FIPS 204). HAWK is a
 different, unstandardised, undeployed scheme, and Anthropic states the attack
 does not extend to other NIST candidates or to lattice cryptography generally.
 NIST's real parameter sets remain out of reach: HAWK-512 falls from 2¹⁵⁰ to
@@ -443,7 +443,7 @@ deployed.
 §1–2c establish that the deployed ecosystem has no post-quantum path — Rekor
 v2 is `hashedrekord`-only, ML-DSA has no externalised prehash, and mainstream
 certificate tooling could not parse a post-quantum certificate for most of
-the audit window. QResP's answer is to bootstrap one from the classical PKI
+the audit window. QKnot's answer is to bootstrap one from the classical PKI
 that already exists, and that answer is implemented and verified against live
 infrastructure, not only simulated:
 

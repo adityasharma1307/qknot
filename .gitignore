@@ -57,7 +57,7 @@ Thumbs.db
 #     git show <commit>:data/longtail_10k_2026-07-25.jsonl
 data/*.prebackfill-*.jsonl
 
-# Scratch produced by running notebooks/qresp_demo.ipynb. The notebook is the
+# Scratch produced by running notebooks/qknot_demo.ipynb. The notebook is the
 # deliverable; everything it writes is a per-run artefact -- tampered copies,
 # a synthetic attacker tree, a stand-in HF snapshot, and the bundle/keys the
 # CLI section emits. Committing them would ship a signed bundle whose keys were
@@ -75,15 +75,15 @@ notebooks/cli.keys.json
 # The demo notebook's Colab fallback clones the repository. If that path runs
 # from inside a checkout -- which it should not, but did once when the local
 # search failed -- it leaves a nested clone here. Never commit one.
-/qresp/
-/qresp2/
+/qknot/
+/qknot2/
 
 # Local packaging / history-rewrite scratch that must never be committed.
-# - qresp-0.1.0/   extracted sdist from release/qresp-0.1.0.tar.gz
-# - qresp.git/     bare mirror left by git-filter-repo / --mirror clones
-# - trust/         output of `qresp trust-material` (re-fetchable anytime)
-/qresp-0.1.0/
-/qresp.git/
+# - qknot-0.1.0/   extracted sdist from release/qknot-0.1.0.tar.gz
+# - qknot.git/     bare mirror left by git-filter-repo / --mirror clones
+# - trust/         output of `qknot trust-material` (re-fetchable anytime)
+/qknot-0.1.0/
+/qknot.git/
 /trust/
 
 # Long-term signing key material derived by scripts/release/derive_keypair.py

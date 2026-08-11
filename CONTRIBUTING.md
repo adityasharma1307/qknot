@@ -8,22 +8,22 @@ follows.
 ## Setting up
 
 ```bash
-git clone https://github.com/adityasharma1307/qresp
-cd qresp
+git clone https://github.com/adityasharma1307/qknot
+cd qknot
 pip install -e ".[dev,analysis,register]"
 ```
 
-`dev` gets you the test suite and linters; `register` gets you `qresp
-register` / `qresp trust-material` (OIDC + the TUF client); `analysis` gets
-you the notebook dependencies. None of the three are needed for `qresp sign`
-/ `qresp verify` or the audit commands.
+`dev` gets you the test suite and linters; `register` gets you `qknot
+register` / `qknot trust-material` (OIDC + the TUF client); `analysis` gets
+you the notebook dependencies. None of the three are needed for `qknot sign`
+/ `qknot verify` or the audit commands.
 
 ## Running the checks
 
 ```bash
 python -m pytest              # ~1256 pass offline; 57 skip (need network or a fixture)
 ruff check src/ tests/ scripts/
-mypy src/qresp/signing         # strict=true on signing/; looser on audit/ and cli.py, see pyproject.toml
+mypy src/qknot/signing         # strict=true on signing/; looser on audit/ and cli.py, see pyproject.toml
 ```
 
 Tests that genuinely need a socket are marked `allow_network` and skip by
@@ -32,14 +32,14 @@ mark it, and explain in the test why it can't be an offline fixture instead.
 
 ## The two halves stay separated
 
-`qresp.signing` does not import anything from `qresp.audit`, and does not
+`qknot.signing` does not import anything from `qknot.audit`, and does not
 depend on `huggingface_hub`, `transformers` or `datasets`.
 `tests/signing/test_package_boundary.py` fails the build if that's violated.
 The signing/identity half is meant to be usable by anyone who needs
 post-quantum-ready signatures with honest provenance — firmware, datasets,
 container images, anything that isn't a HuggingFace model. If a change to
-`qresp.signing` only makes sense in terms of ML models or HuggingFace, it
-probably belongs in `qresp.audit` instead, or as a thin adapter on top.
+`qknot.signing` only makes sense in terms of ML models or HuggingFace, it
+probably belongs in `qknot.audit` instead, or as a thin adapter on top.
 
 ## Verifiers report what they didn't check, not just what passed
 
@@ -71,7 +71,7 @@ why the code prevents it.
 infrastructure rather than fakes — they're how residual claims in
 `docs/REGISTRATION-SPEC.md` get demonstrated instead of merely asserted. They
 are not part of the test suite (they need live network and sometimes OIDC)
-but if you touch a REST adapter (`src/qresp/signing/sigstore_clients.py`,
+but if you touch a REST adapter (`src/qknot/signing/sigstore_clients.py`,
 `fulcio.py`, `rekor.py`), running the matching script against real
 infrastructure before opening a PR is worth doing — offline fakes can't catch
 a mismatch between what the client assumes and what the live API actually

@@ -21,7 +21,7 @@ import math
 
 import pytest
 
-from qresp.signing.entropy.sp800_22 import (
+from qknot.signing.entropy.sp800_22 import (
     ALPHA,
     cumulative_sums,
     frequency_within_block,

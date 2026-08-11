@@ -1,4 +1,4 @@
-"""Hand-crafted fixtures for testing the QResP scanner.
+"""Hand-crafted fixtures for testing the QKnot scanner.
 
 These fixtures emulate the responses we expect from real HuggingFace models,
 including all four major signature shapes plus an unsigned baseline. They let
@@ -13,7 +13,7 @@ import base64
 import json
 from datetime import datetime, timezone
 
-from qresp.audit.hf_client import ModelSummary
+from qknot.audit.hf_client import ModelSummary
 
 
 # ---------------------------------------------------------------------------

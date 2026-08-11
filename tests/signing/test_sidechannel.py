@@ -9,14 +9,14 @@ from __future__ import annotations
 
 import pytest
 
-from qresp.signing.backends import (
+from qknot.signing.backends import (
     BackendUnsuitable,
     Exposure,
     attest_constant_time,
     check_exposure,
     get_backend,
 )
-from qresp.signing.sidechannel import SideChannelEvidence, SideChannelStatus
+from qknot.signing.sidechannel import SideChannelEvidence, SideChannelStatus
 
 GOOD = dict(tool="dudect", tool_version="0.1.0",
             performed="2026-07-30T09:00:00+00:00",

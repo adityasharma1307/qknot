@@ -11,8 +11,8 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from qresp.signing.algorithms import REGISTRY
-from qresp.signing.temporal import (
+from qknot.signing.algorithms import REGISTRY
+from qknot.signing.temporal import (
     ALGORITHM_POLICIES,
     Bound,
     TimeEvidence,
@@ -317,8 +317,8 @@ class TestIntegrationWithVerify:
         # ML-DSA installed, which is exactly where a classical-only signature
         # is most likely to be produced.
         pytest.importorskip("cryptography")
-        from qresp.signing.backends import Exposure
-        from qresp.signing.sign import keygen, sign
+        from qknot.signing.backends import Exposure
+        from qknot.signing.sign import keygen, sign
 
         root = tmp_path_factory.mktemp("m")
         (root / "w.bin").write_bytes(b"w" * 128)
@@ -326,7 +326,7 @@ class TestIntegrationWithVerify:
         return root, sign(root, keys, exposure=Exposure.OFFLINE)
 
     def test_soft_warns_by_default_after_the_deadline(self, artefact_and_signature):
-        from qresp.signing.sign import VerifyMode, verify
+        from qknot.signing.sign import VerifyMode, verify
 
         root, signed = artefact_and_signature
         report = verify(root, signed, mode=VerifyMode.CLASSICAL, now=AFTER)
@@ -334,20 +334,20 @@ class TestIntegrationWithVerify:
         assert report["temporal"]["critical"]
 
     def test_hard_fails_in_strict_after_the_deadline(self, artefact_and_signature):
-        from qresp.signing.sign import VerificationFailed, VerifyMode, verify
+        from qknot.signing.sign import VerificationFailed, VerifyMode, verify
 
         root, signed = artefact_and_signature
         with pytest.raises(VerificationFailed, match="temporal trust boundary"):
             verify(root, signed, mode=VerifyMode.STRICT, now=AFTER)
 
     def test_strict_passes_before_the_deadline(self, artefact_and_signature):
-        from qresp.signing.sign import VerifyMode, verify
+        from qknot.signing.sign import VerifyMode, verify
 
         root, signed = artefact_and_signature
         assert verify(root, signed, mode=VerifyMode.STRICT, now=BEFORE)["verified"]
 
     def test_the_failure_message_names_the_escape_hatch(self, artefact_and_signature):
-        from qresp.signing.sign import VerificationFailed, VerifyMode, verify
+        from qknot.signing.sign import VerificationFailed, VerifyMode, verify
 
         root, signed = artefact_and_signature
         with pytest.raises(VerificationFailed) as excinfo:

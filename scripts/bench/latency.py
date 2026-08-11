@@ -210,7 +210,7 @@ def environment() -> dict[str, Any]:
 # 1. Primitives
 # ---------------------------------------------------------------------------
 def bench_primitives(reps: int) -> dict[str, Any]:
-    from qresp.signing.backends import get_backend
+    from qknot.signing.backends import get_backend
 
     seed = bytes(range(32))
 
@@ -219,7 +219,7 @@ def bench_primitives(reps: int) -> dict[str, Any]:
         # sampled rather than fixed. Sixteen bytes of counter is enough to
         # decorrelate; the payload length is held constant so length is not a
         # confounder.
-        return b"qresp-bench-" + i.to_bytes(16, "big", signed=True) + b"-pad"
+        return b"qknot-bench-" + i.to_bytes(16, "big", signed=True) + b"-pad"
 
     results: dict[str, Any] = {}
 
@@ -273,9 +273,9 @@ def bench_scaling(reps: int, sizes_mb: list[int],
     single most useful fact in this whole file: the post-quantum signature is
     essentially free next to hashing the weights.
     """
-    from qresp.signing.backends import Exposure
-    from qresp.signing.digest import digest_artefact
-    from qresp.signing.sign import keygen, sign
+    from qknot.signing.backends import Exposure
+    from qknot.signing.digest import digest_artefact
+    from qknot.signing.sign import keygen, sign
 
     keys = keygen(suite=["ed25519", level], seed=bytes(range(32)))
     results: dict[str, Any] = {"signed_with": level}
@@ -314,8 +314,8 @@ def bench_hybrid_overhead(reps: int, level: str = DEFAULT_HYBRID_LEVEL) -> dict[
     ML-DSA-only comparison row, so the two stay comparable. It is recorded in
     the result so a reader never has to infer it from the signature size.
     """
-    from qresp.signing.backends import Exposure
-    from qresp.signing.sign import VerifyMode, keygen, sign, verify
+    from qknot.signing.backends import Exposure
+    from qknot.signing.sign import VerifyMode, keygen, sign, verify
 
     with tempfile.TemporaryDirectory() as tmp:
         root = _make_tree(Path(tmp) / "artefact", 1 << 20, files=4)   # 1 MiB
@@ -376,7 +376,7 @@ def bench_cli(reps: int) -> dict[str, Any]:
         bundle = Path(tmp) / "bench.bundle.json"
 
         def run(args: list[str]) -> None:
-            subprocess.run([sys.executable, "-m", "qresp", *args],
+            subprocess.run([sys.executable, "-m", "qknot", *args],
                            capture_output=True, env=env, check=False,
                            text=True, encoding="utf-8", errors="replace")
 
@@ -391,9 +391,9 @@ def bench_cli(reps: int) -> dict[str, Any]:
 
         return {
             "interpreter_startup": asdict(Timing.of("python -c pass", baseline)),
-            "sign": asdict(Timing.of("qresp sign",
+            "sign": asdict(Timing.of("qknot sign",
                                      measure(lambda i: run(sign_args), n))),
-            "verify": asdict(Timing.of("qresp verify",
+            "verify": asdict(Timing.of("qknot verify",
                                        measure(lambda i: run(verify_args), n))),
             "note": "interpreter startup is measured separately because it is "
                     "typically the majority of a single invocation and is not a "
@@ -413,7 +413,7 @@ def _row(timing: dict[str, Any]) -> str:
 def report(results: dict[str, Any]) -> None:
     env = results["environment"]
     print("=" * 78)
-    print("QResP latency benchmarks")
+    print("QKnot latency benchmarks")
     print("=" * 78)
     print(f"  {env['platform']}")
     print(f"  Python {env['python']} ({env['implementation']})  "
@@ -473,7 +473,7 @@ def report(results: dict[str, Any]) -> None:
         startup = c["interpreter_startup"]["median_ms"]
         total = c["sign"]["median_ms"]
         print(f"\n  interpreter startup is {100 * startup / total:.0f}% of one "
-              f"`qresp sign` invocation")
+              f"`qknot sign` invocation")
         print()
 
 
@@ -498,7 +498,7 @@ def check_invariants(results: dict[str, Any]) -> tuple[list[str], list[str]]:
         # does not. That exact mismatch already reached docs/BENCHMARKS.md once.
         level = h.get("hybrid_level")
         try:
-            from qresp.signing.backends import DEFAULT_SUITE
+            from qknot.signing.backends import DEFAULT_SUITE
             shipped = [a for a in DEFAULT_SUITE if a.startswith("ml-dsa")]
             if level and shipped and level != shipped[0]:
                 notes.append(

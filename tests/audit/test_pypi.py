@@ -19,13 +19,13 @@ from cryptography.hazmat.primitives.asymmetric import ec, ed25519, rsa
 from cryptography.hazmat.primitives.serialization import Encoding
 from cryptography.x509.oid import NameOID
 
-from qresp.audit.model import QLabel, SigAlgorithm
-from qresp.audit.pypi_client import (
+from qknot.audit.model import QLabel, SigAlgorithm
+from qknot.audit.pypi_client import (
     ProjectFiles,
     PyPiError,
     key_algorithm_of_certificate,
 )
-from qresp.audit.pypi_scanner import audit_project, unavailable_project
+from qknot.audit.pypi_scanner import audit_project, unavailable_project
 
 
 def _certificate_b64(private_key: Any) -> str:
@@ -103,7 +103,7 @@ class TestAlgorithmClassification:
     def test_each_key_type_maps_to_the_shared_vocabulary(self, key_factory,
                                                          expected, label):
         """Same enum the HuggingFace audit uses, so stats.py needs no branching."""
-        from qresp.audit.model import classify_algorithm
+        from qknot.audit.model import classify_algorithm
 
         algorithm, _bits = key_algorithm_of_certificate(_certificate_b64(key_factory()))
         assert algorithm is expected
@@ -119,7 +119,7 @@ class TestAlgorithmClassification:
         Defaulting it to classical would erase the one result this study
         exists to detect, so the failure path says so in as many words.
         """
-        from qresp.audit import pypi_client
+        from qknot.audit import pypi_client
 
         message = pypi_client.key_algorithm_of_certificate.__doc__ or ""
         assert "post-quantum" in message

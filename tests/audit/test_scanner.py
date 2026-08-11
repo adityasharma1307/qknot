@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from qresp.audit.model import ModelRecord, QLabel, SigAlgorithm, SigFormat
-from qresp.audit.scanner import audit_model, run_audit
+from qknot.audit.model import ModelRecord, QLabel, SigAlgorithm, SigFormat
+from qknot.audit.scanner import audit_model, run_audit
 
 from .fake_client import FakeHfClient
 from .fixtures_models import (
@@ -179,21 +179,21 @@ class TestNotesAreDeduplicated:
     """
 
     def test_identical_notes_collapse_to_one_with_a_count(self):
-        from qresp.audit.scanner import _format_notes
+        from qknot.audit.scanner import _format_notes
 
         assert _format_notes(["a", "a", "a"]) == "a (x3)"
 
     def test_a_single_note_carries_no_count(self):
-        from qresp.audit.scanner import _format_notes
+        from qknot.audit.scanner import _format_notes
 
         assert _format_notes(["a"]) == "a"
 
     def test_distinct_notes_are_all_kept_in_order(self):
-        from qresp.audit.scanner import _format_notes
+        from qknot.audit.scanner import _format_notes
 
         assert _format_notes(["b", "a", "b"]) == "b (x2); a"
 
     def test_no_notes_yields_none(self):
-        from qresp.audit.scanner import _format_notes
+        from qknot.audit.scanner import _format_notes
 
         assert _format_notes([]) is None

@@ -1,10 +1,10 @@
-"""Tests for qresp.parse — extracting algorithms from signature bytes."""
+"""Tests for qknot.parse — extracting algorithms from signature bytes."""
 from __future__ import annotations
 
 import pytest
 
-from qresp.audit.model import SigAlgorithm, SigFormat
-from qresp.audit.parse import (
+from qknot.audit.model import SigAlgorithm, SigFormat
+from qknot.audit.parse import (
     parse_gpg,
     parse_in_toto,
     parse_signature,

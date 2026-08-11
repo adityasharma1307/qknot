@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from qresp.audit.hf_client import HfClientProtocol, ModelSummary
+from qknot.audit.hf_client import HfClientProtocol, ModelSummary
 
 
 class FakeHfClient(HfClientProtocol):

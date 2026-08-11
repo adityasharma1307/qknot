@@ -392,7 +392,7 @@ def check_cli(doc: str, bench: dict[str, Any], report: Report) -> None:
         report.missing("results/bench.json has no 'cli' section")
         return
     for label, key in (("interpreter startup (`python -c pass`)", "interpreter_startup"),
-                       ("`qresp sign`", "sign"), ("`qresp verify`", "verify")):
+                       ("`qknot sign`", "sign"), ("`qknot verify`", "verify")):
         if key not in cli:
             continue
         cells = _row(doc, label.replace("`", ""))

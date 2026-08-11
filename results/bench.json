@@ -352,7 +352,7 @@
       "stdev_ms": 19.15998913586756
     },
     "sign": {
-      "label": "qresp sign",
+      "label": "qknot sign",
       "n": 25,
       "median_ms": 302.723899949342,
       "p25_ms": 284.8525500157848,
@@ -363,7 +363,7 @@
       "stdev_ms": 21.539970749788353
     },
     "verify": {
-      "label": "qresp verify",
+      "label": "qknot verify",
       "n": 25,
       "median_ms": 244.4520000135526,
       "p25_ms": 229.51430000830442,

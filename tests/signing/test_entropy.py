@@ -11,7 +11,7 @@ import json
 
 import pytest
 
-from qresp.signing.entropy import (
+from qknot.signing.entropy import (
     COMMITMENT_DOMAIN,
     DEFAULT_BACKEND,
     DEFAULT_ON_FAILURE,

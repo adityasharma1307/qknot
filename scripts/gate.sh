@@ -23,6 +23,6 @@ run() {
     rm -f /tmp/gate.$$.log
 }
 run "ruff"   python -m ruff check src tests scripts
-run "mypy"   python -m mypy src/qresp
+run "mypy"   python -m mypy src/qknot
 run "pytest" python -m pytest tests -q
 exit "$status"

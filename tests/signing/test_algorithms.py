@@ -11,11 +11,11 @@ from __future__ import annotations
 
 import pytest
 
-from qresp.signing import algorithms
-from qresp.signing.algorithms import REGISTRY, TrustStatus, implemented, is_known
-from qresp.signing.backends import _BACKENDS, get_backend
-from qresp.signing.combiner import KNOWN_ALGORITHMS
-from qresp.signing.temporal import ALGORITHM_POLICIES
+from qknot.signing import algorithms
+from qknot.signing.algorithms import REGISTRY, TrustStatus, implemented, is_known
+from qknot.signing.backends import _BACKENDS, get_backend
+from qknot.signing.combiner import KNOWN_ALGORITHMS
+from qknot.signing.temporal import ALGORITHM_POLICIES
 
 
 class TestTheViewsCannotDisagree:

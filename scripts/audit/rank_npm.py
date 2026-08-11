@@ -163,7 +163,7 @@ def with_retry(call, throttle: Throttle, describe: str,
     that, and on a rate-limited endpoint each pointless retry spends budget a
     genuinely transient 429 needed. Permanent failures raise immediately.
     """
-    from qresp.audit.npm_client import NpmError
+    from qknot.audit.npm_client import NpmError
 
     delay = 4.0
     for attempt in range(1, attempts + 1):
@@ -243,7 +243,7 @@ def main(argv: list[str] | None = None) -> int:
                              "than this fraction of candidates.")
     args = parser.parse_args(argv)
 
-    from qresp.audit.npm_client import BULK_LIMIT, NpmClient, is_scoped
+    from qknot.audit.npm_client import BULK_LIMIT, NpmClient, is_scoped
 
     if args.frame:
         all_names = args.frame.read_text(encoding="utf-8").split()
@@ -312,7 +312,7 @@ def main(argv: list[str] | None = None) -> int:
 
     from concurrent.futures import ThreadPoolExecutor
 
-    from qresp.audit.npm_client import NpmError
+    from qknot.audit.npm_client import NpmError
 
     no_record = 0
     lock = threading.Lock()

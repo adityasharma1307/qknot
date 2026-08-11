@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from qresp.signing.backends import (
+from qknot.signing.backends import (
     DEFAULT_SUITE,
     ML_DSA_SIGNATURE_SIZES,
     BackendUnsuitable,
@@ -304,7 +304,7 @@ class TestTheLibOqsStubDefaultsToTheSafeValue:
 
     def test_liboqs_is_gated_out_of_online_exposure_by_default(self):
         """UNKNOWN is refused exactly as measured leakage is."""
-        from qresp.signing.sidechannel import SideChannelStatus
+        from qknot.signing.sidechannel import SideChannelStatus
 
         assert LibOqsBackend.side_channel_status is SideChannelStatus.UNKNOWN
         assert LibOqsBackend.side_channel_resistant is False

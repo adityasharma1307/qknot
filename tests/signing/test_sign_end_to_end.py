@@ -15,13 +15,13 @@ import pytest
 pytest.importorskip("cryptography", reason="needs `cryptography`")
 pytest.importorskip("dilithium_py", reason="needs `dilithium-py`")
 
-from qresp.signing.backends import Exposure  # noqa: E402
-from qresp.signing.bundle import (  # noqa: E402
+from qknot.signing.backends import Exposure  # noqa: E402
+from qknot.signing.bundle import (  # noqa: E402
     build_bundle,
     build_statement,
     parse_bundle,
 )
-from qresp.signing.sign import (  # noqa: E402
+from qknot.signing.sign import (  # noqa: E402
     VerificationFailed,
     VerifyMode,
     keygen,
@@ -207,14 +207,14 @@ class TestVerifyModes:
 # ===========================================================================
 class TestExposureReachesSign:
     def test_online_signing_with_pure_python_ml_dsa_is_refused(self, artefact, keys):
-        from qresp.signing.backends import BackendUnsuitable
+        from qknot.signing.backends import BackendUnsuitable
 
         with pytest.raises(BackendUnsuitable, match="MEASURED to leak"):
             sign(artefact, keys, exposure=Exposure.ONLINE)
 
     def test_the_refusal_happens_before_any_signing(self, artefact, keys):
         """An unsuitable configuration must not produce a partial result."""
-        from qresp.signing.backends import BackendUnsuitable
+        from qknot.signing.backends import BackendUnsuitable
 
         with pytest.raises(BackendUnsuitable):
             sign(artefact, keys, exposure=Exposure.ONLINE)
@@ -264,8 +264,8 @@ class TestOmsShape:
         signing moved to the DSSE PAE over the whole statement it is genuinely
         covered, and this test now checks that rather than mere presence.
         """
-        from qresp.signing.entropy.backends import SystemEntropyBackend
-        from qresp.signing.entropy.mixing import mix_entropy
+        from qknot.signing.entropy.backends import SystemEntropyBackend
+        from qknot.signing.entropy.mixing import mix_entropy
 
         result = mix_entropy([SystemEntropyBackend()], n_bytes=32)
         keys = keygen(suite=SUITE, seed=result.seed)
@@ -279,8 +279,8 @@ class TestOmsShape:
         tampered = json.loads(out.payload)
         tampered["subject"][0]["entropyAttestation"]["kdf"] = "rot13"
         forged = json.dumps(tampered, sort_keys=True, separators=(",", ":")).encode()
-        from qresp.signing.backends import get_backend
-        from qresp.signing.dsse import DSSE_PAYLOAD_TYPE, pae
+        from qknot.signing.backends import get_backend
+        from qknot.signing.dsse import DSSE_PAYLOAD_TYPE, pae
 
         assert not get_backend("ed25519").verify(
             out.public_keys["ed25519"], pae(DSSE_PAYLOAD_TYPE, forged),

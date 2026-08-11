@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from qresp.signing.backends import (
+from qknot.signing.backends import (
     BackendUnsuitable,
     Exposure,
     LibOqsBackend,
@@ -21,7 +21,7 @@ from qresp.signing.backends import (
     check_exposure,
     get_backend,
 )
-from qresp.signing.sidechannel import SideChannelEvidence, SideChannelStatus
+from qknot.signing.sidechannel import SideChannelEvidence, SideChannelStatus
 
 LEVELS = ["ml-dsa-44", "ml-dsa-65", "ml-dsa-87"]
 

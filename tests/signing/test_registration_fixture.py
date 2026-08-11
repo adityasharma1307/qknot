@@ -22,12 +22,12 @@ from pathlib import Path
 
 import pytest
 
-from qresp.signing.registration import RegistrationError
-from qresp.signing.registration_chain import (
+from qknot.signing.registration import RegistrationError
+from qknot.signing.registration_chain import (
     RegistrationBundle,
     verify_registration_chain,
 )
-from qresp.signing.temporal import BindingBasis
+from qknot.signing.temporal import BindingBasis
 
 FIXTURES = Path(__file__).parent / "fixtures"
 REGISTRATION = FIXTURES / "registration" / "bundle.json"

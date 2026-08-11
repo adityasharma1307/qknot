@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Adversarial verification of the QResP audit artefacts.
+"""Adversarial verification of the QKnot audit artefacts.
 
 Written to be hostile to its own project. Every check below is an attempt to
 falsify a claim the paper will make, not to confirm it. A reviewer gets one

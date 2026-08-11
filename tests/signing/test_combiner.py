@@ -15,7 +15,7 @@ import hashlib
 
 import pytest
 
-from qresp.signing.combiner import (
+from qknot.signing.combiner import (
     BINDING_DOMAIN,
     KNOWN_ALGORITHMS,
     BindingMismatch,
@@ -26,7 +26,7 @@ from qresp.signing.combiner import (
     compute_binding,
     verify_binding,
 )
-from qresp.signing.digest import digest_bytes
+from qknot.signing.digest import digest_bytes
 
 DIGEST = digest_bytes(b"the artefact", "sha3-256")
 HYBRID = ["ed25519", "ml-dsa-44"]

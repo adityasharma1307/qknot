@@ -51,7 +51,7 @@ timeline governs both is wrong.
 
 ### 1.2 The operative civilian date for this project is 2031, not 2030
 
-QResP is a signing tool, so Phase 4 governs it, not Phase 3.
+QKnot is a signing tool, so Phase 4 governs it, not Phase 3.
 
 ✅ line 274:
 
@@ -123,7 +123,7 @@ still favourable:
 > OMB M-26-15 describes precisely this construction — two distinct signatures
 > over the same data, both validated — while characterising hybrid deployment
 > as an intricate and resource-intensive stopgap requiring per-agency tradeoff
-> evaluation. QResP's measurements speak directly to that tradeoff: §3 of
+> evaluation. QKnot's measurements speak directly to that tradeoff: §3 of
 > RESULTS.md quantifies the cost as 64 bytes and 0.28 ms over ML-DSA alone,
 > which is the evaluation the memorandum asks agencies to perform.
 
@@ -146,7 +146,7 @@ implementations are specialised, ongoing engineering work.
 ⚠️ **Do not cite fault-injection/DFA material as corroborating this project's
 timing finding.** The deck covers both side-channel *and* fault injection
 (✅ line 255 "Fault Attacks (FA)"), and they are different threat categories.
-QResP observes passive timing variance on a software implementation; DFA is
+QKnot observes passive timing variance on a software implementation; DFA is
 active fault injection on embedded hardware. Cite DFA only if a
 fault-injection subsection is added to the threat model.
 
@@ -247,7 +247,7 @@ reasoning about ML-DSA's 11.5× spread.
 not in the tested set (below). And note the direction of difference honestly:
 the paper says such variance is *usually not exploitable*, whereas
 `THREAT-MODEL.md` takes the more conservative line that it disqualifies the
-pure-Python backend from online signing. QResP is stricter than this source,
+pure-Python backend from online signing. QKnot is stricter than this source,
 not supported by it. Saying so is better than implying agreement.
 
 ---
@@ -343,7 +343,7 @@ sorted by encoding. `rfc3161-client` enforces this and rejects the whole
 response with `InvalidSetOrdering`.
 
 ⚠️ **`sigstore-python` verifies with the same parser**, so this is not
-peculiar to QResP: a strict-DER verifier cannot consume timestamps from a large
+peculiar to QKnot: a strict-DER verifier cannot consume timestamps from a large
 share of the commercial TSA population, including two of the most widely
 deployed. Worth stating carefully in the paper — the claim is *these responses
 are not canonical DER*, not *these TSAs are broken*; they are widely trusted and
@@ -365,9 +365,9 @@ Four uploads were not in the task memo. Two are directly load-bearing.
 Spoczynski, Melara, Szyller (Intel Labs), arXiv 2502.19567v2.
 
 **Known to the author since early July; not yet integrated.** It remains the
-nearest neighbour to QResP and the highest-priority related-work gap. A USENIX
+nearest neighbour to QKnot and the highest-priority related-work gap. A USENIX
 reviewer in ML supply chain will know it, so related work must state explicitly
-what QResP does that Atlas does not — on current evidence, direction-typed
+what QKnot does that Atlas does not — on current evidence, direction-typed
 temporal evidence and algorithm-lifetime rescue. **That differentiation claim
 must be checked against Atlas's actual mechanisms before it is written**, not
 asserted from the abstract.
@@ -409,7 +409,7 @@ poisoning example, and note it is a non-peer-reviewed preprint.
 4. **⚠️ M-26-15 calls hybrid a "stopgap."** Quote both halves.
 5. **✅ Registry regime DECIDED (2026-07-30): M-26-15.** The classical
    entries must move from `2030-12-31` to **`2031-12-31`**, the Phase 4
-   signature-migration deadline, since QResP is a signing tool and Phase 3's
+   signature-migration deadline, since QKnot is a signing tool and Phase 3's
    2030 date governs key establishment. Pending change, not yet applied:
 
    | file:line | field | from | to |
@@ -445,7 +445,7 @@ reads worse than owning it.
 
 **Where the contributions separate**, on reading rather than on the abstract:
 
-| | Shaw | QResP |
+| | Shaw | QKnot |
 |---|---|---|
 | empirical registry measurement | none | stratified HF/PyPI/npm adoption at scale |
 | transparency logs / Rekor | not addressed | bound direction as a typed property |
@@ -500,7 +500,7 @@ recall on a stratified subsample is a different claim from 100% recall on the
 full corpus.
 
 **Complementary, not competing, and the distinction is the unit of analysis:**
-QSA audits *source code* for crypto that will break; QResP audits *deployed
+QSA audits *source code* for crypto that will break; QKnot audits *deployed
 signed artefacts* in registries for signatures that will break. A project could
 score perfectly under QSA and still publish classically-signed releases — which
 is the gap this study measures.
@@ -539,7 +539,7 @@ ML lifecycle, with metadata integrity rooted in trusted hardware.
 
 **The axes are orthogonal, and this is the sentence for the paper:** Atlas
 establishes *what happened* across a pipeline and attests it with hardware;
-QResP establishes *that the attestation will still verify* once its signature
+QKnot establishes *that the attestation will still verify* once its signature
 algorithm is deprecated. Atlas is about breadth of coverage; this work is about
 durability of the evidence. Neither substitutes for the other.
 
@@ -561,7 +561,7 @@ does not engage algorithm lifetime at all.
 2. **Atlas's threat model explicitly trusts the transparency and verification
    services** ("model users, transparency and verification services are trusted
    in Atlas"), placing MLaaS providers, hubs and artefact producers outside the
-   trust boundary. QResP's temporal work operates precisely on what remains
+   trust boundary. QKnot's temporal work operates precisely on what remains
    provable when time evidence must itself be evaluated — bound direction as a
    typed property. Different trust boundary, so different mechanism.
 

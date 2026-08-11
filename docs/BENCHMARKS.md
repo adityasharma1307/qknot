@@ -179,11 +179,11 @@ violate them.
 | | median |
 |---|---|
 | interpreter startup (`python -c pass`) | 55.2 ms |
-| `qresp sign` | 302.7 ms |
-| `qresp verify` | 244.5 ms |
+| `qknot sign` | 302.7 ms |
+| `qknot verify` | 244.5 ms |
 
 Startup is 18% of an invocation; the rest is import time for `cryptography`,
-`dilithium-py` and the CLI framework. Note that **`qresp sign` on a 1 MiB
+`dilithium-py` and the CLI framework. Note that **`qknot sign` on a 1 MiB
 artefact takes 303 ms against 37 ms for the same work through the API** —
 roughly 88% of a one-shot invocation is process and import overhead, not
 signing. Anyone signing a thousand artefacts should loop inside one process.
@@ -342,7 +342,7 @@ put a wrong number in the tables above:
 It reported `os.urandom` as failing **four of ten** tests. A suite that cannot
 recognise the system CSPRNG cannot support a claim about anything else.
 
-So [`src/qresp/signing/entropy/sp800_22.py`](../src/qresp/signing/entropy/sp800_22.py)
+So [`src/qknot/signing/entropy/sp800_22.py`](../src/qknot/signing/entropy/sp800_22.py)
 implements four tests — monobit, frequency within block, runs, cumulative sums —
 each validated in `tests/signing/test_sp800_22.py`. Three reproduce the worked
 examples printed in SP 800-22 Rev. 1a to six decimal places. The fourth

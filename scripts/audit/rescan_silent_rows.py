@@ -127,8 +127,8 @@ def main(argv: list[str] | None = None) -> int:
     ids_file.write_text("\n".join(targets) + "\n", encoding="utf-8")
     print(f"\n{len(targets)} id(s) -> {ids_file}")
 
-    from qresp.audit.hf_client import HfClient
-    from qresp.audit.scanner import run_audit_ids
+    from qknot.audit.hf_client import HfClient
+    from qknot.audit.scanner import run_audit_ids
 
     client = HfClient(token=args.token)
     scanned = 0

@@ -1,4 +1,4 @@
-# Threat model for `qresp.signing`
+# Threat model for `qknot.signing`
 
 This document states what the signing pipeline protects against, what it does
 not, and why the second list is not empty. It exists because the most common
@@ -55,7 +55,7 @@ both Ed25519 and ML-DSA signatures, and both sign a binding that commits to the
 *set* of algorithms in use. Deleting the post-quantum signature leaves a
 classical signature attesting that two algorithms were present; editing the
 declared suite to match changes the binding and invalidates what remains.
-See `src/qresp/signing/combiner.py`.
+See `src/qknot/signing/combiner.py`.
 
 **Future quantum forgery.** Ed25519 falls to Shor. ML-DSA rests on
 Module-LWE, for which no efficient quantum algorithm is known. Because the
@@ -65,7 +65,7 @@ signature even against an adversary who can forge the Ed25519 one.
 **Undisclosed entropy substitution.** Every key records where its seed came
 from, whether any quantum source contributed, and which contributions a third
 party can independently verify. A PRNG-derived key cannot claim quantum
-provenance. See `src/qresp/signing/entropy/`.
+provenance. See `src/qknot/signing/entropy/`.
 
 **Provenance-metadata forgery.** Signatures are computed over the DSSE
 pre-authentication encoding of the entire in-toto statement, so the entropy
@@ -101,7 +101,7 @@ key-distribution scheme (pinned keys, a keyring, TOFU) would solve it too. This
 package deliberately does not pick one, because the choice belongs to the
 deployment. It should not be mistaken for a property provided here.
 
-The practical consequence: a QResP bundle proves integrity, algorithm
+The practical consequence: a QKnot bundle proves integrity, algorithm
 non-separability and provenance metadata *relative to a public key you already
 trust*. Establishing that trust is the caller's job.
 
@@ -122,7 +122,7 @@ the distinction explicit.
 
 ### Upper bounds on signing time
 
-The temporal trust boundary (`src/qresp/signing/temporal.py`) can only *rescue*
+The temporal trust boundary (`src/qknot/signing/temporal.py`) can only *rescue*
 a post-deadline classical signature given an **upper** bound — evidence the
 signature already existed before the algorithm's deadline.
 
@@ -270,7 +270,7 @@ the DSSE payload to confirm every artefact is enumerated.
 
 Implement `SignatureBackend` over `liboqs-python`, whose ML-DSA is C with
 constant-time discipline. The contract is specified in
-`src/qresp/signing/backends.py::LibOqsBackend`. An implementation must:
+`src/qknot/signing/backends.py::LibOqsBackend`. An implementation must:
 
 1. set `side_channel_resistant = True` only after confirming the liboqs build
    used its constant-time options — the property belongs to the build, not the

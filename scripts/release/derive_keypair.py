@@ -1,5 +1,5 @@
 """Derive a raw keypair from a seed, so the SAME key can be used by both
-`qresp sign --seed` and `qresp register --pqc-public-key/--pqc-secret-key`.
+`qknot sign --seed` and `qknot register --pqc-public-key/--pqc-secret-key`.
 
 The gap this closes: `sign` derives reproducible keys from a seed but only
 ever writes the PUBLIC half to disk (`--keys-out`); `register` accepts an
@@ -8,8 +8,8 @@ alone can produce a signature and a registration that refer to the same key.
 This script does the one thing in between: given a seed, write out the raw
 public/secret key files in exactly the shape `register` reads them, deriving
 them with the identical HKDF domain separation `keygen()` uses internally
-(salt `qresp-keygen-v1`, info=algorithm name) -- so the ML-DSA-87 key this
-produces IS the one `qresp sign --seed <same hex> --suite ed25519+ml-dsa-87`
+(salt `qknot-keygen-v1`, info=algorithm name) -- so the ML-DSA-87 key this
+produces IS the one `qknot sign --seed <same hex> --suite ed25519+ml-dsa-87`
 signs with, byte for byte, whether or not ed25519 is in the suite passed
 here (each algorithm's key is derived independently of what else is in the
 suite).
@@ -17,8 +17,8 @@ suite).
     python -c "import secrets; print(secrets.token_hex(32))"   # 1. a seed
     python scripts/release/derive_keypair.py --seed <hex> --out release/keys
 
-    qresp sign artefact --seed <hex> --out bundle.json           # 2. sign
-    qresp register --pqc-public-key release/keys/ml-dsa-87.pub \\  # 3. register
+    qknot sign artefact --seed <hex> --out bundle.json           # 2. sign
+    qknot register --pqc-public-key release/keys/ml-dsa-87.pub \\  # 3. register
         --pqc-secret-key release/keys/ml-dsa-87.key --out ./registration \\
         --fulcio-roots ./trust/fulcio_roots.pem --log-key ./trust/rekor.pub
 
@@ -37,7 +37,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from qresp.signing.sign import keygen  # noqa: E402
+from qknot.signing.sign import keygen  # noqa: E402
 
 
 def main() -> int:
@@ -77,8 +77,8 @@ def main() -> int:
     print(f"secret key  -> {sk_path}  (TREAT AS A PRIVATE KEY -- move it "
           f"somewhere safe, do not commit it)")
     print()
-    print("Use the SAME --seed with `qresp sign` to sign with this exact key,")
-    print(f"and point `qresp register` at {pub_path} / {sk_path} to register it.")
+    print("Use the SAME --seed with `qknot sign` to sign with this exact key,")
+    print(f"and point `qknot register` at {pub_path} / {sk_path} to register it.")
     return 0
 
 

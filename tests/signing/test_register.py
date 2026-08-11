@@ -1,4 +1,4 @@
-"""`qresp register` orchestration, offline, against fake network clients.
+"""`qknot register` orchestration, offline, against fake network clients.
 
 The two network seams -- Fulcio and Rekor -- are faked with clients that mint the
 SAME trust stack the rest of the suite uses: a real minted CA + Fulcio-style
@@ -26,12 +26,12 @@ from cryptography.hazmat.primitives.serialization import (
 )
 from cryptography.x509.oid import NameOID
 
-from qresp.signing.backends import get_backend
-from qresp.signing.register import FulcioCertificate, register
-from qresp.signing.registration import RegistrationError
-from qresp.signing.registration_chain import verify_registration_chain
-from qresp.signing.rekor import hashedrekord_body, leaf_hash
-from qresp.signing.temporal import BindingBasis
+from qknot.signing.backends import get_backend
+from qknot.signing.register import FulcioCertificate, register
+from qknot.signing.registration import RegistrationError
+from qknot.signing.registration_chain import verify_registration_chain
+from qknot.signing.rekor import hashedrekord_body, leaf_hash
+from qknot.signing.temporal import BindingBasis
 
 from ._rekor_doubles import log_id_for, signed_checkpoint, signed_entry_timestamp
 
@@ -165,7 +165,7 @@ class TestRegisterEmitsAVerifiableBundle:
             fulcio=fulcio, rekor=rekor,
             fulcio_roots=[fulcio.root_der], log_public_key=rekor.log_pub,
             created=moment, now=_now())
-        from qresp.signing.registration import HybridRegistration
+        from qknot.signing.registration import HybridRegistration
         reg = HybridRegistration.from_payload(bundle.envelope.payload)
         assert reg.identity == "bob@corp.example"
         assert reg.issuer == "https://login.corp.example"

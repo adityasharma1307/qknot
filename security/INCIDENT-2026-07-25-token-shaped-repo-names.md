@@ -1,7 +1,7 @@
 # Incident log: repository names matching the HuggingFace access-token format
 
 **Date found:** 2026-07-25
-**Found by:** Aditya Sharma, incidental to the QResP Phase II registry enumeration
+**Found by:** Aditya Sharma, incidental to the QKnot Phase II registry enumeration
 **Status:** reported to security@huggingface.co on 2026-07-25. **No reply as of
 2026-08-02.** Absent confirmation that the credentials were remediated, the
 account list is NOT published -- see "Publication decision" below.
@@ -23,7 +23,7 @@ repository names that exactly match the format of a HuggingFace user access
 token: the literal prefix `hf_` followed by 34 alphanumeric characters.
 
 These were found while enumerating the entire model registry (2,938,107 repo
-ids) to build a sampling frame for the QResP stratified audit. They were not
+ids) to build a sampling frame for the QKnot stratified audit. They were not
 sought; the pattern surfaced when GitHub's push protection blocked a commit
 containing one of them, which the random sample had happened to draw.
 

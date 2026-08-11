@@ -12,9 +12,9 @@ from datetime import datetime, timezone
 
 import pytest
 
-from qresp.signing.algorithms import REGISTRY
-from qresp.signing.backends import get_backend
-from qresp.signing.registration import (
+from qknot.signing.algorithms import REGISTRY
+from qknot.signing.backends import get_backend
+from qknot.signing.registration import (
     HybridRegistration,
     KeyRef,
     RegistrationError,

@@ -21,12 +21,12 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
-from qresp.signing.rekor import LogEntry
+from qknot.signing.rekor import LogEntry
 
 # The origin (first body line) may contain spaces, exactly as Rekor's
 # "rekor.sigstore.dev - <tree-id>" does; the signature line's key name is the
 # space-free hostname, again exactly as Rekor's "— rekor.sigstore.dev <b64>".
-_KEY_NAME = "qresp.test"
+_KEY_NAME = "qknot.test"
 _ORIGIN = f"{_KEY_NAME} - 0000000000000000"
 
 

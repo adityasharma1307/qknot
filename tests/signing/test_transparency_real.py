@@ -2,16 +2,18 @@
 
 This closes the gap `test_transparency.py` declares it cannot cover. That file
 tests the policy layer against stubs and says so; this one runs the actual
-cryptography over tokens obtained from live TSAs on 2026-07-30 and committed
-under `tsa_fixtures/`.
+cryptography over tokens obtained from live public TSAs and committed under
+`tsa_fixtures/`, alongside a `manifest.json` recording what was timestamped and
+when.
 
-The fixtures were produced by:
+Re-capture them with:
 
-    python -c "
-    from qresp.signing.transparency import request_timestamp
-    for url in ('http://tsa.swisssign.net', 'http://ts.ssl.com'):
-        print(request_timestamp(b'qresp-fixture-v1', url).to_dict()['response'])
-    "
+    python scripts/verify/capture_tsa_fixtures.py
+
+which is needed whenever MESSAGE changes -- a TSA signs the exact bytes it was
+given, so a token cannot be carried across a change to the message it covers.
+(That is why the rename to QKnot required re-issuing these: editing the
+constant would not have renamed what the authorities already signed.)
 
 They are offline artefacts: nothing here reaches the network, and these tests
 run under the suite-wide block in conftest.py like everything else. A timestamp
@@ -32,19 +34,20 @@ from __future__ import annotations
 
 import base64
 import hashlib
-from datetime import datetime, timezone
+import json
+from datetime import datetime
 from pathlib import Path
 
 import pytest
 
-pytest.importorskip("rfc3161_client", reason="needs `qresp[transparency]`")
+pytest.importorskip("rfc3161_client", reason="needs `qknot[transparency]`")
 
 import rfc3161_client  # noqa: E402
 from cryptography import x509  # noqa: E402
 from cryptography.hazmat.primitives.serialization import Encoding  # noqa: E402
 
-from qresp.signing.temporal import Bound, TimeEvidence  # noqa: E402
-from qresp.signing.transparency import (  # noqa: E402
+from qknot.signing.temporal import Bound, TimeEvidence  # noqa: E402
+from qknot.signing.transparency import (  # noqa: E402
     TimestampError,
     TimestampToken,
     establish_time,
@@ -54,11 +57,35 @@ from qresp.signing.transparency import (  # noqa: E402
 FIXTURES = Path(__file__).parent / "tsa_fixtures"
 
 # The exact bytes the fixtures were timestamped over.
-MESSAGE = b"qresp-fixture-v1"
+MESSAGE = b"qknot-fixture-v1"
 
-# Both authorities stamped within the same second, which is incidental but
-# makes the recorded value easy to check by eye against the issuing run.
-ISSUED = datetime(2026, 7, 30, 15, 57, 15, tzinfo=timezone.utc)
+# Written by scripts/verify/capture_tsa_fixtures.py alongside the tokens. The
+# filenames and issue times used to be hard-coded here, which meant re-capturing
+# required hand-editing five assertions and quietly assumed both authorities
+# stamped within the same second -- true once, by luck, and not a property
+# either TSA offers. Reading them back from the capture keeps the assertion
+# meaningful (verification must recover the time the capture recorded, from a
+# token that has not been altered since) without the fragility.
+_MANIFEST_PATH = FIXTURES / "manifest.json"
+
+pytestmark = pytest.mark.skipif(
+    not _MANIFEST_PATH.exists(),
+    reason="no captured TSA fixtures (run "
+           "scripts/verify/capture_tsa_fixtures.py)")
+
+_MANIFEST = (json.loads(_MANIFEST_PATH.read_text(encoding="utf-8"))
+             if _MANIFEST_PATH.exists()
+             else {"message": MESSAGE.decode(), "tokens": {}})
+
+assert _MANIFEST["message"] == MESSAGE.decode(), (
+    f"manifest.json records message {_MANIFEST['message']!r} but this test "
+    f"verifies against {MESSAGE.decode()!r}. A TSA signs the bytes it was "
+    f"given; re-capture with scripts/verify/capture_tsa_fixtures.py."
+)
+
+
+def _issued(name: str) -> datetime:
+    return datetime.fromisoformat(_MANIFEST["tokens"][name]["gen_time"])
 
 # SwissSign Signature Services Root 2020 - 2, DER SHA-256.
 SWISSSIGN_ROOT_SHA256 = (
@@ -83,12 +110,14 @@ def _fingerprint(cert: x509.Certificate) -> str:
 
 @pytest.fixture
 def swisssign() -> TimestampToken:
-    return _token("swisssign_2026-07-30.b64", "http://tsa.swisssign.net")
+    return _token(_MANIFEST["tokens"]["swisssign"]["file"],
+                  _MANIFEST["tokens"]["swisssign"]["url"])
 
 
 @pytest.fixture
 def sslcom() -> TimestampToken:
-    return _token("sslcom_2026-07-30.b64", "http://ts.ssl.com")
+    return _token(_MANIFEST["tokens"]["sslcom"]["file"],
+                  _MANIFEST["tokens"]["sslcom"]["url"])
 
 
 def _swisssign_anchor(token: TimestampToken) -> dict[str, object]:
@@ -114,7 +143,7 @@ class TestARealTokenVerifies:
 
     def test_a_genuine_timestamp_verifies_and_yields_its_time(self, swisssign):
         established = verify_timestamp(swisssign, MESSAGE, **_swisssign_anchor(swisssign))
-        assert established == ISSUED
+        assert established == _issued("swisssign")
 
     def test_the_same_token_over_different_bytes_is_rejected(self, swisssign):
         """The property everything rests on, now against a REAL signature.
@@ -217,7 +246,7 @@ class TestTheAnchorMustComeFromTheVerifier:
             roots=[_certificates(sslcom)[-1]],       # deliberately wrong root
             intermediates=[],
         )
-        assert established == ISSUED, (
+        assert established == _issued("swisssign"), (
             "if this now raises, rfc3161-client has gained path validation. "
             "That is good news: update verify_timestamp's docstring, which "
             "currently records that roots are NOT validated."
@@ -236,7 +265,7 @@ class TestTheEvidenceProduced:
 
         assert evidence.bound is Bound.UPPER
         assert evidence.trusted
-        assert evidence.proves_not_after == ISSUED
+        assert evidence.proves_not_after == _issued("swisssign")
 
     def test_it_can_rescue_a_signature_made_before_a_deadline(self, swisssign):
         """The whole point, demonstrated rather than asserted.
@@ -245,7 +274,7 @@ class TestTheEvidenceProduced:
         signature shown to have existed in July 2026. Before this evidence
         existed the rescue branch could not be entered from any real artefact.
         """
-        from qresp.signing.algorithms import REGISTRY
+        from qknot.signing.algorithms import REGISTRY
 
         established = verify_timestamp(swisssign, MESSAGE, **_swisssign_anchor(swisssign))
         deadline = REGISTRY["ed25519"].disallowed_after_date
@@ -273,7 +302,7 @@ class TestEndToEndPolicy:
             anchors={swisssign.url: _swisssign_anchor(swisssign)},
             threshold=1,
         )
-        assert established == ISSUED
+        assert established == _issued("swisssign")
 
     def test_the_default_threshold_still_refuses_a_single_source(self, swisssign):
         """Even a genuine, verified token is not enough on its own."""
@@ -283,14 +312,12 @@ class TestEndToEndPolicy:
 
 
 class TestTheFixturesThemselves:
-    @pytest.mark.parametrize("name,url", [
-        ("swisssign_2026-07-30.b64", "http://tsa.swisssign.net"),
-        ("sslcom_2026-07-30.b64", "http://ts.ssl.com"),
-    ])
-    def test_each_fixture_parses_under_strict_der(self, name, url):
+    @pytest.mark.parametrize("authority", ["swisssign", "sslcom"])
+    def test_each_fixture_parses_under_strict_der(self, authority):
         """Both authorities emit canonical DER -- which is why they were chosen.
 
         Three of the eight probed on 2026-07-30, including DigiCert and Apple,
         did not, and are unusable with a strict parser. See DEFAULT_TSA_URLS.
         """
-        assert _token(name, url).gen_time == ISSUED
+        entry = _MANIFEST["tokens"][authority]
+        assert _token(entry["file"], entry["url"]).gen_time == _issued(authority)

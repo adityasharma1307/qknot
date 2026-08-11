@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import pytest
 
-from qresp.audit.model import QLabel, SigAlgorithm, SigFormat, classify_algorithm
-from qresp.audit.parse import parse_gpg, parse_raw_signature, parse_signature
+from qknot.audit.model import QLabel, SigAlgorithm, SigFormat, classify_algorithm
+from qknot.audit.parse import parse_gpg, parse_raw_signature, parse_signature
 
 
 def v4_signature_packet(pubkey_algo: int, hash_algo: int = 8) -> bytes:
@@ -178,7 +178,7 @@ class TestRealWorldArtefacts:
     def test_old_format_two_octet_length_is_handled(self):
         """Regression on the framing itself: tag byte 0x89 means old format
         with a two-octet length, so the body starts at offset 3."""
-        from qresp.audit.parse import _pgp_packet_body
+        from qknot.audit.parse import _pgp_packet_body
         body = _pgp_packet_body(self.THIREUS_TENSORS_MAP_SIG)
         assert body is not None
         assert body[0] == 4, "version octet must be first in the body"

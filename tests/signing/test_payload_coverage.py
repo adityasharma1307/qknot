@@ -28,10 +28,10 @@ import pytest
 pytest.importorskip("cryptography", reason="needs `cryptography`")
 pytest.importorskip("dilithium_py", reason="needs `dilithium-py`")
 
-from qresp.signing.backends import Exposure  # noqa: E402
-from qresp.signing.bundle import build_bundle, parse_bundle  # noqa: E402
-from qresp.signing.dsse import DSSE_PAYLOAD_TYPE, pae  # noqa: E402
-from qresp.signing.sign import (  # noqa: E402
+from qknot.signing.backends import Exposure  # noqa: E402
+from qknot.signing.bundle import build_bundle, parse_bundle  # noqa: E402
+from qknot.signing.dsse import DSSE_PAYLOAD_TYPE, pae  # noqa: E402
+from qknot.signing.sign import (  # noqa: E402
     VerificationFailed,
     VerifyMode,
     keygen,
@@ -134,7 +134,7 @@ class TestThePayloadIsCarriedVerbatim:
     def test_signatures_cover_the_pae_not_the_raw_payload(self, signed):
         """Signing the payload directly would let a signature over one
         payloadType be replayed as one over another."""
-        from qresp.signing.backends import get_backend
+        from qknot.signing.backends import get_backend
 
         backend = get_backend("ed25519")
         assert backend.verify(signed.public_keys["ed25519"],

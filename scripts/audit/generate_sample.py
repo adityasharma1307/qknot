@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from tests.fake_client import FakeHfClient  # noqa: E402
 from tests.fixtures_models import ALL_FIXTURES  # noqa: E402
 
-from qresp.audit.scanner import run_audit  # noqa: E402
+from qknot.audit.scanner import run_audit  # noqa: E402
 
 
 def main() -> None:

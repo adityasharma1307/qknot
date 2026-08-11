@@ -39,22 +39,22 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from qresp.signing.registration import (  # noqa: E402
+from qknot.signing.registration import (  # noqa: E402
     HybridRegistration,
     _key_fingerprint,
 )
-from qresp.signing.registration_chain import RegistrationBundle  # noqa: E402
-from qresp.signing.rekor import (  # noqa: E402
+from qknot.signing.registration_chain import RegistrationBundle  # noqa: E402
+from qknot.signing.rekor import (  # noqa: E402
     InclusionError,
     hashedrekord_digest,
     log_entry_from_rekor,
     verify_log_entry,
 )
-from qresp.signing.revocation_search import (  # noqa: E402
+from qknot.signing.revocation_search import (  # noqa: E402
     RevocationSearchOutcome,
     find_revocations,
 )
-from qresp.signing.sigstore_clients import (  # noqa: E402
+from qknot.signing.sigstore_clients import (  # noqa: E402
     REKOR_URL,
     RekorRevocationSearchClient,
 )
@@ -94,7 +94,7 @@ class CountingClient(RekorRevocationSearchClient):
                     f"entry {uuid} could not be fetched (HTTP "
                     f"{entry_resp.status_code}); the search is incomplete")
             (_uuid, entry), = entry_resp.json().items()
-            from qresp.signing.sigstore_clients import _map_entry
+            from qknot.signing.sigstore_clients import _map_entry
 
             mapped = _map_entry(entry)
             entries.append(mapped)

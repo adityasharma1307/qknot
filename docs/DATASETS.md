@@ -205,7 +205,7 @@ This is the corpus cited by `docs/report.pdf`, the figures in `docs/`, and the
 results table in the README of the original repository. It carries
 `"notes": null` on both signed records, because it predates the
 note-propagation fix. It is **not stored in this repository** — it lives only in
-the git history of <https://github.com/adityasharma1307/qresp-pilot>, which is
+the git history of <https://github.com/adityasharma1307/qknot-pilot>, which is
 archived and not to be modified.
 
 **2026-07-06 — the current re-scan (`full_2026-07-06.jsonl`).**
@@ -219,7 +219,7 @@ note-propagation fix works end to end.
 The July scan was produced while fixing a `run_audit()` resume bug that had
 appended a duplicate copy of every row onto the existing output, corrupting it
 to n=2,000 with every label count doubled (see the `resume=False` docstring in
-`src/qresp/audit/scanner.py` and the defensive dedupe in `stats.py`). Re-running the
+`src/qknot/audit/scanner.py` and the defensive dedupe in `stats.py`). Re-running the
 scan was the correct fix for the duplication. The side effect was that it hit a
 live registry seven weeks later and silently replaced the published dataset at
 the same filename.
@@ -377,7 +377,7 @@ round-trip through the object store was verified byte-identical for all three.
 **No API key appears in any manifest.** The ANU key is read from `ANU_API_KEY`
 or `--anu-key` and never written to disk. If you re-collect, keep it that way.
 
-**These are samples, not a source of randomness.** Nothing in `qresp` reads
+**These are samples, not a source of randomness.** Nothing in `qknot` reads
 them; they exist to be analysed, and they are public, recorded, and stale.
 Using them as key material would be catastrophic, which is the only reason this
 sentence is here.

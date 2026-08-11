@@ -1,4 +1,4 @@
-# QResP key registration: authenticating a PQC key off classical PKI, durably
+# QKnot key registration: authenticating a PQC key off classical PKI, durably
 
 This is an implementation spec, not prose. It defines the registration
 statement, the proof-of-possession, the transparency anchoring, and the
@@ -27,7 +27,7 @@ from classical PKI and *outlives* it.
 A DSSE envelope. `payloadType` is the registration media type; the payload is
 canonical JSON.
 
-    payloadType: application/vnd.qresp.key-registration+json
+    payloadType: application/vnd.qknot.key-registration+json
 
     payload:
       {
@@ -175,7 +175,7 @@ signature, evaluating a key binding instead.
 
 ## 5. Revocation
 
-A DSSE envelope, `payloadType: application/vnd.qresp.key-revocation+json`:
+A DSSE envelope, `payloadType: application/vnd.qknot.key-revocation+json`:
 
     { "identity": ..., "pqcKeyFingerprint": ..., "reason": ...,
       "revokedAt": "<RFC 3339>" }
@@ -253,14 +253,14 @@ Two checks the verifier MUST make, neither optional:
 
 ## 7. CLI surface, and the true size of `register`
 
-### `qresp verify-registration` -- BUILT
+### `qknot verify-registration` -- BUILT
 
-Offline and complete (src/qresp/cli.py). Resolves the whole chain and names the
+Offline and complete (src/qknot/cli.py). Resolves the whole chain and names the
 basis it trusted -- direct or rescued-by-timestamp -- rather than a bare yes.
 `--at` asks how the binding looks at a future instant; `--artifact-signed-at`
 additionally runs notAfter and revocation and prints the authorised PQC key.
 
-### `qresp register` -- BUILT as a thin orchestrator behind a client seam
+### `qknot register` -- BUILT as a thin orchestrator behind a client seam
 
 An earlier note under-scoped this as two sockets. It is a small protocol, and
 `signing/register.py` now implements all of it as a THIN orchestrator -- it
@@ -291,13 +291,13 @@ browser OIDC; the captured bundle is locked by `test_registration_fixture.py`
 
 ### Still a composition step: artefact verification end to end
 
-`qresp verify --registration` in the sense of "verify an artefact's hybrid
+`qknot verify --registration` in the sense of "verify an artefact's hybrid
 signature, authorised by a trusted binding" is not yet a single command. The
 pieces exist -- `verify_registration_chain` -> `authorize_for_artifact` yields
 the trusted PQC key, and the existing `verify` checks a hybrid signature -- but
 composing them into one artefact-plus-registration verdict is an unbuilt step.
 
-`qresp verify` must report *what it checked and how the PQC key was trusted*, so
+`qknot verify` must report *what it checked and how the PQC key was trusted*, so
 a verdict never hides its basis -- which is what this whole design exists to avoid.
 
 ## 8. Acceptance criteria for the implementation (adversarial, not "it verifies")
@@ -319,7 +319,7 @@ what the fix prevents. Matches the standard in `test_digest.py` /
 * A registration whose `notAfter` is in the past REJECTS an artefact signed
   after that date.
 * The same registration still PARSES and inspects cleanly under
-  `qresp verify --registration` -- ruled inapplicable, never reported corrupt
+  `qknot verify --registration` -- ruled inapplicable, never reported corrupt
   or unparseable.
 * The check uses the artefact's signing time `S`, not the verifier's `now`: a
   test with `S <= notAfter < now` must ACCEPT, proving `now` is not consulted.
@@ -350,7 +350,7 @@ network-captured bytes.
 |---|---|
 | Bug 1 -- classical sig bound to the Fulcio leaf, SPKI equality | **fixed** (`1e0b5ff`); adversarial test: cert for key B, payload names key A -> reject |
 | Bug 2 -- digest parsed from the proven leaf, no free digest field | **fixed** (`9829792`); adversarial tests: rebind a real proof -> reject; swap the body -> inclusion fails |
-| Gap 3 -- STH format | **superseded**: fake `qresp-sth-v1` RETIRED; `verify_checkpoint` verifies the REAL Rekor note, tests sign the same real format |
+| Gap 3 -- STH format | **superseded**: fake `qknot-sth-v1` RETIRED; `verify_checkpoint` verifies the REAL Rekor note, tests sign the same real format |
 | Gap 4 -- `register` framed as its real 8-step protocol, not two sockets | **done** (section 7) |
 | single-sig `KeyRegistration` marked transitional | **done** |
 | artefact-plus-registration as one command | **noted as an unbuilt composition step** (section 7) |
@@ -375,7 +375,7 @@ absent). All five checks passed on FIRST contact with production bytes:
 * `hashedrekord_digest` parsed the digest out of Rekor's REAL entry body -- the
   Bug-2 parser reads the production shape, not only the test double.
 * The REAL checkpoint note signature verified under the Rekor key: the root is
-  the log's own claim, so the qresp-sth-v1 test double's job is covered by
+  the log's own claim, so the qknot-sth-v1 test double's job is covered by
   working code against a real SET.
 
 ### Second review pass (2026-08-02): residuals 1 and 2 closed
@@ -397,7 +397,7 @@ be done outside the module. Both are now closed, in `src/`:
   not an unauthenticated field (this went one step beyond the literal ask: a
   verified root with an unverified time would have left the softest input to the
   rescue open). `logID == SHA-256(log key)` binds the entry to the trusted log.
-  The `qresp-sth-v1` fake format is RETIRED, not hidden: unit tests now sign the
+  The `qknot-sth-v1` fake format is RETIRED, not hidden: unit tests now sign the
   SAME real formats with a test key (`tests/signing/_rekor_doubles.py`). Real
   bytes taught one thing offline tests could not -- a sharded log has TWO
   indices: the SET signs the GLOBAL `logIndex`, the Merkle proof uses the
@@ -442,7 +442,7 @@ be done outside the module. Both are now closed, in `src/`:
    `register` verifies as of a fresh instant taken after the network round-trip.
 
    All three residuals are now closed in `src/`. The product surface on top of
-   them is built too: `qresp register`, `qresp verify --registration` (the
+   them is built too: `qknot register`, `qknot verify --registration` (the
    composed verdict), and `--check-revocations` (the live search).
 
 ### 9.1 Revocation search, and the limit it exposed (2026-08-02)

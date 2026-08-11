@@ -1,7 +1,7 @@
 """derive_keypair.py: the bridge between `sign --seed` and `register
 --pqc-public-key/--pqc-secret-key`. The property under test is exact -- the
 key this script writes must be BYTE-IDENTICAL to the key `keygen()` (and
-therefore `qresp sign --seed`) derives internally, or the whole point of the
+therefore `qknot sign --seed`) derives internally, or the whole point of the
 bridge (sign and register referring to the same key) silently fails.
 """
 from __future__ import annotations
@@ -14,7 +14,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts" / "release" / "derive_keypair.py"
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from qresp.signing.sign import keygen  # noqa: E402
+from qknot.signing.sign import keygen  # noqa: E402
 
 SEED = "11" * 32  # 32 bytes, hex -- fixed so the test is deterministic
 

@@ -45,9 +45,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
-from qresp.audit.detect import detect_signature_files  # noqa: E402
-from qresp.audit.model import classify_algorithm  # noqa: E402
-from qresp.audit.parse import _RAW_SIGNATURE_SIZES  # noqa: E402
+from qknot.audit.detect import detect_signature_files  # noqa: E402
+from qknot.audit.model import classify_algorithm  # noqa: E402
+from qknot.audit.parse import _RAW_SIGNATURE_SIZES  # noqa: E402
 
 # An OpenPGP packet wrapping a raw signature adds framing, so the file is
 # larger than the signature it carries. These are the observed totals; they are

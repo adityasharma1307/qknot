@@ -20,7 +20,7 @@ pytest.importorskip("dilithium_py", reason="needs `dilithium-py`")
 
 from typer.testing import CliRunner  # noqa: E402
 
-from qresp.cli import app  # noqa: E402
+from qknot.cli import app  # noqa: E402
 
 runner = CliRunner()
 SEED = "2a" * 32
@@ -215,7 +215,7 @@ class TestEntropy:
 
     def test_the_attestation_is_readable_by_the_temporal_layer(self, tmp_path):
         """The concrete reason mixing is now the default."""
-        from qresp.signing.temporal import evidence_from_attestation
+        from qknot.signing.temporal import evidence_from_attestation
 
         out = tmp_path / "att.json"
         runner.invoke(app, ["entropy", "--no-beacon", "--out", str(out)])

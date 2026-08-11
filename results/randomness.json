@@ -40,7 +40,7 @@
       "tests_passed": 5,
       "tests_failed": 0,
       "wall_seconds": 0.21,
-      "implementation": "qresp.signing.entropy.sp800_22 (verified subset)",
+      "implementation": "qknot.signing.entropy.sp800_22 (verified subset)",
       "not_implemented": [
         "binary_matrix_rank",
         "dft",
@@ -129,7 +129,7 @@
       "tests_passed": 5,
       "tests_failed": 0,
       "wall_seconds": 0.2,
-      "implementation": "qresp.signing.entropy.sp800_22 (verified subset)",
+      "implementation": "qknot.signing.entropy.sp800_22 (verified subset)",
       "not_implemented": [
         "binary_matrix_rank",
         "dft",
@@ -218,7 +218,7 @@
       "tests_passed": 5,
       "tests_failed": 0,
       "wall_seconds": 0.21,
-      "implementation": "qresp.signing.entropy.sp800_22 (verified subset)",
+      "implementation": "qknot.signing.entropy.sp800_22 (verified subset)",
       "not_implemented": [
         "binary_matrix_rank",
         "dft",
@@ -307,7 +307,7 @@
       "tests_passed": 4,
       "tests_failed": 1,
       "wall_seconds": 0.2,
-      "implementation": "qresp.signing.entropy.sp800_22 (verified subset)",
+      "implementation": "qknot.signing.entropy.sp800_22 (verified subset)",
       "not_implemented": [
         "binary_matrix_rank",
         "dft",

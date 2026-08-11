@@ -9,8 +9,8 @@ from datetime import datetime, timezone
 
 import pytest
 
-from qresp.signing.algorithms import REGISTRY
-from qresp.signing.temporal import BindingBasis, binding_trust
+from qknot.signing.algorithms import REGISTRY
+from qknot.signing.temporal import BindingBasis, binding_trust
 
 ALG = "ecdsa-p256"
 D = REGISTRY[ALG].disallowed_after_date

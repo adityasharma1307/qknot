@@ -53,12 +53,12 @@ CANDIDATES = [
     "http://ts.ssl.com",
 ]
 
-PROBE = b"qresp-tsa-probe"
+PROBE = b"qknot-tsa-probe"
 
 
 def probe(url: str, timeout: float = 15.0) -> tuple[str, str]:
     """Return (verdict, detail) for one authority. Never raises."""
-    from qresp.signing.transparency import (
+    from qknot.signing.transparency import (
         TimestampError,
         TimestampUnavailableError,
         request_timestamp,

@@ -23,8 +23,8 @@ from cryptography.hazmat.primitives.asymmetric import ec, ed25519
 from cryptography.hazmat.primitives.serialization import Encoding
 from cryptography.x509.oid import NameOID
 
-from qresp.signing.algorithms import REGISTRY
-from qresp.signing.registration import (
+from qknot.signing.algorithms import REGISTRY
+from qknot.signing.registration import (
     REGISTRATION_PAYLOAD_TYPE,
     KeyRegistration,
     RegistrationError,
@@ -33,16 +33,16 @@ from qresp.signing.registration import (
     sign_registration,
     verify_registration,
 )
-from qresp.signing.temporal import TimeEvidence
+from qknot.signing.temporal import TimeEvidence
 
-IDENTITY = "https://github.com/qresp/release-bot"
+IDENTITY = "https://github.com/qknot/release-bot"
 ISSUER = "https://token.actions.githubusercontent.com"
 PQ_KEY = bytes(range(32)) * 4          # stand-in for an ML-DSA public key
 
 
 def _certificate(private_key, identity: str = IDENTITY) -> bytes:
     """A self-signed cert carrying `identity` in the SAN, like Fulcio's."""
-    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "qresp-test")])
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "qknot-test")])
     now = datetime.now(timezone.utc)
     cert = (
         x509.CertificateBuilder()
@@ -205,7 +205,7 @@ class TestTheTemporalPolicyIsShared:
         after = deadline + timedelta(days=30)
         evidence = TimeEvidence.from_beacon(after.strftime("%Y-%m-%dT%H:%M:%SZ"))
 
-        from qresp.signing.temporal import assess
+        from qknot.signing.temporal import assess
 
         registration_verdict = assess_registration(evidence=evidence, now=after)
         artefact_verdict = assess(["ecdsa-p256"], evidence=evidence, now=after)

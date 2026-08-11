@@ -21,18 +21,18 @@ from cryptography.hazmat.primitives.serialization import (  # noqa: E402
     PublicFormat,
 )
 
-from qresp.signing.dsse import rekord_preimage  # noqa: E402
-from qresp.signing.registration import (  # noqa: E402
+from qknot.signing.dsse import rekord_preimage  # noqa: E402
+from qknot.signing.registration import (  # noqa: E402
     REVOCATION_PAYLOAD_TYPE,
     Revocation,
     _key_fingerprint,
 )
-from qresp.signing.rekor import (  # noqa: E402
+from qknot.signing.rekor import (  # noqa: E402
     hashedrekord_body,
     hashedrekord_digest,
     leaf_hash,
 )
-from qresp.signing.revocation_search import (  # noqa: E402
+from qknot.signing.revocation_search import (  # noqa: E402
     RevocationSearchOutcome,
     find_revocations,
     not_searched,
@@ -91,7 +91,7 @@ def _logged_revocation(revocation: Revocation, log_key, *, with_statement=True,
         "canonicalizedBody": _b64(body),
     }
     if with_statement:
-        entry["qrespRevocation"] = {"payload": _b64(payload),
+        entry["qknotRevocation"] = {"payload": _b64(payload),
                                     "signature": _b64(signature)}
     return entry
 
@@ -212,7 +212,7 @@ class TestItIgnoresWhatIsNotAboutThisKey:
                             pqc_key_fingerprint=forged.pqc_key_fingerprint,
                             reason="TOTALLY different reason",
                             revoked_at="2020-01-01T00:00:00Z")
-        entry["qrespRevocation"] = {"payload": _b64(forged.to_payload()),
+        entry["qknotRevocation"] = {"payload": _b64(forged.to_payload()),
                                     "signature": _b64(b"x")}
         result = find_revocations(IDENTITY, FINGERPRINT,
                                   client=FakeSearchClient([entry]),
@@ -232,5 +232,46 @@ class TestItIgnoresWhatIsNotAboutThisKey:
                                   client=FakeSearchClient([entry]),
                                   log_public_key=other_pub)
         assert result.revocations == []
+        assert result.outcome is RevocationSearchOutcome.FAILED
+        assert not result.is_conclusive
+
+
+class TestTheSearchIsBounded:
+    """The index is attacker-influenced: anyone can log entries naming any
+    email. An unbounded walk lets an adversary stretch `verify
+    --check-revocations` arbitrarily; a SILENTLY truncated one is worse, because
+    a partial walk that found nothing looks exactly like a complete walk that
+    found nothing."""
+
+    def test_an_oversized_index_fails_rather_than_truncating(self):
+        from qknot.signing.sigstore_clients import (
+            RekorRevocationSearchClient,
+            SigstoreClientError,
+        )
+
+        client = RekorRevocationSearchClient(max_entries=3)
+        # Stub the index call: the bound is checked before any entry is fetched,
+        # so no per-entry transport is needed to exercise it.
+        import qknot.signing.sigstore_clients as clients
+
+        original = clients._post
+        clients._post = lambda url, body: ["uuid"] * 4
+        try:
+            with pytest.raises(SigstoreClientError, match="max_entries"):
+                client.search_by_identity(IDENTITY)
+        finally:
+            clients._post = original
+
+    def test_the_bound_failing_reads_as_unknown_not_as_clean(self):
+        """The whole point: a bounded-out search is FAILED, never NONE_FOUND."""
+        from qknot.signing.sigstore_clients import SigstoreClientError
+
+        class Bounded:
+            def search_by_identity(self, identity):
+                raise SigstoreClientError("above the max_entries bound")
+
+        _key, pub = _log_key()
+        result = find_revocations(IDENTITY, FINGERPRINT, client=Bounded(),
+                                  log_public_key=pub)
         assert result.outcome is RevocationSearchOutcome.FAILED
         assert not result.is_conclusive

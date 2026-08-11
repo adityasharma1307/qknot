@@ -1,4 +1,4 @@
-"""Run QResP's chain + inclusion verifiers against a REAL Sigstore bundle.
+"""Run QKnot's chain + inclusion verifiers against a REAL Sigstore bundle.
 
 WHAT THIS IS FOR
 ================
@@ -11,7 +11,7 @@ point. Whatever it reports goes back to the expert.
 HOW TO PRODUCE THE INPUT (you, once, interactively)
 ===================================================
     pip install sigstore
-    echo "qresp fixture" > /tmp/fixture.txt
+    echo "qknot fixture" > /tmp/fixture.txt
     sigstore sign --bundle /tmp/fixture.sigstore /tmp/fixture.txt
         # opens a browser for OIDC; produces a .sigstore bundle containing a
         # real Fulcio cert chain and a real Rekor entry.
@@ -30,7 +30,7 @@ WHAT IT CHECKS
    hashes) == the checkpoint root -> the RFC 6962 math against a real entry.
 
 It does NOT check the full registration chain: a Sigstore artefact bundle is not
-a qresp registration, so the digest-to-preimage binding does not apply. What it
+a qknot registration, so the digest-to-preimage binding does not apply. What it
 de-risks is the two modules that must consume production bytes.
 """
 from __future__ import annotations
@@ -160,8 +160,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="Directory to write the extracted fixture pieces to.")
     args = parser.parse_args(argv)
 
-    from qresp.signing.fulcio import ChainError, verify_chain
-    from qresp.signing.rekor import (
+    from qknot.signing.fulcio import ChainError, verify_chain
+    from qknot.signing.rekor import (
         InclusionError,
         hashedrekord_digest,
         leaf_hash,
@@ -181,7 +181,7 @@ def main(argv: list[str] | None = None) -> int:
 
     def _check_checkpoint_signature(checkpoint: object, key_der: bytes | None) -> None:
         """Verify the REAL Rekor checkpoint note signature -- what the
-        qresp-sth-v1 test double stands in for (Gap 3)."""
+        qknot-sth-v1 test double stands in for (Gap 3)."""
         if not key_der:
             print("  [--] no Rekor key -- checkpoint signature not checked "
                   "(pass --trusted-root or --rekor-key).")

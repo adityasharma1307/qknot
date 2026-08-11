@@ -17,8 +17,8 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.serialization import Encoding
 from cryptography.x509.oid import NameOID
 
-from qresp.audit.model import QLabel, SigAlgorithm
-from qresp.audit.npm_client import (
+from qknot.audit.model import QLabel, SigAlgorithm
+from qknot.audit.npm_client import (
     BULK_LIMIT,
     NpmClient,
     NpmError,
@@ -27,7 +27,7 @@ from qresp.audit.npm_client import (
     predicate_types,
     provenance_certificate,
 )
-from qresp.audit.npm_scanner import audit_package, unavailable_package
+from qknot.audit.npm_scanner import audit_package, unavailable_package
 
 WORKFLOW = "https://github.com/acme/lib/.github/workflows/release.yml@refs/heads/main"
 

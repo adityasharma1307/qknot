@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 
-SCRIPT = Path(__file__).resolve().parents[2] / "src" / "qresp" / "audit" / "stats.py"
-spec = importlib.util.spec_from_file_location("qresp_stats", SCRIPT)
+SCRIPT = Path(__file__).resolve().parents[2] / "src" / "qknot" / "audit" / "stats.py"
+spec = importlib.util.spec_from_file_location("qknot_stats", SCRIPT)
 st = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(st)
 

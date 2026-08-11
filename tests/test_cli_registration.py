@@ -8,7 +8,7 @@ import json
 from cryptography.hazmat.primitives.serialization import Encoding
 from typer.testing import CliRunner
 
-from qresp.cli import app
+from qknot.cli import app
 
 # reuse the end-to-end harness that mints the whole trust stack
 from tests.signing.test_registration_chain import Harness
@@ -85,7 +85,7 @@ def test_notafter_coverage_is_reported(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# `qresp register`: the producing half. The two network seams are replaced with
+# `qknot register`: the producing half. The two network seams are replaced with
 # the offline fakes from tests/signing/test_register.py, so the COMMAND -- its
 # argument handling, key writing, step-8 gate and exit codes -- is exercised
 # without touching Fulcio or Rekor. The live path is covered by the captured
@@ -94,7 +94,7 @@ def test_notafter_coverage_is_reported(tmp_path):
 
 def _patch_network(monkeypatch, fulcio, rekor):
     """Point the CLI's client constructors at offline fakes."""
-    import qresp.signing.sigstore_clients as clients
+    import qknot.signing.sigstore_clients as clients
 
     monkeypatch.setattr(clients, "acquire_identity_token",
                         lambda **_: "test-token")
@@ -176,14 +176,14 @@ def test_register_refuses_a_half_supplied_pqc_key_pair(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# `qresp verify --registration`: the composed verdict. Not "is this signature
+# `qknot verify --registration`: the composed verdict. Not "is this signature
 # valid" but "whose signature is it, and can that attribution still be trusted".
 # ---------------------------------------------------------------------------
 
 def _signed_artefact_files(tmp_path, harness, pqc_of_harness=True):
     """Sign a real artefact, optionally with the key the harness registered."""
-    from qresp.signing.bundle import build_bundle
-    from qresp.signing.sign import KeyPair, key_fingerprint, keygen, sign
+    from qknot.signing.bundle import build_bundle
+    from qknot.signing.sign import KeyPair, key_fingerprint, keygen, sign
 
     artefact = tmp_path / "model.bin"
     artefact.write_bytes(b"the model weights")
@@ -283,7 +283,7 @@ def test_verify_reports_a_failed_revocation_search_rather_than_ignoring_it(
         tmp_path, monkeypatch):
     """An attacker who can break the search must not thereby get a clean
     verdict: blocking a network call is far cheaper than breaking a signature."""
-    import qresp.signing.sigstore_clients as clients
+    import qknot.signing.sigstore_clients as clients
 
     class Unreachable:
         def __init__(self, *_a, **_k):

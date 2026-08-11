@@ -16,7 +16,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.serialization import Encoding
 from cryptography.x509.oid import NameOID
 
-from qresp.signing.fulcio import ChainError, verify_chain
+from qknot.signing.fulcio import ChainError, verify_chain
 
 ISSUER_OID_V1 = x509.ObjectIdentifier("1.3.6.1.4.1.57264.1.1")
 NOW = datetime.datetime.now(datetime.timezone.utc)

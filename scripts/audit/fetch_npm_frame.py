@@ -45,7 +45,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 PACKAGE = "all-the-package-names"
 REGISTRY = "https://registry.npmjs.org"
-UA = {"User-Agent": "qresp-audit (+https://github.com/qresp)"}
+UA = {"User-Agent": "qknot-audit (+https://github.com/qknot)"}
 
 
 def _get(url: str, timeout: float = 300.0) -> bytes:

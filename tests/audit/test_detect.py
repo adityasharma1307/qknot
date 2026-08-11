@@ -1,10 +1,10 @@
-"""Tests for qresp.detect — signature-file detection from filename lists."""
+"""Tests for qknot.detect — signature-file detection from filename lists."""
 from __future__ import annotations
 
 import pytest
 
-from qresp.audit.detect import detect_signature_files, has_any_signature
-from qresp.audit.model import SigFormat
+from qknot.audit.detect import detect_signature_files, has_any_signature
+from qknot.audit.model import SigFormat
 
 
 class TestSigstoreDetection:

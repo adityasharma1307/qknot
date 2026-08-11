@@ -1,6 +1,6 @@
 """Capture ONE real registration bundle -- the residual-3 fixture.
 
-Runs the `qresp register` orchestrator against LIVE Fulcio + Rekor, so the
+Runs the `qknot register` orchestrator against LIVE Fulcio + Rekor, so the
 emitted bundle is production bytes that `tests/signing/test_registration_fixture.py`
 locks. Mirrors how `scripts/verify/check_sigstore_fixture.py` captured the
 artefact fixture.
@@ -11,8 +11,8 @@ WSL or anywhere without a usable browser, pass `--oauth-force-oob`.
     python scripts/register/capture_registration.py \
         --save tests/signing/fixtures/registration
 
-The network adapters live in `qresp.signing.sigstore_clients`, NOT here: the CLI
-(`qresp register`) and this harness share one implementation, because a second
+The network adapters live in `qknot.signing.sigstore_clients`, NOT here: the CLI
+(`qknot register`) and this harness share one implementation, because a second
 copy is where the two would drift and the drift would only show against live
 infrastructure. This script is now just "run register, save the pieces, and if
 verification fails dump enough to diagnose it offline".
@@ -28,14 +28,14 @@ import json
 import sys
 from pathlib import Path
 
-# The qresp package must be importable (run from the repo root, or install -e).
+# The qknot package must be importable (run from the repo root, or install -e).
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from qresp.signing.backends import get_backend  # noqa: E402
-from qresp.signing.register import FulcioCertificate, register  # noqa: E402
-from qresp.signing.registration import RegistrationError  # noqa: E402
-from qresp.signing.sigstore_clients import (  # noqa: E402
+from qknot.signing.backends import get_backend  # noqa: E402
+from qknot.signing.register import FulcioCertificate, register  # noqa: E402
+from qknot.signing.registration import RegistrationError  # noqa: E402
+from qknot.signing.sigstore_clients import (  # noqa: E402
     FulcioRestClient,
     RekorRestClient,
     acquire_identity_token,
@@ -56,7 +56,7 @@ def _diagnose_and_dump(save: Path, rekor: RekorRestClient, log_key_der: bytes,
         json.dumps(rekor.last_raw_entry, indent=2), encoding="utf-8")
     print(f"       raw Rekor response saved to {save / 'DEBUG_rekor_raw.json'}")
 
-    from qresp.signing.rekor import (
+    from qknot.signing.rekor import (
         InclusionError,
         leaf_hash,
         log_entry_from_rekor,
@@ -141,7 +141,7 @@ def main() -> int:
     probe_pub, probe_sk = get_backend("ecdsa-p256").keygen()
     roots = _load_fulcio_roots(args.fulcio_roots, fulcio.certify(probe_pub, probe_sk))
 
-    print("Running qresp register against live Fulcio + Rekor ...")
+    print("Running qknot register against live Fulcio + Rekor ...")
     try:
         bundle = register(
             pqc_algorithm=args.pqc_algorithm, pqc_public_key=pqc_pub,

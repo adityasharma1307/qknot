@@ -79,7 +79,7 @@ def main(argv: list[str] | None = None) -> int:
                              "frame, so the pool cannot contain deleted packages.")
     args = parser.parse_args(argv)
 
-    from qresp.audit.npm_client import NpmClient, is_scoped
+    from qknot.audit.npm_client import NpmClient, is_scoped
 
     ranking = json.loads(args.ranking.read_text(encoding="utf-8"))
     seeds = [r["project"] for r in ranking["rows"][:args.top]]

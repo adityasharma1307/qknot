@@ -6,7 +6,7 @@ work, consult a qualified lawyer in your jurisdiction.
 
 ## Nature of the project
 
-QResP (this software, its documentation, datasets, reports, figures, incident
+QKnot (this software, its documentation, datasets, reports, figures, incident
 notes, and related academic materials) is a **student research and educational
 project** produced in connection with CS F376, BITS Pilani Dubai Campus
 (2025–26). It is released as an **Alpha research / reference implementation**,
@@ -52,7 +52,7 @@ In particular, and without limiting the foregoing:
 ## No professional advice; no certification
 
 Nothing in this repository is legal, regulatory, compliance, export-control,
-or professional security advice. Using QResP does **not** make an organisation
+or professional security advice. Using QKnot does **not** make an organisation
 “compliant,” “post-quantum ready,” or certified under any standard. Supervisors
 and the university are not providing consulting services by virtue of this
 academic project being public.

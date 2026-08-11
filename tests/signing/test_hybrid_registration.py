@@ -17,9 +17,9 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from cryptography.x509.oid import NameOID
 
-from qresp.signing.backends import get_backend
-from qresp.signing.dsse import pae
-from qresp.signing.registration import (
+from qknot.signing.backends import get_backend
+from qknot.signing.dsse import pae
+from qknot.signing.registration import (
     HybridRegistration,
     HybridSignedRegistration,
     KeyRef,
@@ -29,7 +29,7 @@ from qresp.signing.registration import (
     verify_proof_of_possession,
 )
 
-TYPE = "application/vnd.qresp.hybrid-key-registration+json"
+TYPE = "application/vnd.qknot.hybrid-key-registration+json"
 
 
 def _ec_leaf():

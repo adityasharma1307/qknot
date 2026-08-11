@@ -111,9 +111,9 @@ class TestSignatureVerification:
 
 
 class TestTheExternalWrapper:
-    """Tie the validated core to the interface qresp actually calls.
+    """Tie the validated core to the interface qknot actually calls.
 
-    ACVP validates the internal algorithm. `qresp.signing` calls `sign()`, the
+    ACVP validates the internal algorithm. `qknot.signing` calls `sign()`, the
     external interface. Conformance of the former says nothing about the latter
     unless the composition is checked, and an error in the context encoding
     would be invisible to every vector above.
@@ -140,9 +140,9 @@ class TestTheExternalWrapper:
         b = impl.sign(sk, b"m", ctx=b"staging", deterministic=True)
         assert a != b
 
-    def test_qresp_backend_uses_the_validated_implementation(self):
+    def test_qknot_backend_uses_the_validated_implementation(self):
         """Guard against the backend being re-pointed at round-3 Dilithium."""
-        from qresp.signing.backends import MlDsaBackend
+        from qknot.signing.backends import MlDsaBackend
 
         assert MlDsaBackend("ml-dsa-44")._impl is ml_dsa.ML_DSA_44
 

@@ -195,7 +195,7 @@ def main(argv: list[str] | None = None) -> int:
     print("ML-DSA / FIPS 204 ACVP test vectors")
     print("=" * 72)
     print(f"vectors    : {VECTORS}")
-    print("validating : dilithium_py.ml_dsa  (the backend qresp actually signs with)")
+    print("validating : dilithium_py.ml_dsa  (the backend qknot actually signs with)")
     print()
 
     total_pass = total_fail = 0

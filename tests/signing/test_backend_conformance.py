@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from qresp.signing.backends import _BACKENDS, _assert_conforms, get_backend
+from qknot.signing.backends import _BACKENDS, _assert_conforms, get_backend
 
 
 class Good:

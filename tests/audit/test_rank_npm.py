@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from qresp.audit.npm_client import NpmError
+from qknot.audit.npm_client import NpmError
 
 ROOT = Path(__file__).resolve().parents[2]
 _spec = importlib.util.spec_from_file_location(

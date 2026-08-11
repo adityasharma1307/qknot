@@ -1,4 +1,4 @@
-"""Generate notebooks/qresp_demo.ipynb.
+"""Generate notebooks/qknot_demo.ipynb.
 
 WHY A GENERATOR RATHER THAN AN EDITED .ipynb
 ============================================
@@ -35,7 +35,7 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-OUT = ROOT / "notebooks" / "qresp_demo.ipynb"
+OUT = ROOT / "notebooks" / "qknot_demo.ipynb"
 
 CELLS: list[tuple[str, str]] = []
 
@@ -50,7 +50,7 @@ def code(text: str) -> None:
 
 # ===========================================================================
 md(r"""
-# QResP — quantum-resilient provenance, end to end
+# QKnot — quantum-resilient provenance, end to end
 
 **Phase II, Task 7.** CS F376 Design Project, BITS Pilani Dubai.
 
@@ -93,11 +93,11 @@ import importlib.util, sys, pathlib
 REQUIRED = {                      # import name -> pip name
     "cryptography": "cryptography",
     "dilithium_py": "dilithium-py",
-    "pydantic": "pydantic",       # qresp.audit.model
+    "pydantic": "pydantic",       # qknot.audit.model
     "requests": "requests",
     "jsonschema": "jsonschema",
     "huggingface_hub": "huggingface_hub",
-    "typer": "typer",             # the qresp CLI
+    "typer": "typer",             # the qknot CLI
     "rich": "rich",               # ditto
 }
 missing = [pip for mod, pip in REQUIRED.items() if importlib.util.find_spec(mod) is None]
@@ -105,9 +105,9 @@ if missing:
     print(f"installing into {sys.executable}: {' '.join(missing)}")
     %pip install --quiet {" ".join(missing)}
 
-def _find_qresp():
+def _find_qknot():
     try:
-        import qresp  # noqa: F401
+        import qknot  # noqa: F401
         return "already importable"
     except ImportError:
         pass
@@ -115,26 +115,26 @@ def _find_qresp():
     # the notebook's directory too: VS Code runs with cwd=notebooks/.
     seeds = [pathlib.Path.cwd(), *pathlib.Path.cwd().parents]
     for base in seeds:
-        for candidate in (base / "src", base / "qresp2" / "src"):
-            if (candidate / "qresp" / "__init__.py").is_file():
+        for candidate in (base / "src", base / "qknot2" / "src"):
+            if (candidate / "qknot" / "__init__.py").is_file():
                 sys.path.insert(0, str(candidate))
-                import qresp  # noqa: F401
+                import qknot  # noqa: F401
                 return f"local checkout at {candidate}"
     return None
 
 REPO_ROOT = None
-_status = _find_qresp()
+_status = _find_qknot()
 if _status is None:
-    !git clone --quiet https://github.com/adityasharma1307/qresp2.git
-    sys.path.insert(0, "qresp2/src")
-    import qresp  # noqa: F401
+    !git clone --quiet https://github.com/adityasharma1307/qknot2.git
+    sys.path.insert(0, "qknot2/src")
+    import qknot  # noqa: F401
     _status = "cloned"
 
-import qresp
-REPO_ROOT = pathlib.Path(qresp.__file__).resolve().parents[2]
+import qknot
+REPO_ROOT = pathlib.Path(qknot.__file__).resolve().parents[2]
 
-import qresp.signing as _s
-print(f"qresp      : {_status}")
+import qknot.signing as _s
+print(f"qknot      : {_status}")
 print(f"kernel     : {sys.executable}")
 print(f"repo root  : {REPO_ROOT}")
 """)
@@ -225,8 +225,8 @@ if len(files) > 12:
 
 code(r"""
 # The existing signature, read with the project's own audit parser.
-from qresp.audit.parse import parse_signature
-from qresp.audit.model import SigFormat
+from qknot.audit.parse import parse_signature
+from qknot.audit.model import SigFormat
 
 sig = local / "model.sig"
 if sig.is_file():
@@ -262,9 +262,9 @@ because a key derived from public values alone is computable by anyone.
 """)
 
 code(r"""
-from qresp.signing.entropy.backends import SystemEntropyBackend
-from qresp.signing.entropy.beacon import NistBeaconBackend
-from qresp.signing.entropy.mixing import mix_entropy
+from qknot.signing.entropy.backends import SystemEntropyBackend
+from qknot.signing.entropy.beacon import NistBeaconBackend
+from qknot.signing.entropy.mixing import mix_entropy
 
 # The beacon needs no API key, but it does need network. Probe first so an
 # offline runtime degrades in a second instead of blocking on a socket.
@@ -274,7 +274,7 @@ if _reachable("beacon.nist.gov"):
 else:
     print("NIST beacon unreachable; continuing with the system CSPRNG alone.")
     print("The attestation will record that, which is the point of having one.\n")
-result = mix_entropy(sources, n_bytes=32, context=b"qresp-demo")
+result = mix_entropy(sources, n_bytes=32, context=b"qknot-demo")
 att = result.attestation
 
 print(f"KDF                    : {att.kdf}")
@@ -334,9 +334,9 @@ bundle records which mode produced it.
 """)
 
 code(r"""
-from qresp.signing.backends import Exposure
-from qresp.signing.sign import keygen, sign, verify, VerifyMode
-from qresp.signing.bundle import build_bundle, parse_bundle
+from qknot.signing.backends import Exposure
+from qknot.signing.sign import keygen, sign, verify, VerifyMode
+from qknot.signing.bundle import build_bundle, parse_bundle
 
 keys = keygen(suite=["ed25519", "ml-dsa-44"], seed=result.seed)
 signed = sign(local, keys,
@@ -368,7 +368,7 @@ attacker could submit messages and time the responses:
 """)
 
 code(r"""
-from qresp.signing.backends import BackendUnsuitable
+from qknot.signing.backends import BackendUnsuitable
 try:
     sign(local, keys, exposure=Exposure.ONLINE)
     print("accepted -- this should not happen")
@@ -409,13 +409,13 @@ md(r"""
 
 Everything above used the Python API, which is the wrong shape for the person
 this tool is actually for: someone with a model directory and a release to cut.
-`qresp sign` and `qresp verify` are that interface.
+`qknot sign` and `qknot verify` are that interface.
 
 The cells below run the real commands through `subprocess` so the output is
 genuine rather than transcribed, and so they work identically on Windows, macOS
-and Linux. After `pip install -e .` the invocation is simply `qresp sign ...`.
+and Linux. After `pip install -e .` the invocation is simply `qknot sign ...`.
 
-Unlike the API section above, `qresp sign` is not given a seed, so it draws
+Unlike the API section above, `qknot sign` is not given a seed, so it draws
 entropy live. **If you see a line like `Entropy source anu unavailable: ANU
 returned HTTP 500`, that is the design working, not a failure.** A source went
 down, `mix_entropy` skipped it, signing continued on the sources that remained,
@@ -427,9 +427,9 @@ this project exists to avoid.
 code(r"""
 import subprocess
 
-# After `pip install -e .` this is just `qresp`. Spelled out here so it runs in
+# After `pip install -e .` this is just `qknot`. Spelled out here so it runs in
 # a Colab session where the package was cloned rather than installed.
-QRESP = [sys.executable, "-m", "qresp"]
+QKNOT = [sys.executable, "-m", "qknot"]
 
 # PYTHONIOENCODING forces the child to *write* UTF-8, and the explicit encoding
 # below makes us *read* it as UTF-8. Both halves are needed on Windows, where
@@ -447,8 +447,8 @@ def run(*args, show=None):
     # this notebook: a crashed interpreter would otherwise print
     #   exit code: 1   (non-zero = a release script stops here)
     # and read as a successful demonstration of tamper detection.
-    print("$ qresp " + " ".join(show or args))
-    r = subprocess.run(QRESP + list(args), capture_output=True, env=ENV,
+    print("$ qknot " + " ".join(show or args))
+    r = subprocess.run(QKNOT + list(args), capture_output=True, env=ENV,
                        text=True, encoding="utf-8", errors="replace")
     print(r.stdout or r.stderr)
     if "Traceback (most recent call last)" in r.stderr:
@@ -482,7 +482,7 @@ md(r"""
 ### The exit code is the point
 
 A verification tool that prints "FAILED" and exits 0 is useless in a pipeline.
-`qresp verify` exits **1** on any failure, so it composes with `&&`, with CI,
+`qknot verify` exits **1** on any failure, so it composes with `&&`, with CI,
 and with a release script that must stop.
 """)
 
@@ -529,7 +529,7 @@ md(r"""
 
 code(r"""
 import shutil
-from qresp.signing.sign import VerificationFailed
+from qknot.signing.sign import VerificationFailed
 
 tampered = Path("tampered"); shutil.rmtree(tampered, ignore_errors=True)
 shutil.copytree(local, tampered)
@@ -707,12 +707,12 @@ Validated here against the published v1.0 schemas, unmodified.
 code(r"""
 import jsonschema, glob, os
 
-# REPO_ROOT was resolved in the setup cell from qresp.__file__, so this works
+# REPO_ROOT was resolved in the setup cell from qknot.__file__, so this works
 # regardless of the working directory -- VS Code runs notebooks with cwd set to
 # the notebook's own folder, where the old relative paths found nothing.
 schema_dir = None
 for cand in (REPO_ROOT / "tests" / "signing" / "oms_schemas",
-             pathlib.Path("qresp2/tests/signing/oms_schemas"),
+             pathlib.Path("qknot2/tests/signing/oms_schemas"),
              pathlib.Path("tests/signing/oms_schemas")):
     if cand and os.path.isdir(cand):
         schema_dir = str(cand)
@@ -794,15 +794,15 @@ print(f"    this bundle     : {evil_keys.keys['ed25519'].fingerprint[:24]}")
 """)
 
 md(r"""
-**Read that second result carefully.** A QResP bundle proves integrity,
+**Read that second result carefully.** A QKnot bundle proves integrity,
 algorithm non-separability and covered provenance metadata *relative to a public
 key you already trust*. It does **not** establish that the expected party signed.
 
 That is a trust-anchor problem, not a signature-format one, and it is out of
-scope for `sign`/`verify` alone by design. QResP's answer lives in a separate
-mechanism, identity registration: `qresp register` binds a post-quantum key to
+scope for `sign`/`verify` alone by design. QKnot's answer lives in a separate
+mechanism, identity registration: `qknot register` binds a post-quantum key to
 your OIDC identity through a classical Fulcio certificate and a Rekor log
-entry, and `qresp verify --registration` reports not just that a signature is
+entry, and `qknot verify --registration` reports not just that a signature is
 valid but *whose* it is and on what basis. See `docs/REGISTRATION-SPEC.md`
 for the design and the honest residuals -- the binding is only as strong as
 the identity that anchored it, stated plainly rather than glossed over.
@@ -836,8 +836,8 @@ than papered over.
 ### Reproducing
 
 ```bash
-git clone https://github.com/adityasharma1307/qresp2
-cd qresp2 && pip install -e ".[dev]"
+git clone https://github.com/adityasharma1307/qknot2
+cd qknot2 && pip install -e ".[dev]"
 pytest -q                                        # 833 tests
 python scripts/verify/run_fips204_acvp.py        # 180 NIST ACVP vectors
 ```
@@ -941,18 +941,18 @@ def main() -> int:
             )
 
         with tempfile.TemporaryDirectory() as spec_root:
-            spec_dir = pathlib.Path(spec_root) / "share" / "jupyter" / "kernels" / "qresp"
+            spec_dir = pathlib.Path(spec_root) / "share" / "jupyter" / "kernels" / "qknot"
             spec_dir.mkdir(parents=True)
             (spec_dir / "kernel.json").write_text(json.dumps({
                 "argv": [sys.executable, "-m", "ipykernel_launcher",
                          "-f", "{connection_file}"],
-                "display_name": "qresp (this interpreter)",
+                "display_name": "qknot (this interpreter)",
                 "language": "python",
             }), encoding="utf-8")
             os.environ["JUPYTER_PATH"] = str(pathlib.Path(spec_root) / "share" / "jupyter")
 
             nb = nbformat.read(OUT, as_version=4)
-            client = NotebookClient(nb, timeout=900, kernel_name="qresp",
+            client = NotebookClient(nb, timeout=900, kernel_name="qknot",
                                     resources={"metadata": {"path": str(ROOT)}},
                                     allow_errors=True)
             client.execute()
