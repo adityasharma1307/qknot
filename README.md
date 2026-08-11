@@ -1,5 +1,6 @@
 # QKnot — Quantum-Resilient Provenance
 
+[![PyPI](https://img.shields.io/pypi/v/qknot.svg)](https://pypi.org/project/qknot/)
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)
 [![CI](https://github.com/adityasharma1307/qknot/actions/workflows/tests.yml/badge.svg)](https://github.com/adityasharma1307/qknot/actions/workflows/tests.yml)
@@ -62,9 +63,10 @@ Full text: [`DISCLAIMER.md`](DISCLAIMER.md). License: [`LICENSE`](LICENSE) (MIT)
 verifier still accepts.
 
 ```bash
-qknot sign ./my-model --out model.bundle.json --keys-out keys.json \
-    --name my-model --context model-release
-qknot verify ./my-model --bundle model.bundle.json --context model-release
+qknot sign ./dist/myapp-1.0.0.tar.gz --out myapp.bundle.json \
+    --keys-out keys.json --name myapp-1.0.0 --context myapp-release
+qknot verify ./dist/myapp-1.0.0.tar.gz --bundle myapp.bundle.json \
+    --context myapp-release
 ```
 
 The design problem is that the obvious hybrid — one classical signature and one
@@ -83,10 +85,11 @@ one leaves the other attesting to its absence.
 | **Signed** | DSSE PAE over the whole statement — attestation and metadata included |
 | **Conformance** | 180 NIST ACVP FIPS 204 vectors, byte-exact, run offline on every test invocation |
 
-`qknot.signing` imports nothing from `qknot.audit` and knows nothing about
-HuggingFace or machine learning. It signs bytes. That boundary is enforced by
-a test, and works for anything that needs signing — firmware, datasets,
-documents, container images, source releases (including its own — see below).
+`qknot.signing` imports nothing from `qknot.audit` and knows nothing about any
+particular registry or artefact type. It signs bytes. That boundary is
+enforced by a test, and works for anything that needs signing — source
+releases and packages (including its own — see below), container images,
+firmware, documents, datasets, ML models.
 
 ## Identity & attribution: registering a PQC key off classical PKI, durably
 
@@ -108,10 +111,12 @@ qknot register --out ./my-registration \
     --fulcio-roots ./trust/fulcio_roots.pem --log-key ./trust/rekor.pub
 
 # 2. Sign an artefact -- registration is independent of signing
-qknot sign ./my-model --out model.bundle.json --context model-release
+qknot sign ./dist/myapp-1.0.0.tar.gz --out myapp.bundle.json \
+    --context myapp-release
 
 # 3. Verify BOTH the signature and who it belongs to
-qknot verify ./my-model --bundle model.bundle.json --context model-release \
+qknot verify ./dist/myapp-1.0.0.tar.gz --bundle myapp.bundle.json \
+    --context myapp-release \
     --registration ./my-registration/bundle.json \
     --fulcio-roots ./trust/fulcio_roots.pem --log-key ./trust/rekor.pub \
     --check-revocations
@@ -286,21 +291,35 @@ never counted as unsigned).
 Requires Python 3.10 or newer.
 
 ```bash
-git clone https://github.com/adityasharma1307/qknot
-cd qknot
-pip install -e .
+pip install qknot
 ```
 
 For `qknot register` and `qknot trust-material` (OIDC login, the TUF client):
 
 ```bash
-pip install -e ".[register]"
+pip install "qknot[register]"
+```
+
+QKnot is published to PyPI through GitHub Actions with [Trusted
+Publishing](https://docs.pypi.org/trusted-publishers/), so every release
+carries a PyPI publish attestation binding the uploaded files to the workflow
+run and commit that built them. That is provenance about the *build*, and is
+independent of the project's own hybrid PQC signature over the release
+tarball — the two answer different questions, and both are checkable. See
+["This release signs itself"](#this-release-signs-itself).
+
+To work on QKnot rather than use it:
+
+```bash
+git clone https://github.com/adityasharma1307/qknot
+cd qknot
+pip install -e ".[dev]"
 ```
 
 `sign`, `verify` (without `--registration`), and the audit commands need none
 of this — `qknot.signing`'s core does not depend on `sigstore` at all. For
-analysis notebooks: `pip install -e ".[analysis]"`. For development (tests,
-linter): `pip install -e ".[dev]"` — see `CONTRIBUTING.md`.
+analysis notebooks: `pip install "qknot[analysis]"`. For contributing, see
+`CONTRIBUTING.md`.
 
 > **Windows note:** if `qknot` is not found after install, the Python
 > Scripts directory may not be on your PATH. Either add it:
@@ -310,7 +329,7 @@ linter): `pip install -e ".[dev]"` — see `CONTRIBUTING.md`.
 > and put the printed path on your PATH, or skip PATH entirely and always
 > invoke the module form, which works regardless:
 > ```
-> python -m qknot sign ./my-model --out model.bundle.json
+> python -m qknot sign ./dist/myapp-1.0.0.tar.gz --out myapp.bundle.json
 > ```
 
 ### What needs a network, and what doesn't
@@ -333,8 +352,8 @@ nearly the entire test suite.
 ### Sign and verify an artefact
 
 ```bash
-qknot sign ./my-model --out model.bundle.json --keys-out keys.json
-qknot verify ./my-model --bundle model.bundle.json
+qknot sign ./dist/myapp-1.0.0.tar.gz --out myapp.bundle.json --keys-out keys.json
+qknot verify ./dist/myapp-1.0.0.tar.gz --bundle myapp.bundle.json
 ```
 
 Add `--deterministic` for byte-reproducible signatures. It is off by default:
