@@ -3,12 +3,13 @@
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)
 [![CI](https://github.com/adityasharma1307/qknot/actions/workflows/tests.yml/badge.svg)](https://github.com/adityasharma1307/qknot/actions/workflows/tests.yml)
-![Tests](https://img.shields.io/badge/Tests-1261%20passing-brightgreen.svg)
+![Tests](https://img.shields.io/badge/Tests-1272%20passing-brightgreen.svg)
 ![FIPS 204](https://img.shields.io/badge/FIPS%20204%20ACVP-180%2F180-brightgreen.svg)
-![Self-signed release](https://img.shields.io/badge/v0.1.0-self--signed%20hybrid%20PQC-blueviolet.svg)
+![Self-signed release](https://img.shields.io/badge/v0.1.1-self--signed%20hybrid%20PQC-blueviolet.svg)
 ![PQ-safe found](https://img.shields.io/badge/PQ--safe%20signatures%20found%20in%20audit-0-red.svg)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21886269.svg)](https://doi.org/10.5281/zenodo.21886269)
 
-> Phase I and II of *Quantum-Resilient Provenance for Machine Learning Supply Chains*
+> Phase I and II of *Quantum-Resilient Provenance for Software Supply Chains*
 > Supervisor: Dr. Tamizharasan Periyasamy.
 
 ## Status
@@ -25,12 +26,12 @@ across three ecosystems and 60,000 sampled artefacts.
 Both halves are tested against production infrastructure, not only
 simulated: the Sigstore/Fulcio/Rekor chain, an end-to-end key registration,
 and the live revocation search have each been run against real Sigstore and
-locked with a passing test. 1261 tests pass offline (57 more need network or
+locked with a passing test. 1272 tests pass offline (57 more need network or
 a captured fixture — see `CONTRIBUTING.md`). What is and is not protected is
 stated plainly, in both directions, in
 [`docs/THREAT-MODEL.md`](docs/THREAT-MODEL.md).
 
-**This repository signs its own releases.** v0.1.0's source tarball ships
+**This repository signs its own releases.** v0.1.1's source tarball ships
 with a real hybrid signature over its own bytes — see
 ["This release signs itself"](#this-release-signs-itself) below.
 
@@ -160,14 +161,14 @@ honest residuals: [`docs/REGISTRATION-SPEC.md`](docs/REGISTRATION-SPEC.md).
 
 ## This release signs itself
 
-[`release/qknot-0.1.0.tar.gz`](release/qknot-0.1.0.tar.gz) is the v0.1.0
-source release, and [`release/qknot-0.1.0.bundle.json`](release/qknot-0.1.0.bundle.json)
+[`release/qknot-0.1.1.tar.gz`](release/qknot-0.1.1.tar.gz) is the v0.1.1
+source release, and [`release/qknot-0.1.1.bundle.json`](release/qknot-0.1.1.bundle.json)
 is its own hybrid signature — produced by `qknot sign` against its own
 bytes, not a demo artefact:
 
 ```bash
-qknot verify release/qknot-0.1.0.tar.gz \
-    --bundle release/qknot-0.1.0.bundle.json --context qknot-release
+qknot verify release/qknot-0.1.1.tar.gz \
+    --bundle release/qknot-0.1.1.bundle.json --context qknot-release
 ```
 
 ```
@@ -177,15 +178,32 @@ VERIFIED
   binding enforced  : True
 ```
 
-This authenticates the artifact — tamper with one byte and verification
-fails with a digest mismatch. `sign` and `register` generate independent
-throwaway keys by default, so a signature and a registration don't refer to
-the same key unless you make them: `scripts/release/derive_keypair.py`
-bridges that gap (one seed, fed to both `sign --seed` and `register
---pqc-public-key/--pqc-secret-key`), so a release can carry a signature, a
-Rekor transparency-log entry, *and* an identity binding, all for the same
-key. See [`release/README.md`](release/README.md) for what each piece does
-and does not prove, and the full walkthrough.
+**And it says who signed it.** The post-quantum key that made that signature
+is registered to a real OIDC identity and logged to Rekor, so the release
+verifies as attributable, not merely intact:
+
+```bash
+qknot trust-material --out ./trust
+qknot verify release/qknot-0.1.1.tar.gz \
+    --bundle release/qknot-0.1.1.bundle.json --context qknot-release \
+    --registration release/registration/bundle.json \
+    --fulcio-roots ./trust/fulcio_roots.pem --log-key ./trust/rekor.pub \
+    --check-revocations
+```
+
+```
+VERIFIED AND ATTRIBUTED
+  signed by         : aditya.137.sharma@gmail.com (via https://github.com/login/oauth)
+  key               : ml-dsa-87, vouched for by that identity
+  basis             : direct
+```
+
+`sign` and `register` generate independent throwaway keys by default, so a
+signature and a registration don't refer to the same key unless you make
+them: `scripts/release/derive_keypair.py` bridges that gap (one seed, fed to
+both `sign --seed` and `register --pqc-public-key/--pqc-secret-key`). See
+[`release/README.md`](release/README.md) for the full walkthrough, and for
+why two lines of that output report honest uncertainty rather than failure.
 
 ### Benchmarks
 
@@ -302,7 +320,7 @@ linter): `pip install -e ".[dev]"` — see `CONTRIBUTING.md`.
 | `qknot sign` / `qknot verify` (no `--registration`) | `qknot register` (OIDC login, Fulcio, Rekor) |
 | `qknot verify --registration` / `verify-registration`, given a bundle and a trust store you already have | `qknot trust-material` (fetches Sigstore's TUF root) |
 | `qknot entropy` (falls back to CSPRNG if unreachable) | `--check-revocations` (searches Rekor live) |
-| Almost the whole test suite (1261 of 1318 tests) | `qknot scan` / `audit-npm` / `audit-pypi` (query the registries) |
+| Almost the whole test suite (1272 of 1329 tests) | `qknot scan` / `audit-npm` / `audit-pypi` (query the registries) |
 
 So a fresh clone with no network at all can still sign, verify signatures,
 verify a registration you already hold the trust material for, and run
@@ -419,19 +437,37 @@ dependency on `huggingface_hub`, `transformers` or `datasets`.
 
 ## Citing this work
 
-**Living repository** (signing, identity registration, multi-registry results):
+Cite the DOI, not the repository URL — the repository moves, the DOI does not.
+
+**Cite this** — the *version* DOI, `10.5281/zenodo.21886270`, which resolves
+to v0.1.1 and only ever to v0.1.1. Reproducibility needs the exact snapshot
+you actually used, so this is the right one for a paper:
 
 ```bibtex
-@misc{sharma2026qknot,
+@software{sharma2026qknot,
   author       = {Sharma, Aditya},
   title        = {{QKnot}: Quantum-Resilient Provenance for
-                  Machine Learning Supply Chains},
+                  Software Supply Chains},
   year         = {2026},
-  howpublished = {CS F376 Design Project, BITS Pilani Dubai Campus},
-  url          = {https://github.com/adityasharma1307/qknot},
+  version      = {v0.1.1},
+  publisher    = {Zenodo},
+  doi          = {10.5281/zenodo.21886270},
+  url          = {https://doi.org/10.5281/zenodo.21886270},
   note         = {Supervisor: Dr.\ Tamizharasan Periyasamy},
 }
 ```
+
+Plain text: Aditya Sharma. (2026). *adityasharma1307/qknot: QKnot v0.1.1*
+(Version v0.1.1) [Computer software]. Zenodo.
+<https://doi.org/10.5281/zenodo.21886270>
+
+**To point at the project generally** — the *concept* DOI,
+`10.5281/zenodo.21886269`, always resolves to whatever the latest version is.
+That is what the badge at the top of this README links to, and what to use in
+prose ("QKnot [DOI]") where no specific version is meant. Do not use it to
+cite results: which code it resolves to changes under the reader.
+
+**Development repository**: <https://github.com/adityasharma1307/qknot>
 
 **Phase I archive** (frozen report, figures, and the 2026-05-21 pilot dataset;
 not modified further):

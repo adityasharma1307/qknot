@@ -351,7 +351,7 @@ argument turns on.
 | SP 800-22 subset | 4 tests; 3 reproduce published worked examples to 6 dp |
 | `cumulative_sums` | validated by Monte Carlo over 20,000 random walks (agrees within 0.006) |
 | Benchmark figures | 115 re-derived from JSON; 9/9 deliberate corruptions caught |
-| Test suite | **1261 tests** passing offline (57 more skip without network/a fixture), plus ruff and mypy clean |
+| Test suite | **1272 tests** passing offline (57 more skip without network/a fixture), plus ruff and mypy clean |
 
 **The sigVer vectors are mostly negative** — signatures mutated so a correct
 verifier must reject them. A `verify` that returned `True` unconditionally
@@ -473,7 +473,7 @@ python scripts/bench/latency.py --reps 50 --sizes 1 10 100 --out results/bench.j
 python scripts/bench/collect_entropy.py --source all
 python scripts/bench/randomness.py --out results/randomness.json
 python scripts/bench/check_docs.py     # re-derives all 115 figures
-python -m pytest -q                    # 1261 pass offline, 57 skip
+python -m pytest -q                    # 1272 pass offline, 57 skip
 ```
 
 Scan reproduction, dataset provenance, and the CRLF-digest and backfill

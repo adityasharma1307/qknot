@@ -12,7 +12,8 @@ license = {text = "MIT"}
 authors = [
     {name = "Aditya Sharma", email = "f20230265@dubai.bits-pilani.ac.in"}
 ]
-keywords = ["post-quantum", "cryptography", "ml-supply-chain", "huggingface", "provenance"]
+keywords = ["post-quantum", "cryptography", "software-supply-chain", "code-signing",
+            "sigstore", "provenance"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
