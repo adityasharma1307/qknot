@@ -25,7 +25,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install
-        run: pip install -e ".[dev]"
+        run: pip install -e ".[dev,audit]"
 
       - name: Ruff
         run: ruff check src/ tests/ scripts/

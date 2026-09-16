@@ -44,9 +44,8 @@ OFFLINE BY CONSTRUCTION
 =======================
 Obtaining a timestamp needs the network exactly once, at signing time.
 Verification never does: `verify_timestamp` takes its trust input as an
-argument and performs no I/O. Note that what it enforces is *pinning of the
-TSA certificate*, not PKI path validation -- see that function's docstring,
-which records what was measured rather than what the API name suggests.
+argument and performs no I/O. The TSA leaf is pinned; `roots` are the PKCS7
+trust store.
 
 A verifier that must reach a server to decide whether a signature is valid has
 made availability a precondition of integrity, which is the wrong trade for an
@@ -297,39 +296,13 @@ def verify_timestamp(
 ) -> datetime:
     """Verify a timestamp offline and return the time it establishes.
 
-    Performs no I/O. The trust decision is an argument, so a verifier decides
-    for itself whom it trusts rather than inheriting whatever the bundle
-    asserts.
+    No I/O. Trust is an argument: the verifier chooses the TSA leaf and roots.
 
-    WHAT IS ACTUALLY ENFORCED -- MEASURED, NOT ASSUMED
-    ==================================================
-    `tsa_certificate` is the security boundary. `rfc3161-client` requires the
-    certificate embedded in the response to equal the one supplied here, and
-    verifies the token's signature under that certificate's key over
-    `message`. Pass a different leaf and verification fails.
+    `rfc3161-client` pins the TSA leaf (a different leaf fails) and PKCS7-verifies
+    the CMS chain against the supplied `roots`/`intermediates`. A SwissSign token
+    with an SSL.com CA as root is rejected (rfc3161-client 1.0.9).
 
-    **`roots` and `intermediates` are NOT path-validated.** Verified against
-    real tokens on 2026-07-30: a SwissSign response verified while an SSL.com
-    CA was supplied as its root, with and without the correct intermediates.
-    The library accepts the arguments and does not build a chain to them.
-
-    So the property obtained is *certificate pinning*, not PKI path
-    validation: "this token was signed by the key in exactly this certificate,
-    over exactly these bytes". That is a sound basis for time evidence -- and
-    for a fixed set of known authorities it is arguably the more predictable
-    one, since it does not inherit the ambient trust store -- but it is a
-    different claim from the one this docstring previously made, and callers
-    must not assume a chain was checked.
-
-    A caller wanting real path validation must do it separately, with
-    `cryptography.x509.verification`, before trusting the leaf it passes here.
-    `roots`/`intermediates` are still forwarded so behaviour tracks the
-    library if it gains path validation later.
-
-    `message` MUST be the bytes the caller independently expects to have been
-    timestamped. This is the whole security property: a valid timestamp over
-    *different* bytes is not evidence about this signature, and passing bytes
-    taken from the same untrusted bundle would verify a token against itself.
+    `message` must be the bytes the caller independently expects were timestamped.
     """
     client = _require_client()
 

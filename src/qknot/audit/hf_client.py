@@ -17,7 +17,12 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Protocol
 
-from tenacity import retry, stop_after_attempt, wait_exponential
+try:
+    from tenacity import retry, stop_after_attempt, wait_exponential
+except ImportError as exc:
+    raise ImportError(
+        "qknot.audit needs the optional extra: pip install 'qknot[audit]'"
+    ) from exc
 
 log = logging.getLogger(__name__)
 
@@ -160,7 +165,6 @@ class HfClient:
                 default of 4 MiB is generous for any signature file but tiny
                 compared to a model weight tensor.
         """
-        # Import locally so test-only environments don't need huggingface_hub installed
         from huggingface_hub import HfApi
 
         self._api = HfApi(token=token)

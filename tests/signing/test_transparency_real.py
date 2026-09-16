@@ -163,20 +163,7 @@ class TestARealTokenVerifies:
         ("header corrupted", lambda d: b"\x31" + d[1:]),
     ])
     def test_a_tampered_response_does_not_verify(self, swisssign, label, mutate):
-        """Corrupt the token in three distinct ways; each must be rejected.
-
-        These targets are chosen deliberately rather than at a convenient
-        offset. An earlier version flipped the byte at len//2, which lands
-        inside the certificate blob -- and since `rfc3161-client` does not
-        path-validate (see `test_the_root_is_not_path_validated`), corrupting a
-        certificate is not reliably fatal. That test passed in isolation and
-        failed under the full suite, and rather than tune the offset until it
-        went green the target was moved to regions whose integrity the library
-        genuinely checks: the DER framing, and the signed TSTInfo itself.
-
-        A test whose outcome depends on which unverified bytes happened to be
-        hit is not testing tamper-detection; it is sampling it.
-        """
+        """Corrupt framing or signed TSTInfo; each must be rejected."""
         tampered = TimestampToken(der=mutate(swisssign.der), url=swisssign.url)
         with pytest.raises(TimestampError):
             verify_timestamp(tampered, MESSAGE, **_swisssign_anchor(swisssign))
@@ -222,35 +209,16 @@ class TestTheAnchorMustComeFromTheVerifier:
                              roots=anchor["roots"],
                              intermediates=anchor["intermediates"])
 
-    def test_the_root_is_not_path_validated(self, swisssign, sslcom):
-        """Documents a limitation found by testing, not one designed in.
-
-        This test asserts the *surprising* behaviour on purpose. A SwissSign
-        token verifies while an SSL.com CA is passed as its root, so
-        `rfc3161-client` accepts `roots`/`intermediates` without building a
-        chain to them. The docstring of `verify_timestamp` previously implied
-        otherwise; this is what the library measurably does.
-
-        Pinning it has two purposes. It stops anyone reading the API and
-        assuming a chain was checked -- the mistake already made here once. And
-        if the library later gains path validation, this test fails, which is
-        the right way to find out that the security properties changed.
-
-        The property that remains, and is sufficient for time evidence, is
-        certificate pinning: see `test_the_leaf_certificate_is_enforced`.
-        """
+    def test_a_wrong_root_is_rejected(self, swisssign, sslcom):
+        """PKCS7 chain check uses the supplied roots; a foreign CA must fail."""
         anchor = _swisssign_anchor(swisssign)
-        established = verify_timestamp(
-            swisssign, MESSAGE,
-            tsa_certificate=anchor["tsa_certificate"],
-            roots=[_certificates(sslcom)[-1]],       # deliberately wrong root
-            intermediates=[],
-        )
-        assert established == _issued("swisssign"), (
-            "if this now raises, rfc3161-client has gained path validation. "
-            "That is good news: update verify_timestamp's docstring, which "
-            "currently records that roots are NOT validated."
-        )
+        with pytest.raises(TimestampError, match="does not verify"):
+            verify_timestamp(
+                swisssign, MESSAGE,
+                tsa_certificate=anchor["tsa_certificate"],
+                roots=[_certificates(sslcom)[-1]],
+                intermediates=[],
+            )
 
 
 class TestTheEvidenceProduced:

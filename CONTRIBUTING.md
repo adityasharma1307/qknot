@@ -10,13 +10,13 @@ follows.
 ```bash
 git clone https://github.com/adityasharma1307/qknot
 cd qknot
-pip install -e ".[dev,analysis,register]"
+pip install -e ".[dev,audit,analysis,register]"
 ```
 
-`dev` gets you the test suite and linters; `register` gets you `qknot
-register` / `qknot trust-material` (OIDC + the TUF client); `analysis` gets
-you the notebook dependencies. None of the three are needed for `qknot sign`
-/ `qknot verify` or the audit commands.
+`dev` is the test suite and linters; `audit` is HuggingFace / npm / PyPI
+scanners (`qknot scan`, `audit-npm`, `audit-pypi`, `summarise`); `register`
+is `qknot register` / `qknot trust-material` (OIDC + TUF); `analysis` is
+notebooks. `qknot sign` / `qknot verify` need none of these.
 
 ## Running the checks
 

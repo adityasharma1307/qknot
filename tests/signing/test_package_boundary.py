@@ -52,19 +52,7 @@ def test_signing_package_documents_its_independence():
 
 
 class TestTheCliRespectsTheBoundaryToo:
-    """`qknot.signing` avoiding `qknot.audit` is worth little if the CLI
-    reunites them at import time.
-
-    It did. `cli.py` imported `HfClient`, `QLabel` and the scanner at module
-    level, so `qknot sign` -- a pure signing operation on a local directory --
-    refused to start without `tenacity`, `huggingface_hub` and `pydantic`
-    installed. Someone signing a firmware image had to install a HuggingFace
-    client first, which is precisely the coupling the boundary exists to
-    prevent.
-
-    Found by running the demo notebook in an environment with only the signing
-    dependencies, where the CLI crashed on `tenacity`.
-    """
+    """`qknot sign` must load without the audit extra."""
 
     def test_cli_does_not_import_the_audit_package_at_module_level(self):
         import ast
@@ -117,3 +105,93 @@ class TestTheCliRespectsTheBoundaryToo:
                 if module is not None:
                     sys.modules[name] = module
             sys.modules.pop("qknot.cli", None)
+
+
+def _toml_array(text: str, key: str) -> str:
+    token = f"{key} = ["
+    start = text.index(token) + len(token)
+    depth = 1
+    i = start
+    while i < len(text) and depth:
+        if text[i] == "[":
+            depth += 1
+        elif text[i] == "]":
+            depth -= 1
+        i += 1
+    return text[start : i - 1]
+
+
+def _pkg_names(block: str) -> set[str]:
+    names: set[str] = set()
+    for raw in block.splitlines():
+        line = raw.split("#", 1)[0].strip().strip(",").strip('"').strip("'")
+        if not line:
+            continue
+        names.add(line.split(">=")[0].split("==")[0].split("[")[0].strip())
+    return names
+
+
+class TestCoreInstallDoesNotPullTheAuditStack:
+    """`pip install qknot` must not pull huggingface_hub. Signing does not
+    import it; the audit extra does."""
+
+    def test_core_dependencies_exclude_audit_packages(self):
+        text = (pathlib.Path(__file__).resolve().parents[2] / "pyproject.toml").read_text(
+            encoding="utf-8"
+        )
+        project, _, extras = text.partition("[project.optional-dependencies]")
+        core = _pkg_names(_toml_array(project, "dependencies"))
+        forbidden = {"huggingface_hub", "tenacity", "pydantic"}
+        assert not (core & forbidden), (
+            f"core install pulls {core & forbidden}; those belong in extra `audit`"
+        )
+        assert "cryptography" in core and "dilithium-py" in core
+
+    def test_audit_extra_lists_the_audit_only_packages(self):
+        text = (pathlib.Path(__file__).resolve().parents[2] / "pyproject.toml").read_text(
+            encoding="utf-8"
+        )
+        _, _, extras = text.partition("[project.optional-dependencies]")
+        audit = _pkg_names(_toml_array(extras, "audit"))
+        assert {"huggingface_hub", "tenacity", "pydantic"} <= audit
+        assert "register" in extras and "transparency" in extras
+
+    def test_readme_documents_the_split_extras(self):
+        readme = (pathlib.Path(__file__).resolve().parents[2] / "README.md").read_text(
+            encoding="utf-8"
+        )
+        assert "qknot[audit]" in readme
+        assert "qknot[register]" in readme
+        assert "pip install qknot" in readme
+
+
+class TestAuditCommandsNameTheExtraWhenItIsMissing:
+    """Audit CLI must not surface an opaque ImportError if qknot[audit] is
+    absent. The message names the extra."""
+
+    @pytest.mark.parametrize(
+        "args",
+        [
+            ["scan", "--n", "1"],
+            ["scan-ids", "--ids", "missing.txt"],
+            ["audit-npm", "--out", "x.jsonl", "--ranking", "r.json", "--frame", "f.txt"],
+            ["audit-pypi", "--out", "x.jsonl"],
+            ["summarise", "--in", "missing.jsonl"],
+        ],
+        ids=["scan", "scan-ids", "audit-npm", "audit-pypi", "summarise"],
+    )
+    def test_missing_audit_extra_is_an_install_hint_not_a_traceback(self, monkeypatch, args):
+        import sys
+
+        from typer.testing import CliRunner
+
+        from qknot.cli import app
+
+        for name in ("huggingface_hub", "pydantic", "tenacity"):
+            monkeypatch.setitem(sys.modules, name, None)
+
+        result = CliRunner().invoke(app, args)
+        assert result.exit_code == 2, result.output
+        assert "qknot[audit]" in result.output
+        assert "Traceback" not in result.output
+        assert "ImportError" not in result.output

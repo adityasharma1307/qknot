@@ -43,17 +43,8 @@ from rich.console import Console
 from rich.progress import BarColumn, Progress, TextColumn, TimeRemainingColumn
 from rich.table import Table
 
-# The audit stack is imported lazily, inside the commands that use it.
-#
-# `qknot.signing` deliberately depends on nothing from `qknot.audit` -- a
-# boundary a test enforces -- so that the signing half is reusable for any
-# artefact. Importing the audit modules here quietly undid that for anyone
-# using the CLI: `qknot sign`, a pure signing operation, would not start
-# without `tenacity`, `huggingface_hub` and `pydantic` installed. Someone who
-# wants to sign a firmware image should not need a HuggingFace client.
-#
-# Caught by running the demo notebook in a bare environment, where the CLI
-# crashed on `tenacity` while signing a local directory.
+# Audit imports stay inside the commands that need them so `qknot sign` loads
+# without huggingface_hub / pydantic / tenacity.
 if TYPE_CHECKING:
     from .audit.model import QLabel
 
@@ -76,6 +67,27 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 console = Console()
+
+_AUDIT_EXTRA_PACKAGES = ("huggingface_hub", "pydantic", "tenacity")
+
+
+def _require_audit() -> None:
+    """Fail with an install hint if `qknot[audit]` is missing."""
+    missing = []
+    for name in _AUDIT_EXTRA_PACKAGES:
+        try:
+            __import__(name)
+        except ImportError:
+            missing.append(name)
+    if not missing:
+        return
+    console.print(
+        "[red]Audit commands need the optional extra.[/red] "
+        f"Missing {', '.join(missing)}. Install with:\n"
+        "    pip install 'qknot\\[audit]'\n"
+        "`qknot sign` / `qknot verify` work without it."
+    )
+    raise typer.Exit(2)
 
 
 @app.command()
@@ -106,14 +118,12 @@ def scan(
     reported rate.
 
     For the long-tail half of the sample, see `scan-ids`; for other ecosystems,
-    `audit-npm` and `audit-pypi`.
+    `audit-npm` and `audit-pypi`. Requires `pip install qknot[audit]`.
     """
+    _require_audit()
     logging.basicConfig(
         level=logging.DEBUG if verbose else logging.INFO,
         format="%(asctime)s %(levelname)-7s %(name)s :: %(message)s",
-        # stdout, not the logging default of stderr: progress messages are not
-        # errors, and shells that treat native stderr as failure would abort on
-        # the first INFO line.
         stream=sys.stdout,
     )
 
@@ -161,14 +171,13 @@ def scan_ids(
     The sample membership is fixed in advance by the sampling script and is not
     re-derived here. Every id in the file is audited, including ones that turn
     out to be deleted or gated, because dropping them would shrink the
-    denominator and invalidate the sampling fraction.
+    denominator and invalidate the sampling fraction. Requires
+    `pip install qknot[audit]`.
     """
+    _require_audit()
     logging.basicConfig(
         level=logging.DEBUG if verbose else logging.INFO,
         format="%(asctime)s %(levelname)-7s %(name)s :: %(message)s",
-        # stdout, not the logging default of stderr: progress messages are not
-        # errors, and shells that treat native stderr as failure would abort on
-        # the first INFO line.
         stream=sys.stdout,
     )
 
@@ -259,7 +268,9 @@ def audit_npm(
     will be interrupted at some point. Rows labelled `error` are NOT treated as
     done -- re-running retries them, because a package that could not be reached
     was not checked, and counting it as unsigned would inflate the finding.
+    Requires `pip install qknot[audit]`.
     """
+    _require_audit()
     from .audit.registry_scan import run_npm_audit
 
     try:
@@ -305,8 +316,10 @@ def audit_pypi(
 
     Resumable, and `error` rows are retried on re-run rather than counted as
     recorded: a project that could not be reached was not checked, and treating
-    it as unsigned would inflate the very rate this reports.
+    it as unsigned would inflate the very rate this reports. Requires
+    `pip install qknot[audit]`.
     """
+    _require_audit()
     from .audit.registry_scan import run_pypi_audit
 
     try:
@@ -477,8 +490,9 @@ def summarise(
     `error` rows are reported as their own category and never folded into
     `unsigned`: they are projects that could not be checked, and merging the two
     would inflate the headline rate. Re-run the corresponding scan to retry them
-    before quoting any number from this table.
+    before quoting any number from this table. Requires `pip install qknot[audit]`.
     """
+    _require_audit()
     if not inp.exists():
         console.print(f"[red]File not found:[/red] {inp}")
         raise typer.Exit(code=1)

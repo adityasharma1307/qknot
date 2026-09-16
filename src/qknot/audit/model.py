@@ -11,7 +11,12 @@ from __future__ import annotations
 from datetime import datetime
 from enum import Enum
 
-from pydantic import BaseModel, Field
+try:
+    from pydantic import BaseModel, Field
+except ImportError as exc:
+    raise ImportError(
+        "qknot.audit needs the optional extra: pip install 'qknot[audit]'"
+    ) from exc
 
 
 # ---------------------------------------------------------------------------

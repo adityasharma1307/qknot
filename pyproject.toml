@@ -28,52 +28,43 @@ classifiers = [
     "Topic :: Software Development :: Build Tools",
     "Typing :: Typed",
 ]
+# Core: sign, verify, entropy. No HuggingFace, no Sigstore, no RFC 3161.
 dependencies = [
-    "huggingface_hub>=0.24",
-    "requests>=2.31",
-    "tenacity>=8.2",       # retries with exponential backoff
-    "typer>=0.12",         # CLI
-    "rich>=13.7",          # pretty terminal output
-    "pydantic>=2.5",       # record schema validation
-    # Signing primitives. These were previously absent, so `pip install qknot`
-    # produced a package whose signing half raised ImportError on first use --
-    # including the `qknot sign` and `qknot verify` commands.
-    "cryptography>=42.0",  # Ed25519 via constant-time OpenSSL
-    "dilithium-py>=1.1",   # ML-DSA (FIPS 204). Offline signing only:
-                           # pure Python, not constant-time. See
-                           # docs/THREAT-MODEL.md and signing/backends.py.
+    "requests>=2.31",      # NIST beacon, Rekor, TSA HTTP clients
+    "typer>=0.12",
+    "rich>=13.7",
+    "cryptography>=42.0",  # Ed25519 via OpenSSL
+    "dilithium-py>=1.1",   # ML-DSA; offline only, see docs/THREAT-MODEL.md
 ]
 
 [project.optional-dependencies]
-# RFC 3161 timestamping. Optional because signing works without it: what you
-# lose is the ability to establish an UPPER bound on signing time, and so the
-# ability to rescue a signature whose algorithm was later disallowed. Kept out
-# of the core dependencies for the same reason the audit extras are -- `qknot
-# sign` must not require anything it does not use.
-transparency = [
-    "rfc3161-client>=0.1",   # same implementation sigstore-python verifies with
+# HuggingFace / npm / PyPI scanners: scan, scan-ids, audit-npm, audit-pypi, summarise.
+audit = [
+    "huggingface_hub>=0.24",
+    "tenacity>=8.2",
+    "pydantic>=2.5",
 ]
-# OIDC identity-token acquisition for `qknot register`, and the TUF client
-# behind `qknot trust-material`. Not needed if you pass --identity-token
-# yourself and fetch a trusted_root.json some other way -- `sign`/`verify`
-# (without --registration) need none of this.
+# RFC 3161 timestamps. Sign/verify work without it; upper-bound rescue does not.
+transparency = [
+    "rfc3161-client>=0.1",
+]
+# OIDC + TUF for `qknot register` and `qknot trust-material`.
 register = [
     "sigstore>=3.0",
 ]
+# Notebooks and figures.
 analysis = [
     "pandas>=2.2",
     "matplotlib>=3.9",
     "jupyterlab>=4.0",
 ]
+# Test suite, linters, notebook execution. Audit tests also need the `audit` extra.
 dev = [
     "pytest>=8.0",
-    "jsonschema>=4.0",   # validates our bundles against the real OMS schemas
+    "jsonschema>=4.0",
     "pytest-cov>=5.0",
     "ruff>=0.5",
     "mypy>=1.10",
-    # Executing the Task 7 demo notebook. Needed by
-    # scripts/demo/build_notebook.py --run, not by the notebook itself:
-    # a reader opening it in Colab or Jupyter needs none of these.
     "nbclient>=0.10",
     "nbformat>=5.10",
     "ipykernel>=6.29",

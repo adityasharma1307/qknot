@@ -6,6 +6,7 @@ bridge (sign and register referring to the same key) silently fails.
 """
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -63,12 +64,22 @@ def test_non_hex_seed_is_refused(tmp_path):
     assert "hex" in (result.stdout + result.stderr).lower()
 
 
+def _secret_file_is_restricted(path: Path) -> bool:
+    """Owner-only access: POSIX 0o600, Windows DACL with no world ACE."""
+    if os.name != "nt":
+        return (path.stat().st_mode & 0o777) == 0o600
+    shown = subprocess.run(
+        ["icacls", str(path)], capture_output=True, text=True, check=True
+    ).stdout
+    aces = [tok for tok in shown.replace("\n", " ").split() if ":(" in tok]
+    user = os.environ["USERNAME"].lower()
+    return len(aces) == 1 and user in aces[0].lower()
+
+
 def test_secret_key_file_is_restricted(tmp_path):
     out_dir = tmp_path / "keys"
-    _run(["--seed", SEED, "--out", str(out_dir)])
+    result = _run(["--seed", SEED, "--out", str(out_dir)])
+    assert result.returncode == 0, result.stderr
     sk = out_dir / "ml-dsa-87.key"
     assert sk.exists()
-    # chmod(0o600) is wrapped in contextlib.suppress(OSError) for filesystems
-    # that reject it (some mounted/network filesystems); on a normal local
-    # tmp_path it must actually apply.
-    assert (sk.stat().st_mode & 0o777) == 0o600
+    assert _secret_file_is_restricted(sk)

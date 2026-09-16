@@ -1,5 +1,4 @@
-"""Phase I: auditing cryptographic provenance in a public model registry.
+"""Registry scanners (HuggingFace, npm, PyPI).
 
-Everything here is specific to surveying HuggingFace. It is deliberately
-separate from `qknot.signing`, which is registry-agnostic and reusable.
+Separate from `qknot.signing`. Needs `pip install qknot[audit]`.
 """

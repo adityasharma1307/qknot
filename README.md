@@ -292,14 +292,18 @@ never counted as unsigned).
 Requires Python 3.10 or newer.
 
 ```bash
+# Sign and verify. Does not pull HuggingFace or Sigstore.
 pip install qknot
-```
 
-For `qknot register` and `qknot trust-material` (OIDC login, the TUF client):
+# HuggingFace / npm / PyPI scanners (scan, audit-npm, audit-pypi, summarise)
+pip install "qknot[audit]"
 
-```bash
+# Identity registration: qknot register, qknot trust-material (OIDC, TUF)
 pip install "qknot[register]"
 ```
+
+Optional extras: `qknot[transparency]` for RFC 3161 timestamps;
+`qknot[analysis]` for notebooks and figures.
 
 QKnot is published to PyPI through GitHub Actions with [Trusted
 Publishing](https://docs.pypi.org/trusted-publishers/), so every release
@@ -314,13 +318,13 @@ To work on QKnot rather than use it:
 ```bash
 git clone https://github.com/adityasharma1307/qknot
 cd qknot
-pip install -e ".[dev]"
+pip install -e ".[dev,audit]"
 ```
 
-`sign`, `verify` (without `--registration`), and the audit commands need none
-of this — `qknot.signing`'s core does not depend on `sigstore` at all. For
-analysis notebooks: `pip install "qknot[analysis]"`. For contributing, see
-`CONTRIBUTING.md`.
+`sign` and `verify` (without `--registration`) need none of the extras.
+`qknot.signing` does not depend on `huggingface_hub` or `sigstore`. Audit
+commands need `qknot[audit]` and fail with that install hint if it is missing.
+For contributing, see `CONTRIBUTING.md`.
 
 > **Windows note:** if `qknot` is not found after install, the Python
 > Scripts directory may not be on your PATH. Either add it:

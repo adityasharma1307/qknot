@@ -30,7 +30,8 @@ means losing the ability to re-derive this identity's signing key.
 from __future__ import annotations
 
 import argparse
-import contextlib
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -38,6 +39,25 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from qknot.signing.sign import keygen  # noqa: E402
+
+
+def restrict_secret_file(path: Path) -> None:
+    """Owner read/write only. POSIX 0o600; Windows DACL via icacls."""
+    if os.name == "nt":
+        user = os.environ.get("USERNAME")
+        if not user:
+            raise OSError("USERNAME is unset; cannot restrict the secret-key file")
+        result = subprocess.run(
+            ["icacls", str(path), "/inheritance:r", "/grant:r", f"{user}:(R,W)"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout).strip() or "icacls failed"
+            raise OSError(detail)
+        return
+    path.chmod(0o600)
 
 
 def main() -> int:
@@ -68,8 +88,7 @@ def main() -> int:
     sk_path = args.out / f"{args.algorithm}.key"
     pub_path.write_bytes(key.public_key)
     sk_path.write_bytes(key.secret_key)
-    with contextlib.suppress(OSError):  # e.g. a Windows mount; restrict access yourself
-        sk_path.chmod(0o600)
+    restrict_secret_file(sk_path)
 
     print(f"algorithm   : {args.algorithm}")
     print(f"fingerprint : {key.fingerprint}")
