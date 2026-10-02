@@ -297,6 +297,20 @@ def find_revocations(
         detail=detail)
 
 
+def walk_identity(client: RevocationSearchClient, identity: str) -> tuple[list[dict[str, Any]], str | None]:
+    """List log entries naming `identity`.
+
+    The second value is an error string when the walk cannot finish. A
+    finished walk is still not a proof that no other registration exists.
+    """
+    from .sigstore_clients import SigstoreClientError
+
+    try:
+        return client.search_by_identity(identity), None
+    except SigstoreClientError as exc:
+        return [], str(exc)
+
+
 def _b64(value: str) -> bytes:
     import base64
 

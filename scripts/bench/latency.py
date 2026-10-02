@@ -381,7 +381,8 @@ def bench_cli(reps: int) -> dict[str, Any]:
                            text=True, encoding="utf-8", errors="replace")
 
         sign_args = ["sign", str(root), "--out", str(bundle),
-                     "--seed", seed, "--deterministic", "--name", "bench"]
+                     "--seed", seed, "--deterministic",
+                     "--i-am-producing-test-vectors", "--name", "bench"]
         run(sign_args)
         verify_args = ["verify", str(root), "--bundle", str(bundle)]
 

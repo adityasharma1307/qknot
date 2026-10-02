@@ -52,13 +52,24 @@ transparency = [
 register = [
     "sigstore>=3.0",
 ]
+# Faster ML-DSA (liboqs). Optional. Status stays UNKNOWN until attested.
+# Core keeps working with dilithium-py alone.
+pqc-fast = [
+    "liboqs-python>=0.12",
+]
+# IBM Quantum entropy (`qknot entropy --backend ibm`). Not needed for sign/verify.
+qrng-ibm = [
+    "qiskit>=1.2",
+    "qiskit-ibm-runtime>=0.30",
+]
 # Notebooks and figures.
 analysis = [
     "pandas>=2.2",
     "matplotlib>=3.9",
     "jupyterlab>=4.0",
 ]
-# Test suite, linters, notebook execution. Audit tests also need the `audit` extra.
+# Test suite, linters, notebook execution.
+# `audit` and `pqc-fast` are also required for a complete run.
 dev = [
     "pytest>=8.0",
     "jsonschema>=4.0",
@@ -68,6 +79,7 @@ dev = [
     "nbclient>=0.10",
     "nbformat>=5.10",
     "ipykernel>=6.29",
+    "liboqs-python>=0.12",
 ]
 
 [project.urls]

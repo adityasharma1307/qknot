@@ -32,12 +32,10 @@ CATEGORIES
 
 THE LIMIT, STATED PLAINLY
 =========================
-Manifest coverage is *assumed*, not verified. Confirming it would mean parsing
-the DSSE payload and checking that the enumerated digests account for every
-artefact in the repo. The scanner deliberately never downloads weights and does
-not open signature payloads, so that check is out of scope. Any repo classified
-`manifest` here is trusted to have a complete manifest; a signer who signed a
-manifest listing only half the files would be indistinguishable.
+Without the signature payload, a manifest-shaped filename is only a guess.
+Pass the payload to `qknot.audit.detect.manifest_status` to compare listed
+names with the fetched files. A missing name is `manifest-incomplete`, not
+covered and not unsigned. File bodies are still not opened.
 
 That limitation belongs in the paper. It is the difference between "this repo
 carries a signature" -- which is what the audit measures -- and "this repo's

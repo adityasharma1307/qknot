@@ -101,6 +101,43 @@ class TestSign:
             outs.append(path.read_text(encoding="utf-8"))
         assert outs[0] != outs[1]
 
+    def test_secrets_are_not_written_unless_asked(self, artefact, tmp_path):
+        out = tmp_path / "b.json"
+        result = runner.invoke(app, ["sign", str(artefact), "--out", str(out),
+                                     "--seed", SEED, "--no-beacon"])
+        assert result.exit_code == 0, result.output
+        assert "Secret keys were NOT written" in result.output
+        assert not list(tmp_path.glob("*.key"))
+
+    def test_secret_keys_out_warns_they_are_raw_bytes(self, artefact, tmp_path):
+        store = tmp_path / "secrets"
+        result = runner.invoke(app, ["sign", str(artefact), "--out",
+                                     str(tmp_path / "b.json"), "--seed", SEED,
+                                     "--no-beacon", "--secret-keys-out", str(store)])
+        assert result.exit_code == 0, result.output
+        assert "not an HSM" in result.output
+        assert (store / "ed25519.key").is_file()
+        assert (store / "ml-dsa-87.key").is_file()
+
+    def test_secret_keys_are_refused_in_the_artefact_directory(self, artefact, tmp_path):
+        result = runner.invoke(app, ["sign", str(artefact), "--out",
+                                     str(tmp_path / "b.json"), "--seed", SEED,
+                                     "--no-beacon", "--secret-keys-out",
+                                     str(artefact)])
+        assert result.exit_code == 2, result.output
+        assert "artefact directory" in result.output
+
+    def test_deterministic_alone_is_a_hard_error(self, artefact, tmp_path):
+        """CLI must not expose deterministic signing casually."""
+        out = tmp_path / "b.json"
+        result = runner.invoke(app, ["sign", str(artefact), "--out", str(out),
+                                     "--seed", SEED, "--deterministic"])
+        assert result.exit_code == 2, result.output
+        assert "fault injection" in result.output.lower() or "fault-injection" in result.output
+        assert "THREAT-MODEL.md" in result.output
+        assert "--i-am-producing-test-vectors" in result.output
+        assert not out.exists()
+
     def test_deterministic_mode_reproduces_the_bundle_byte_for_byte(
         self, artefact, tmp_path
     ):
@@ -109,7 +146,8 @@ class TestSign:
             path = tmp_path / name
             result = runner.invoke(app, ["sign", str(artefact), "--out", str(path),
                                          "--name", "demo", "--seed", SEED,
-                                         "--deterministic"])
+                                         "--deterministic",
+                                         "--i-am-producing-test-vectors"])
             assert result.exit_code == 0, result.output
             outs.append(path.read_text(encoding="utf-8"))
         assert outs[0] == outs[1]
@@ -117,7 +155,8 @@ class TestSign:
     def test_deterministic_mode_records_what_it_gave_up(self, artefact, tmp_path):
         result = runner.invoke(app, ["sign", str(artefact), "--out",
                                      str(tmp_path / "b.json"), "--seed", SEED,
-                                     "--deterministic"])
+                                     "--deterministic",
+                                     "--i-am-producing-test-vectors"])
         assert "fault-injection" in result.output
 
     def test_online_exposure_is_refused(self, artefact, tmp_path):
@@ -126,7 +165,8 @@ class TestSign:
                                      str(tmp_path / "b.json"), "--seed", SEED,
                                      "--exposure", "online"])
         assert result.exit_code == 1
-        assert "MEASURED to leak" in result.output
+        # Default ML-DSA is liboqs (UNKNOWN) when the extra is installed.
+        assert "HAS NOT BEEN ESTABLISHED" in result.output
 
     def test_a_bad_exposure_is_rejected(self, artefact, tmp_path):
         result = runner.invoke(app, ["sign", str(artefact), "--out",
@@ -178,6 +218,41 @@ class TestVerify:
                                      "--context", "model-release"])
         assert "algorithms checked" in result.output
         assert "binding enforced" in result.output
+        assert "integrity only" in result.output
+        assert "not signer identity" in result.output
+
+    def test_a_new_key_still_verifies_until_you_pin_the_old_fingerprint(
+        self, artefact, tmp_path
+    ):
+        """Bare verify is integrity. A re-sign with new keys still passes.
+        --expect-fingerprint of the original keys rejects that bundle."""
+        first = tmp_path / "first.json"
+        first_keys = tmp_path / "first.keys.json"
+        second = tmp_path / "second.json"
+        seed_a = "11" * 32
+        seed_b = "22" * 32
+        common = ["sign", str(artefact), "--context", "model-release", "--name", "demo"]
+        a = runner.invoke(app, [*common, "--out", str(first), "--keys-out",
+                                 str(first_keys), "--seed", seed_a])
+        assert a.exit_code == 0, a.output
+        b = runner.invoke(app, [*common, "--out", str(second), "--seed", seed_b])
+        assert b.exit_code == 0, b.output
+
+        bare = runner.invoke(app, ["verify", str(artefact), "--bundle", str(second),
+                                   "--context", "model-release"])
+        assert bare.exit_code == 0, bare.output
+        assert "integrity only" in bare.output
+        assert "not signer identity" in bare.output
+
+        exported = json.loads(first_keys.read_text(encoding="utf-8"))
+        pinned = runner.invoke(app, [
+            "verify", str(artefact), "--bundle", str(second),
+            "--context", "model-release",
+            *[arg for fp in (v["fingerprint"] for v in exported.values())
+              for arg in ("--expect-fingerprint", fp)],
+        ])
+        assert pinned.exit_code == 1, pinned.output
+        assert "fingerprint" in pinned.output.lower()
 
     def test_classical_mode_warns_about_the_binding(self, artefact, signed):
         result = runner.invoke(app, ["verify", str(artefact), "--bundle", str(signed),
@@ -201,6 +276,28 @@ class TestVerify:
         bad.write_text("{not json", encoding="utf-8")
         result = runner.invoke(app, ["verify", str(artefact), "--bundle", str(bad)])
         assert result.exit_code == 2
+
+
+def test_register_requires_a_recovery_key():
+    from typer.testing import CliRunner
+
+    from qknot.cli import app
+
+    result = CliRunner().invoke(app, ["register", "--out", "unused"])
+    assert result.exit_code == 2, result.output
+    assert "--recovery-key" in result.output
+    assert "not an independent recovery family" in result.output
+
+
+def test_monitor_help_does_not_claim_an_all_clear():
+    from typer.testing import CliRunner
+
+    from qknot.cli import app
+
+    result = CliRunner().invoke(app, ["monitor-registrations", "--help"])
+    assert result.exit_code == 0, result.output
+    assert "NOT ESTABLISHED" in result.output
+    assert "no rogue registrations" in result.output
 
 
 class TestEntropy:
@@ -238,17 +335,34 @@ class TestEntropy:
         result = runner.invoke(app, ["entropy", "--backend", "nonsense"])
         assert result.exit_code == 2
 
-    def test_an_unimplemented_backend_falls_back_and_says_so(self):
-        """FALLBACK is the default policy, so an unavailable quantum source is
-        not an error -- but the attestation must not claim quantum origin."""
-        result = runner.invoke(app, ["entropy", "--backend", "ibm"])
-        assert result.exit_code == 0
+    def test_an_unavailable_quantum_source_falls_back_and_says_so(self):
+        """FALLBACK is the default. ANU is blocked here, so the bytes are
+        not claimed to be quantum."""
+        result = runner.invoke(app, ["entropy", "--backend", "anu"])
+        assert result.exit_code == 0, result.output
         assert "not a quantum source" in result.output
 
     def test_abort_policy_turns_an_unavailable_backend_into_a_failure(self):
-        result = runner.invoke(app, ["entropy", "--backend", "ibm",
+        result = runner.invoke(app, ["entropy", "--backend", "anu",
                                      "--on-qrng-failure", "abort"])
         assert result.exit_code == 1
+
+    def test_usb_reads_a_device_path(self, tmp_path):
+        device = tmp_path / "qrng"
+        device.write_bytes(bytes(range(32)))
+        result = runner.invoke(app, ["entropy", "--backend", "usb", "--bytes", "16",
+                                     "--usb-device", str(device)])
+        assert result.exit_code == 0, result.output
+        assert "Quantum entropy from 'usb'" in result.output
+
+    def test_usb_constant_output_is_a_failed_health_check(self, tmp_path):
+        device = tmp_path / "stuck"
+        device.write_bytes(b"\x11" * 16)
+        result = runner.invoke(app, ["entropy", "--backend", "usb", "--bytes", "8",
+                                     "--usb-device", str(device),
+                                     "--on-qrng-failure", "abort"])
+        assert result.exit_code == 1, result.output
+        assert "health check" in result.output
 
     def test_an_invalid_failure_policy_is_rejected(self):
         result = runner.invoke(app, ["entropy", "--backend", "system",

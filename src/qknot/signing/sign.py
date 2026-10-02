@@ -36,11 +36,13 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import subprocess
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from .backends import (
     DEFAULT_SUITE,
@@ -95,6 +97,73 @@ class HybridKeySet:
 
     def public_keys(self) -> dict[str, dict[str, Any]]:
         return {alg: key.public_info() for alg, key in self.keys.items()}
+
+
+class KeyStore(Protocol):
+    """Where secret key bytes live. Not an HSM."""
+
+    def put(self, name: str, secret: bytes) -> None: ...
+
+    def get(self, name: str) -> bytes: ...
+
+
+def _owner_only(path: Path) -> None:
+    """Owner read/write. POSIX 0o600; Windows DACL for the current user."""
+    if os.name == "nt":
+        user = os.environ.get("USERNAME")
+        if not user:
+            raise OSError("USERNAME is unset; cannot restrict the secret-key file")
+        result = subprocess.run(
+            ["icacls", str(path), "/inheritance:r", "/grant:r", f"{user}:(R,W)"],
+            capture_output=True, text=True, check=False,
+        )
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout).strip() or "icacls failed"
+            raise OSError(detail)
+        return
+    path.chmod(0o600)
+
+
+def _is_owner_only(path: Path) -> bool:
+    if os.name != "nt":
+        return (path.stat().st_mode & 0o077) == 0
+    shown = subprocess.run(
+        ["icacls", str(path)], capture_output=True, text=True, check=False,
+    )
+    if shown.returncode != 0:
+        return False
+    aces = [tok for tok in shown.stdout.replace("\n", " ").split() if ":(" in tok]
+    user = os.environ.get("USERNAME", "").lower()
+    return len(aces) == 1 and bool(user) and user in aces[0].lower()
+
+
+class FileKeyStore:
+    """Secret keys as files in one directory. Owner-only, or they are refused."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = Path(path)
+
+    def _file(self, name: str) -> Path:
+        if not name or name != Path(name).name or name in (".", ".."):
+            raise ValueError(f"key name must be a single path component, got {name!r}")
+        return self.path / f"{name}.key"
+
+    def put(self, name: str, secret: bytes) -> None:
+        self.path.mkdir(parents=True, exist_ok=True)
+        target = self._file(name)
+        target.write_bytes(secret)
+        _owner_only(target)
+
+    def get(self, name: str) -> bytes:
+        target = self._file(name)
+        if not target.is_file():
+            raise KeyError(name)
+        if not _is_owner_only(target):
+            raise PermissionError(
+                f"{target} is readable by someone other than the owner. "
+                "Refusing to load a world-readable secret key."
+            )
+        return target.read_bytes()
 
 
 @dataclass(frozen=True)
@@ -183,7 +252,9 @@ def keygen(
 
     keys: dict[str, KeyPair] = {}
     for algorithm in suite:
-        backend = get_backend(algorithm)
+        # The seed has to reach the key. liboqs refuses seeded keygen.
+        impl = "dilithium-py" if algorithm.startswith("ml-dsa") else None
+        backend = get_backend(algorithm, implementation=impl)
         # Domain-separate per algorithm: one leaked key must not expose another.
         per_key_seed = hkdf(
             ikm=seed, salt=b"qknot-keygen-v1",
@@ -331,6 +402,7 @@ def verify(
     context: bytes = b"",
     time_evidence: TimeEvidence | None = None,
     now: Any | None = None,
+    expect_fingerprints: set[str] | None = None,
 ) -> dict[str, Any]:
     """Verify an artefact against a signature.
 
@@ -408,6 +480,22 @@ def verify(
                 f"notes, not only to the binding."
             )
         checked.append(algorithm)
+
+    if expect_fingerprints:
+        allowed = {fp.strip().lower() for fp in expect_fingerprints if fp.strip()}
+        present = {
+            algorithm: key_fingerprint(pk)
+            for algorithm, pk in signed.public_keys.items()
+        }
+        unexpected = {alg: fp for alg, fp in present.items() if fp not in allowed}
+        if not allowed or unexpected:
+            detail = ", ".join(f"{alg}={fp}" for alg, fp in sorted(unexpected.items()))
+            raise VerificationFailed(
+                "bundle key fingerprint is not in the expected set"
+                + (f" ({detail})" if detail else "")
+                + ". This pins keys you already trust. It does not establish "
+                "who signed."
+            )
 
     # --- temporal trust boundary ------------------------------------------
     # Soft-warn by default: failing verification because a standards body chose

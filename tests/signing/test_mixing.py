@@ -16,9 +16,15 @@ from qknot.signing.entropy.beacon import BEACON_PULSE_BYTES, BeaconPulse, NistBe
 from qknot.signing.entropy.mixing import (
     KDF_NAME,
     NoSecretEntropy,
+    default_sources,
     hkdf,
     mix_entropy,
 )
+
+
+def test_the_default_mix_is_system_plus_nist_beacon():
+    assert [source.name for source in default_sources()] == ["system", "nist-beacon"]
+    assert [source.name for source in default_sources(use_beacon=False)] == ["system"]
 
 
 class FakePublicBeacon:
@@ -359,12 +365,11 @@ class TestBeaconBackend:
         assert ref["verify_url"].endswith("/chain/1/pulse/999")
         assert ref["output_value"] and ref["signature_value"]
 
-    def test_signature_verification_is_an_honest_stub(self):
-        """It must not silently claim to have verified anything."""
+    def test_a_pulse_without_its_fields_does_not_verify(self):
+        """No raw pulse means the signature was not checked. That is false."""
         from qknot.signing.entropy.beacon import verify_pulse_signature
         pulse = BeaconPulse(1, 1, "t", "ab" * 64, "sig", "uri")
-        with pytest.raises(NotImplementedError, match="verifier can check it"):
-            verify_pulse_signature(pulse, b"")
+        assert verify_pulse_signature(pulse, b"") is False
 
     def test_commitment_helper_is_shared_with_the_backends_module(self):
         assert commit(b"x") == commit(b"x")

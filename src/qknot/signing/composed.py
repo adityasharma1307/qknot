@@ -118,6 +118,7 @@ def verify_artefact_against_registration(
     artefact_signed_at: datetime | None = None,
     now: datetime | None = None,
     policies: dict[str, Any] | None = None,
+    expect_fingerprints: set[str] | None = None,
 ) -> AuthorisedArtefact:
     """Verify an artefact AND that an identity vouched for the key that signed it.
 
@@ -130,7 +131,10 @@ def verify_artefact_against_registration(
 
     # 1. The artefact's own signature. Unchanged, and it runs FIRST: there is no
     #    point asking who vouched for a key if the signature is not valid.
-    report = verify(target, artefact, mode=mode, context=context)
+    report = verify(
+        target, artefact, mode=mode, context=context,
+        expect_fingerprints=expect_fingerprints,
+    )
 
     # 2. The registration: is this identity's vouching for a PQC key trustworthy,
     #    and on what basis (direct, or rescued by the log's timestamp)?

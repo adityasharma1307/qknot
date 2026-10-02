@@ -305,23 +305,11 @@ class MlDsaBackend:
     side_channel_status = SideChannelStatus.KNOWN_LEAKY
 
     def __init__(self, level: str = "ml-dsa-87", deterministic: bool = False):
-        """
-        Args:
-            deterministic: FIPS 204 defines both a *hedged* and a *deterministic*
-                signing mode. Hedged is the default here and in the standard: it
-                mixes 32 fresh random bytes into each signature, which is the
-                recommended defence against fault-injection attacks and against
-                a signature leaking key material when the same message is signed
-                twice.
+        """Hedged (default) vs FIPS 204 deterministic signing.
 
-                The cost is that **signing is not reproducible**: the same key
-                and the same message produce different signature bytes each
-                time, so two bundles over one artefact are not byte-identical.
-                Set this to True when byte-reproducibility is the point -- test
-                vectors, a demo notebook a reader re-runs, benchmark artefacts --
-                and understand that it trades away the fault-attack margin.
-
-                Key generation is deterministic from the seed in either mode.
+        `deterministic=True` is allowed here for test vectors. The CLI will
+        not pass it without `--i-am-producing-test-vectors`. See
+        docs/THREAT-MODEL.md, fault-injection section.
         """
         level = level.lower()
         if level not in ML_DSA_SIGNATURE_SIZES:
@@ -568,6 +556,7 @@ class LibOqsBackend:
             "mechanismVersion": details.get("version"),
             "claimedNistLevel": details.get("claimed_nist_level"),
             "quantumResistant": self.quantum_resistant,
+            "sideChannelResistant": self.side_channel_resistant,
             "sideChannelStatus": self.side_channel_status.value,
             "sideChannelBasis": (
                 "liboqs exposes no constant-time or build-configuration flag at "
@@ -700,22 +689,16 @@ def get_backend(algorithm: str, deterministic: bool = False,
     """Instantiate the backend for an algorithm.
 
     `deterministic` is accepted by every backend and meaningful only for ML-DSA;
-    Ed25519 is deterministic by construction (RFC 8032). See MlDsaBackend for
-    what the flag trades away.
+    Ed25519 is deterministic by construction (RFC 8032). Deterministic ML-DSA
+    stays on dilithium-py: liboqs has no hedged/deterministic switch.
 
-    Distinguishes "we have never heard of this" from "this is a real algorithm
-    we cannot compute". Collapsing the two into one `unknown algorithm` message
-    was actively misleading: SLH-DSA is a FIPS 205 standard, and reporting it as
-    unknown invited the reading that it was somehow suspect rather than simply
-    unimplemented here.
+    For ML-DSA, liboqs is preferred when `oqs` imports and `deterministic` is
+    false. Otherwise dilithium-py. `implementation=` forces one. liboqs stays
+    `UNKNOWN` until `attest_constant_time`. See docs/THREAT-MODEL.md.
     """
     algorithm = algorithm.lower()
 
     if implementation is not None:
-        # Opt-in only. Installing liboqs must not silently change which
-        # implementation signs: a caller who never asked for it would get a
-        # different backend, a different side-channel status and no seeded
-        # keygen, none of which is visible at the call site.
         if implementation == "liboqs":
             return LibOqsBackend(algorithm, deterministic=deterministic)
         if implementation in ("dilithium-py", "pure-python"):
@@ -724,6 +707,12 @@ def get_backend(algorithm: str, deterministic: bool = False,
             f"unknown implementation {implementation!r}; "
             f"expected 'liboqs' or 'dilithium-py'"
         )
+
+    if algorithm in ML_DSA_SIGNATURE_SIZES and not deterministic:
+        try:
+            return LibOqsBackend(algorithm)
+        except ImportError:
+            pass
 
     if algorithm in _BACKENDS:
         made: SignatureBackend = _BACKENDS[algorithm](deterministic=deterministic)

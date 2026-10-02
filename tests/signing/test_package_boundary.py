@@ -151,10 +151,14 @@ class TestCoreInstallDoesNotPullTheAuditStack:
         text = (pathlib.Path(__file__).resolve().parents[2] / "pyproject.toml").read_text(
             encoding="utf-8"
         )
-        _, _, extras = text.partition("[project.optional-dependencies]")
+        project, _, extras = text.partition("[project.optional-dependencies]")
+        core = _pkg_names(_toml_array(project, "dependencies"))
         audit = _pkg_names(_toml_array(extras, "audit"))
         assert {"huggingface_hub", "tenacity", "pydantic"} <= audit
         assert "register" in extras and "transparency" in extras
+        assert "liboqs-python" not in core
+        assert "liboqs-python" in _pkg_names(_toml_array(extras, "pqc-fast"))
+        assert "liboqs-python" in _pkg_names(_toml_array(extras, "dev"))
 
     def test_readme_documents_the_split_extras(self):
         readme = (pathlib.Path(__file__).resolve().parents[2] / "README.md").read_text(

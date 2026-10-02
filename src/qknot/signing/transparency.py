@@ -55,6 +55,7 @@ verification claim false.
 from __future__ import annotations
 
 import base64
+import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -65,7 +66,9 @@ __all__ = [
     "TimestampError",
     "TimestampToken",
     "TimestampUnavailableError",
+    "attach_timestamp",
     "build_request",
+    "bundle_signature_message",
     "establish_time",
     "request_timestamp",
     "verify_timestamp",
@@ -239,6 +242,49 @@ def build_request(message: bytes) -> Any:
         .cert_request(cert_request=True)   # ask the TSA to include its cert
         .build()
     )
+
+
+def bundle_signature_message(bundle: dict[str, Any]) -> bytes:
+    """The bytes a timestamp covers: the bundle's signatures, in keyid order.
+
+    The DSSE payload is not included. Timestamping the artefact would only
+    prove the artefact existed. The signature is what has to be pinned in time.
+    """
+    envelope = bundle.get("dsseEnvelope")
+    if not isinstance(envelope, dict):
+        raise TimestampError("bundle has no dsseEnvelope")
+    signatures = envelope.get("signatures") or []
+    if not signatures:
+        raise TimestampError("bundle has no signatures to timestamp")
+    parts = []
+    for entry in sorted(signatures, key=lambda item: item.get("keyid") or ""):
+        raw = entry.get("sig")
+        if not isinstance(raw, str):
+            raise TimestampError("a signature entry has no sig")
+        parts.append(base64.b64decode(raw))
+    return b"".join(parts)
+
+
+def attach_timestamp(
+    bundle: dict[str, Any],
+    url: str,
+    *,
+    session: Any = None,
+    timeout: float = 20.0,
+) -> dict[str, Any]:
+    """Return a copy of `bundle` with an RFC 3161 token beside the envelope.
+
+    The signed payload is not rewritten. Old verifiers ignore the new field.
+    """
+    message = bundle_signature_message(bundle)
+    token = request_timestamp(message, url, session=session, timeout=timeout)
+    stamped = dict(bundle)
+    stamped["timeEvidence"] = {
+        "kind": "rfc3161",
+        "message_sha256": hashlib.sha256(message).hexdigest(),
+        "tokens": [token.to_dict()],
+    }
+    return stamped
 
 
 def request_timestamp(

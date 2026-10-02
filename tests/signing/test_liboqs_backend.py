@@ -1,11 +1,8 @@
-"""liboqs backend: cross-validated against the pure-Python one, or skipped.
+"""liboqs backend, cross-validated against dilithium-py.
 
-See docs/THREAT-MODEL.md, "liboqs, measured". Two implementations of one standard are only
-interchangeable if each verifies the other's signatures; if they disagree, one
-is wrong and shipping either is worse than shipping neither.
-
-Criterion 5 is enforced by the skip itself: with liboqs absent these tests do
-not run, and `get_backend("ml-dsa-87")` must still return dilithium-py.
+See docs/THREAT-MODEL.md, "liboqs, measured". Two implementations of one
+standard are interchangeable only if each verifies the other's signatures.
+`oqs` is the `pqc-fast` extra. These tests run; they do not skip.
 """
 from __future__ import annotations
 
@@ -26,11 +23,8 @@ from qknot.signing.sidechannel import SideChannelEvidence, SideChannelStatus
 LEVELS = ["ml-dsa-44", "ml-dsa-65", "ml-dsa-87"]
 
 
-def _liboqs(level: str = "ml-dsa-87"):
-    try:
-        return LibOqsBackend(level)
-    except (ImportError, BackendUnsuitable) as exc:
-        pytest.skip(f"liboqs unavailable: {str(exc)[:80]}")
+def _liboqs(level: str = "ml-dsa-87") -> LibOqsBackend:
+    return LibOqsBackend(level)
 
 
 needs_liboqs = pytest.mark.allow_network      # the bindings may load a shared lib
@@ -39,9 +33,18 @@ needs_liboqs = pytest.mark.allow_network      # the bindings may load a shared l
 class TestAbsenceIsClean:
     """Criterion 5. These run whether or not liboqs is installed."""
 
-    def test_the_default_backend_is_unaffected(self):
-        """Installing liboqs must not silently change who signs."""
-        assert isinstance(get_backend("ml-dsa-87"), MlDsaBackend)
+    def test_the_default_is_liboqs_when_it_imports(self):
+        """S1: get_backend prefers liboqs. Status stays UNKNOWN."""
+        backend = get_backend("ml-dsa-87")
+        assert isinstance(backend, LibOqsBackend)
+        assert backend.side_channel_status is SideChannelStatus.UNKNOWN
+
+    def test_a_missing_liboqs_falls_back_to_dilithium(self, monkeypatch):
+        monkeypatch.setattr(LibOqsBackend, "_module", None)
+        monkeypatch.setattr(LibOqsBackend, "_load_error", "blocked for this test")
+        backend = get_backend("ml-dsa-87")
+        assert isinstance(backend, MlDsaBackend)
+        assert backend.side_channel_status is SideChannelStatus.KNOWN_LEAKY
 
     def test_liboqs_is_opt_in_by_name(self):
         assert isinstance(get_backend("ml-dsa-87", implementation="dilithium-py"),

@@ -65,6 +65,26 @@ def detect_signature_files(filenames: list[str]) -> list[tuple[str, SigFormat]]:
     return matches
 
 
+def manifest_status(payload: bytes, fetched_names: list[str]) -> str:
+    """Compare an OMS/DSSE listing to the files that were actually fetched.
+
+    `manifest-complete` means every listed name is in `fetched_names`.
+    `manifest-incomplete` means at least one listed name is missing. That is
+    not "covered", and it is not `unsigned` or `error`.
+    `manifest-unreadable` means the payload listed nothing. Still not unsigned.
+    """
+    from .parse import listed_artefacts
+
+    listed = listed_artefacts(payload)
+    if not listed:
+        return "manifest-unreadable"
+    have = {name.lstrip("./") for name in fetched_names}
+    missing = [name for name, _digest in listed if name.lstrip("./") not in have]
+    if missing:
+        return "manifest-incomplete"
+    return "manifest-complete"
+
+
 def has_any_signature(filenames: list[str]) -> bool:
     """Convenience predicate: True iff any candidate signature file is present."""
     return bool(detect_signature_files(filenames))

@@ -71,6 +71,7 @@ class BeaconPulse:
     status_code: int | None = None
     certificate_id: str | None = None
     previous_output: str | None = None
+    raw: dict[str, Any] | None = None
 
     @property
     def value(self) -> bytes:
@@ -114,6 +115,7 @@ def _pulse_from_json(payload: dict[str, Any]) -> BeaconPulse:
         status_code=pulse.get("statusCode"),
         certificate_id=pulse.get("certificateId"),
         previous_output=pulse.get("previousOutputValue"),
+        raw=pulse,
     )
 
 
@@ -214,27 +216,120 @@ class NistBeaconBackend:
         return described
 
 
-def verify_pulse_signature(pulse: BeaconPulse, certificate_pem: bytes) -> bool:
-    """Check a pulse's RSA signature against NIST's certificate.
+def _u32(value: int) -> bytes:
+    return int(value).to_bytes(4, "big")
 
-    NOT IMPLEMENTED. Documented contract so a verifier and a future
-    implementation agree on what is being checked:
 
-      * The signed message is the concatenation of the pulse fields in the
-        order given by NISTIR 8213 section 3, each length-prefixed.
-      * The signature is RSA PKCS#1 v1.5 over SHA-512.
-      * The certificate must chain to NIST's published beacon CA, and
-        `certificate_id` in the pulse is the SHA-512 of its DER encoding, so a
-        verifier can confirm they fetched the right certificate.
+def _u64(value: int) -> bytes:
+    return int(value).to_bytes(8, "big")
 
-    Until this is implemented, the attestation records everything needed for a
-    third party to perform the check themselves, and does not claim the
-    signature has been verified. That distinction is the whole point of the
-    module: never assert more than has actually been established.
+
+def _len_prefixed(payload: bytes) -> bytes:
+    return len(payload).to_bytes(4, "big") + payload
+
+
+def _hex_field(value: str) -> bytes:
+    return _len_prefixed(bytes.fromhex(value))
+
+
+def _previous(pulse: dict[str, Any], kind: str) -> str:
+    for item in pulse.get("listValues") or []:
+        if item.get("type") == kind:
+            return str(item["value"])
+    raise KeyError(kind)
+
+
+def _signed_message(pulse: dict[str, Any]) -> bytes:
+    """NISTIR 8213 fields 1–19, length-prefixed, as the NIST beacon signs them.
+
+    Confirmed against a live pulse: SHA-512(message || signature) equals
+    outputValue. Strings are UTF-8 with a 4-byte big-endian length. Hashes are
+    raw bytes with the same length prefix. Integers are big-endian (4 bytes
+    for cipher, period, status, external status; 8 for chain and pulse index).
     """
-    raise NotImplementedError(
-        "Pulse signature verification is a documented contract, not an "
-        "implementation. The attestation records the pulse index, value and "
-        "signature so a verifier can check it independently at "
-        f"{NIST_BEACON_BASE}/chain/<chain>/pulse/<index>."
-    )
+    external = pulse["external"]
+    parts = [
+        _len_prefixed(str(pulse["uri"]).encode("utf-8")),
+        _len_prefixed(str(pulse["version"]).encode("utf-8")),
+        _u32(pulse["cipherSuite"]),
+        _u32(pulse["period"]),
+        _hex_field(pulse["certificateId"]),
+        _u64(pulse["chainIndex"]),
+        _u64(pulse["pulseIndex"]),
+        _len_prefixed(str(pulse["timeStamp"]).encode("utf-8")),
+        _hex_field(pulse["localRandomValue"]),
+        _hex_field(external["sourceId"]),
+        _u32(external["statusCode"]),
+        _hex_field(external["value"]),
+    ]
+    for kind in ("previous", "hour", "day", "month", "year"):
+        parts.append(_hex_field(_previous(pulse, kind)))
+    parts.append(_hex_field(pulse["precommitmentValue"]))
+    parts.append(_u32(pulse["statusCode"]))
+    return b"".join(parts)
+
+
+def fetch_beacon_certificate(certificate_id: str, *, timeout: float = 30.0,
+                             session: Any = None) -> bytes:
+    """PEM bytes NIST serves for a pulse's certificateId."""
+    import requests
+
+    http = session or requests.Session()
+    url = f"{NIST_BEACON_BASE}/certificate/{certificate_id}"
+    try:
+        response = http.get(
+            url, timeout=timeout,
+            headers={"User-Agent": "qknot/0.2 (research)", "Accept": "*/*"},
+        )
+    except Exception as exc:
+        raise QrngUnavailable(f"NIST beacon certificate unreachable: {exc}") from exc
+    if response.status_code != 200 or not response.content.startswith(b"-----BEGIN"):
+        raise QrngUnavailable(
+            f"NIST beacon certificate HTTP {response.status_code} for {certificate_id}"
+        )
+    return bytes(response.content)
+
+
+def verify_pulse_signature(pulse: BeaconPulse, certificate_pem: bytes) -> bool:
+    """RSA PKCS#1 v1.5 SHA-512 over the NISTIR 8213 pulse encoding.
+
+    Returns False when the certificate is missing, is not the one named by
+    certificateId (SHA-512 of its DER), the signature does not verify, or
+    outputValue is not SHA-512(message || signature). A failed check is False,
+    not an exception and not a skip.
+    """
+    import hashlib
+
+    from cryptography.exceptions import InvalidSignature
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import padding, rsa
+    from cryptography.x509 import load_pem_x509_certificate
+
+    raw = pulse.raw
+    if not certificate_pem or raw is None:
+        return False
+    try:
+        certificate = load_pem_x509_certificate(certificate_pem)
+        message = _signed_message(raw)
+        signature = bytes.fromhex(str(raw["signatureValue"]))
+    except (KeyError, TypeError, ValueError):
+        return False
+
+    named = pulse.certificate_id or raw.get("certificateId")
+    if named:
+        der = certificate.public_bytes(serialization.Encoding.DER)
+        if hashlib.sha512(der).hexdigest().lower() != str(named).lower():
+            return False
+    public_key = certificate.public_key()
+    if not isinstance(public_key, rsa.RSAPublicKey):
+        return False
+    if public_key.key_size // 8 != len(signature):
+        return False
+    try:
+        public_key.verify(signature, message, padding.PKCS1v15(), hashes.SHA512())
+    except (InvalidSignature, ValueError, TypeError):
+        return False
+
+    output = hashlib.sha512(message + signature).hexdigest()
+    claimed = str(raw.get("outputValue", ""))
+    return output.lower() == claimed.lower()

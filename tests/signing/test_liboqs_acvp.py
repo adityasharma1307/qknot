@@ -33,7 +33,7 @@ from pathlib import Path
 
 import pytest
 
-from qknot.signing.backends import BackendUnsuitable, LibOqsBackend, MlDsaBackend
+from qknot.signing.backends import LibOqsBackend, MlDsaBackend
 
 VECTORS = Path(__file__).parent / "fips204_vectors"
 LEVELS = {"ML-DSA-44": "ml-dsa-44", "ML-DSA-65": "ml-dsa-65",
@@ -80,11 +80,8 @@ def _sample(per_set: int = 4):
 CASES = _sample()
 
 
-def _liboqs(level: str):
-    try:
-        return LibOqsBackend(level)
-    except (ImportError, BackendUnsuitable) as exc:
-        pytest.skip(f"liboqs unavailable: {str(exc)[:60]}")
+def _liboqs(level: str) -> LibOqsBackend:
+    return LibOqsBackend(level)
 
 
 @pytest.mark.allow_network

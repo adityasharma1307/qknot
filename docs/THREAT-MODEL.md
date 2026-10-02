@@ -152,10 +152,10 @@ are never byte-identical. Key generation is deterministic from the seed in
 either mode; only the signature differs.
 
 `--deterministic` (or `sign(deterministic=True)`) trades the fault-injection
-margin for byte-reproducibility. It is the right choice for test vectors, a
-demo notebook someone re-runs, and benchmark artefacts. It is the wrong choice
-for release signing. When used, the bundle records the fact in its notes, so a
-verifier can see which mode produced it.
+margin for byte-reproducibility. The library still accepts `deterministic=True`.
+The CLI does not: `--deterministic` without `--i-am-producing-test-vectors` is
+a hard error. Right for test vectors and a re-runnable notebook; wrong for a
+release. When used, the bundle records the mode in its notes.
 
 ### Timing side channels, for the pure-Python ML-DSA backend
 
@@ -255,14 +255,18 @@ HSM integration are the caller's responsibility.
 **Power and electromagnetic analysis.** Out of scope entirely. Physical access
 to the signing host defeats this and every software countermeasure.
 
-**Beacon signature verification.** `verify_pulse_signature` is a documented
-contract, not an implementation. The attestation records everything a third
-party needs to check a NIST beacon pulse independently, and never claims the
-check has been performed.
+**Beacon signature verification.** `verify_pulse_signature` checks the pulse.
+It is RSA PKCS#1 v1.5 with SHA-512 over the NISTIR 8213 field encoding, and
+`outputValue` must be SHA-512 of that message plus the signature. The
+certificate must be the one named by `certificateId` (SHA-512 of its DER).
+A missing or mismatched certificate returns false. Fetching a pulse does not
+itself claim the signature was checked.
 
-**Manifest completeness for OMS bundles.** A repo classified as
-manifest-covered is trusted to have a complete manifest; the tool does not open
-the DSSE payload to confirm every artefact is enumerated.
+**Manifest completeness for OMS bundles.** When the DSSE payload is opened,
+`manifest_status` compares listed names to the files that were fetched.
+A missing name is `manifest-incomplete`, not covered, and not unsigned.
+File bodies are not downloaded. A filename-only classification that never
+opens the payload still cannot make that check.
 
 ---
 

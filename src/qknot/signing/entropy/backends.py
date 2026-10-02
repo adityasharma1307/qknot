@@ -27,8 +27,8 @@ BACKENDS
 ========
     anu       ANU Quantum Numbers, over HTTPS. Default. See the note below.
     system    os.urandom. Always available, always honest about being classical.
-    ibm       IBM Quantum. Documented contract only, not implemented.
-    usb       Local USB hardware QRNG. Documented contract only, not implemented.
+    ibm       IBM Quantum. Needs IBM_QUANTUM_TOKEN and the qrng-ibm extra.
+    usb       A local QRNG device path. Needs the device, or QKNOT_USB_QRNG.
 
 A NOTE ON THE ANU ENDPOINT
 ==========================
@@ -56,6 +56,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
+from pathlib import Path
 from typing import Any, Protocol
 
 log = logging.getLogger(__name__)
@@ -305,83 +306,182 @@ class AnuQrngBackend:
         }
 
 
-# ---------------------------------------------------------------------------
-# Documented contracts, not implementations
-# ---------------------------------------------------------------------------
+def von_neumann_extract(bits: list[int]) -> list[int]:
+    """Drop pairs that match. 01 -> 1, 10 -> 0. Removes a constant bias."""
+    out: list[int] = []
+    for i in range(0, len(bits) - 1, 2):
+        left, right = bits[i], bits[i + 1]
+        if left != right:
+            out.append(right)
+    return out
+
+
+def _pack_bits(bits: list[int]) -> bytes:
+    out = bytearray()
+    for start in range(0, len(bits), 8):
+        byte = 0
+        for bit in bits[start:start + 8]:
+            byte = (byte << 1) | (bit & 1)
+        out.append(byte)
+    return bytes(out)
+
+
 class IbmQuantumBackend:
-    """Entropy from measurement on IBM Quantum hardware. NOT IMPLEMENTED.
+    """Entropy from |+> measurements on IBM Quantum hardware.
 
-    Contract, so that a future implementation and any verifier agree on what
-    the attestation means:
-
-      * A circuit of `ceil(8n / qubits)` shots prepares each qubit in |+> via a
-        Hadamard and measures in the computational basis, yielding one raw bit
-        per qubit per shot from state collapse.
-      * Raw measurements MUST be de-biased before use. Real devices have
-        asymmetric readout error, so P(0) != P(1) and the raw stream is not
-        uniform. Von Neumann extraction over disjoint pairs is the minimum;
-        Toeplitz extraction with a documented min-entropy estimate is better.
-        Skipping this step is the most likely way for an implementation to
-        produce a seed that looks quantum and is measurably biased.
-      * `describe()` MUST report backend name, calibration timestamp and the
-        extractor used, since the entropy quality claim is meaningless without
-        them.
-      * Queue latency is unbounded in practice, so callers should expect this
-        backend to be the one that triggers the wait-or-fallback decision.
-
-    Requires `qiskit` and IBM Quantum credentials.
+    Each qubit gets a Hadamard and is measured. Raw bits are von Neumann
+    extracted before they are returned, because readout is biased.
+    Needs `pip install qknot[qrng-ibm]` and `IBM_QUANTUM_TOKEN`.
     """
 
     name = "ibm"
     is_quantum = True
 
-    def __init__(self, backend_name: str = "least_busy", token: str | None = None):
+    def __init__(self, backend_name: str = "least_busy", token: str | None = None,
+                 measure: Any = None) -> None:
         self.backend_name = backend_name
-        self.token = token or os.environ.get("IBM_QUANTUM_TOKEN")
+        self.token = token or os.environ.get("IBM_QUANTUM_TOKEN") or os.environ.get("QISKIT_IBM_TOKEN")
+        self._measure = measure
+        self._resolved_backend: str | None = None
+        self._calibration: str | None = None
 
     def get_bytes(self, n: int) -> bytes:
-        raise NotImplementedError(
-            "IBM Quantum backend is a documented contract, not an implementation. "
-            "See the class docstring for the required de-biasing step."
+        if n <= 0:
+            raise ValueError("n must be positive")
+        needed = n * 8
+        extracted: list[int] = []
+        raw_count = 0
+        for _ in range(6):
+            batch = self._raw_bits(max(needed * 4, 64))
+            raw_count += len(batch)
+            extracted.extend(von_neumann_extract(batch))
+            if len(extracted) >= needed:
+                return _pack_bits(extracted[:needed])
+        raise QrngUnavailable(
+            f"von Neumann extractor produced {len(extracted)} unbiased bits "
+            f"from {raw_count} raw bits; need {needed}"
         )
 
+    def _raw_bits(self, n_bits: int) -> list[int]:
+        if self._measure is not None:
+            bits = [int(bit) & 1 for bit in self._measure(n_bits)]
+            self._resolved_backend = self._resolved_backend or "injected"
+            return bits
+        if not self.token:
+            raise QrngUnavailable(
+                "IBM Quantum needs IBM_QUANTUM_TOKEN (or QISKIT_IBM_TOKEN). "
+                "Also install the extra: pip install 'qknot[qrng-ibm]'."
+            )
+        return self._sample_ibm(n_bits)
+
+    def _sample_ibm(self, n_bits: int) -> list[int]:
+        try:
+            from qiskit import QuantumCircuit
+            from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
+            from qiskit_ibm_runtime import QiskitRuntimeService
+            from qiskit_ibm_runtime import SamplerV2 as Sampler
+        except ImportError as exc:
+            raise QrngUnavailable(
+                "IBM Quantum needs the optional extra: pip install 'qknot[qrng-ibm]'."
+            ) from exc
+        service = QiskitRuntimeService(channel="ibm_quantum_platform", token=self.token)
+        if self.backend_name == "least_busy":
+            backend = service.least_busy(operational=True, simulator=False)
+        else:
+            backend = service.backend(self.backend_name)
+        self._resolved_backend = getattr(backend, "name", self.backend_name)
+        properties = getattr(backend, "properties", None)
+        if callable(properties):
+            try:
+                report = properties()
+                updated = getattr(report, "last_update_date", None)
+                self._calibration = None if updated is None else str(updated)
+            except Exception:
+                self._calibration = None
+        width = max(1, min(int(getattr(backend, "num_qubits", 1) or 1), 8, n_bits))
+        shots = max(1, (n_bits + width - 1) // width)
+        circuit = QuantumCircuit(width)
+        circuit.h(range(width))
+        circuit.measure_all()
+        isa = generate_preset_pass_manager(optimization_level=1, backend=backend).run(circuit)
+        job = Sampler(mode=backend).run([isa], shots=shots)
+        return _bits_from_sampler(job.result()[0])[: n_bits]
+
     def describe(self) -> dict[str, Any]:
-        return {"endpoint": f"ibm-quantum:{self.backend_name}", "authenticated": bool(self.token)}
+        return {
+            "endpoint": f"ibm-quantum:{self._resolved_backend or self.backend_name}",
+            "authenticated": bool(self.token or self._measure is not None),
+            "extractor": "von-neumann",
+            "calibration": self._calibration,
+        }
+
+
+def _bits_from_sampler(pub_result: Any) -> list[int]:
+    data = getattr(pub_result, "data", None)
+    register = getattr(data, "meas", None)
+    if register is None and data is not None:
+        for value in vars(data).values():
+            if hasattr(value, "get_bitstrings") or hasattr(value, "get_counts"):
+                register = value
+                break
+    if register is None:
+        raise QrngUnavailable("IBM Sampler result had no measurement register")
+    if hasattr(register, "get_bitstrings"):
+        bits: list[int] = []
+        for bitstring in register.get_bitstrings():
+            bits.extend(int(char) for char in bitstring if char in "01")
+        return bits
+    counts = register.get_counts()
+    bits = []
+    for bitstring, count in counts.items():
+        shot = [int(char) for char in bitstring if char in "01"]
+        for _ in range(int(count)):
+            bits.extend(shot)
+    return bits
 
 
 class UsbQrngBackend:
-    """Entropy from a local USB hardware QRNG. NOT IMPLEMENTED.
+    """Read bytes from a local QRNG device.
 
-    Contract:
-
-      * Reads from a character device (`/dev/qrandom0`, a vendor SDK, or a
-        serial endpoint) exposed by devices such as the ID Quantique Quantis.
-      * The device's own health tests MUST be polled and their result recorded;
-        a hardware RNG that has silently failed still returns bytes, and those
-        bytes may be constant. This is the failure mode the attestation exists
-        to catch, so an implementation that ignores health status is worse than
-        no hardware backend at all.
-      * `describe()` MUST report device model, serial number and firmware
-        version, so an attestation can be tied to a specific physical device.
-      * Unlike the network backends this one cannot be reached by an auditor,
-        which makes its attestation the least externally checkable of the four
-        and the most dependent on the signer's honesty.
+    The path defaults to `/dev/qrandom0`, or `QKNOT_USB_QRNG` when that is set.
+    A full read of identical bytes is a failed health check, not entropy.
     """
 
     name = "usb"
     is_quantum = True
 
-    def __init__(self, device_path: str = "/dev/qrandom0"):
-        self.device_path = device_path
+    def __init__(self, device_path: str | None = None) -> None:
+        self.device_path = device_path or os.environ.get("QKNOT_USB_QRNG") or "/dev/qrandom0"
 
     def get_bytes(self, n: int) -> bytes:
-        raise NotImplementedError(
-            "USB QRNG backend is a documented contract, not an implementation. "
-            "See the class docstring for the required health-test polling."
-        )
+        if n <= 0:
+            raise ValueError("n must be positive")
+        path = Path(self.device_path)
+        if not path.exists():
+            raise QrngUnavailable(
+                f"USB QRNG not found at {path}. Pass --usb-device or set QKNOT_USB_QRNG."
+            )
+        try:
+            with path.open("rb") as handle:
+                data = handle.read(n)
+        except OSError as exc:
+            raise QrngUnavailable(f"USB QRNG read failed: {exc}") from exc
+        if len(data) != n:
+            raise QrngUnavailable(
+                f"USB QRNG at {path} returned {len(data)} bytes, expected {n}"
+            )
+        if len(set(data)) < 2:
+            raise QrngUnavailable(
+                f"USB QRNG health check failed: {path} returned constant bytes"
+            )
+        return data
 
     def describe(self) -> dict[str, Any]:
-        return {"endpoint": f"usb:{self.device_path}", "authenticated": None}
+        return {
+            "endpoint": f"usb:{self.device_path}",
+            "authenticated": None,
+            "health": "full-read and not constant",
+        }
 
 
 _BACKENDS: dict[str, type] = {
@@ -447,6 +547,7 @@ def get_entropy(
     backoff: float = 2.0,
     _backend_obj: EntropyBackend | None = None,
     _sleep: Any = time.sleep,
+    backend_kwargs: dict[str, Any] | None = None,
 ) -> EntropyResult:
     """Acquire `n_bytes` of entropy from ONE source and attest to its origin.
 
@@ -483,7 +584,7 @@ def get_entropy(
     Raises:
         QrngUnavailable: if the backend fails and the effective policy is ABORT.
     """
-    source = _backend_obj or get_backend(backend)
+    source = _backend_obj or get_backend(backend, **(backend_kwargs or {}))
     ask_human = _is_interactive() if interactive is None else interactive
     notes: list[str] = []
     started = datetime.now(timezone.utc)
@@ -515,7 +616,11 @@ def get_entropy(
                     f"policy is abort: {exc}"
                 ) from exc
 
-            if policy is OnFailure.WAIT or attempt < max_attempts:
+            # A person who picks fallback means now. The unattended fallback
+            # policy still retries until max_attempts, then falls back.
+            if policy is OnFailure.FALLBACK and (ask_human or attempt >= max_attempts):
+                pass
+            elif policy is OnFailure.WAIT or attempt < max_attempts:
                 delay = backoff ** attempt
                 log.info("Retrying %s in %.1fs", source.name, delay)
                 _sleep(delay)

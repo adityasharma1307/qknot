@@ -303,7 +303,11 @@ pip install "qknot[register]"
 ```
 
 Optional extras: `qknot[transparency]` for RFC 3161 timestamps;
-`qknot[analysis]` for notebooks and figures.
+`qknot[analysis]` for notebooks and figures;
+`qknot[qrng-ibm]` for `qknot entropy --backend ibm`;
+`qknot[pqc-fast]` for liboqs ML-DSA. Without it, ML-DSA is dilithium-py
+(offline only). With it, `get_backend` prefers liboqs, whose side-channel
+status stays `UNKNOWN` until you attest the build.
 
 QKnot is published to PyPI through GitHub Actions with [Trusted
 Publishing](https://docs.pypi.org/trusted-publishers/), so every release
@@ -361,12 +365,22 @@ qknot sign ./dist/myapp-1.0.0.tar.gz --out myapp.bundle.json --keys-out keys.jso
 qknot verify ./dist/myapp-1.0.0.tar.gz --bundle myapp.bundle.json
 ```
 
-Add `--deterministic` for byte-reproducible signatures. It is off by default:
-FIPS 204 hedged signing mixes fresh randomness into every signature as a
-defence against fault injection, and that margin is worth more than
-reproducibility outside of test vectors and demos. Resume is on by default
-for directories — if interrupted, rerun the same command and it picks up
-where it left off.
+Bare `verify` checks integrity only, not who signed. The keys are taken from
+the bundle, so a re-sign with a new key still verifies. Pin keys you already
+trust with `--expect-fingerprint` (repeatable). Identity requires
+`--registration`.
+
+Hedged signing is the default (FIPS 204 mixes fresh randomness as a defence
+against fault injection). Byte-reproducible signatures need both flags:
+
+```bash
+qknot sign ./dist/myapp-1.0.0.tar.gz --out myapp.bundle.json \
+    --deterministic --i-am-producing-test-vectors
+```
+
+`--deterministic` alone is a hard error. Resume is on by default for
+directories — if interrupted, rerun the same command and it picks up where
+it left off.
 
 ### Register an identity and verify attribution
 

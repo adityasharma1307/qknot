@@ -207,9 +207,13 @@ class TestVerifyModes:
 # ===========================================================================
 class TestExposureReachesSign:
     def test_online_signing_with_pure_python_ml_dsa_is_refused(self, artefact, keys):
-        from qknot.signing.backends import BackendUnsuitable
+        """dilithium-py stays KNOWN_LEAKY even when liboqs is the default."""
+        from qknot.signing.backends import BackendUnsuitable, check_exposure, get_backend
 
+        pure = get_backend("ml-dsa-44", implementation="dilithium-py")
         with pytest.raises(BackendUnsuitable, match="MEASURED to leak"):
+            check_exposure(pure, Exposure.ONLINE)
+        with pytest.raises(BackendUnsuitable, match="HAS NOT BEEN ESTABLISHED"):
             sign(artefact, keys, exposure=Exposure.ONLINE)
 
     def test_the_refusal_happens_before_any_signing(self, artefact, keys):
@@ -222,7 +226,8 @@ class TestExposureReachesSign:
     def test_the_bundle_records_the_backend_caveats(self, signed):
         info = signed.backend_info["ml-dsa-44"]
         assert info["sideChannelResistant"] is False
-        assert any("rejection sampling" in c for c in info["caveats"])
+        assert info["sideChannelStatus"] == "unknown"
+        assert "no constant-time" in str(info["sideChannelBasis"])
 
     def test_signing_notes_the_non_constant_time_backend(self, signed):
         assert any("non-constant-time" in n for n in signed.notes)

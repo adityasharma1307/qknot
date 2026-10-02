@@ -10,13 +10,13 @@ follows.
 ```bash
 git clone https://github.com/adityasharma1307/qknot
 cd qknot
-pip install -e ".[dev,audit,analysis,register]"
+pip install -e ".[dev,audit,pqc-fast,analysis,register]"
 ```
 
-`dev` is the test suite and linters; `audit` is HuggingFace / npm / PyPI
-scanners (`qknot scan`, `audit-npm`, `audit-pypi`, `summarise`); `register`
-is `qknot register` / `qknot trust-material` (OIDC + TUF); `analysis` is
-notebooks. `qknot sign` / `qknot verify` need none of these.
+`dev` is the test suite and linters (it also pulls `liboqs-python` so the
+liboqs tests run); `audit` is HuggingFace / npm / PyPI scanners; `pqc-fast`
+is liboqs ML-DSA; `register` is OIDC + TUF; `analysis` is notebooks.
+`qknot sign` / `qknot verify` need none of these.
 
 ## Running the checks
 

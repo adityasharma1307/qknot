@@ -17,11 +17,9 @@ from qknot.signing.entropy import (
     DEFAULT_ON_FAILURE,
     AnuQrngBackend,
     EntropyAttestation,
-    IbmQuantumBackend,
     OnFailure,
     QrngUnavailable,
     SystemEntropyBackend,
-    UsbQrngBackend,
     commit,
     get_backend,
     get_entropy,
@@ -163,6 +161,20 @@ class TestFailurePolicies:
     def test_default_policy_is_fallback(self):
         assert DEFAULT_ON_FAILURE is OnFailure.FALLBACK
 
+    def test_an_operator_who_picks_fallback_is_not_retried(self, monkeypatch):
+        monkeypatch.setattr(
+            "qknot.signing.entropy.backends._prompt",
+            lambda attempt, error: OnFailure.FALLBACK,
+        )
+        delays: list[float] = []
+        result = get_entropy(
+            4, interactive=True, max_attempts=3,
+            _backend_obj=FakeQuantumBackend(fail_times=99),
+            _sleep=delays.append,
+        )
+        assert result.attestation.fallback_used is True
+        assert delays == []
+
     def test_default_backend_is_anu(self):
         assert DEFAULT_BACKEND == "anu"
 
@@ -264,29 +276,6 @@ class TestAnuBackend:
             AnuQrngBackend(api_key="bad", session=FakeSession()).get_bytes(8)
 
 
-class TestStubBackends:
-    @pytest.mark.parametrize("cls", [IbmQuantumBackend, UsbQrngBackend])
-    def test_stubs_raise_not_implemented(self, cls):
-        with pytest.raises(NotImplementedError):
-            cls().get_bytes(32)
-
-    @pytest.mark.parametrize("cls", [IbmQuantumBackend, UsbQrngBackend])
-    def test_stubs_are_still_selectable_and_describable(self, cls):
-        instance = cls()
-        assert instance.is_quantum is True
-        assert "endpoint" in instance.describe()
-
-    def test_ibm_contract_documents_debiasing(self):
-        """The stub is a contract; the de-biasing requirement is the part an
-        implementer is most likely to skip."""
-        doc = IbmQuantumBackend.__doc__ or ""
-        assert "de-bias" in doc.lower()
-
-    def test_usb_contract_documents_health_tests(self):
-        doc = UsbQrngBackend.__doc__ or ""
-        assert "health test" in doc.lower()
-
-
 class TestAttestationRecord:
     def test_round_trips_through_json(self):
         att = get_entropy(32, backend="system").attestation
@@ -324,6 +313,80 @@ class TestBackendRegistry:
         assert get_backend("system").is_quantum is False
         for name in ("anu", "ibm", "usb"):
             assert get_backend(name).is_quantum is True
+
+
+class TestIbmAndUsbAreReal:
+    def test_von_neumann_drops_matching_pairs(self):
+        from qknot.signing.entropy.backends import von_neumann_extract
+        assert von_neumann_extract([0, 1, 1, 0, 0, 0, 1, 1]) == [1, 0]
+
+    def test_ibm_without_a_token_names_the_token(self, monkeypatch):
+        from qknot.signing.entropy.backends import IbmQuantumBackend
+        monkeypatch.delenv("IBM_QUANTUM_TOKEN", raising=False)
+        monkeypatch.delenv("QISKIT_IBM_TOKEN", raising=False)
+        with pytest.raises(QrngUnavailable, match="IBM_QUANTUM_TOKEN"):
+            IbmQuantumBackend().get_bytes(2)
+
+    def test_ibm_extracts_bytes_from_supplied_bits(self):
+        from qknot.signing.entropy.backends import IbmQuantumBackend
+        backend = IbmQuantumBackend(measure=lambda n: [0, 1] * n)
+        assert backend.get_bytes(2) == b"\xff\xff"
+        described = backend.describe()
+        assert described["extractor"] == "von-neumann"
+        assert described["authenticated"] is True
+
+    def test_a_stuck_ibm_source_does_not_return_bytes(self):
+        from qknot.signing.entropy.backends import IbmQuantumBackend
+        backend = IbmQuantumBackend(measure=lambda n: [1] * n)
+        with pytest.raises(QrngUnavailable, match="von Neumann"):
+            backend.get_bytes(1)
+
+    def test_a_missing_ibm_extra_names_the_install(self, monkeypatch):
+        import builtins
+        real_import = builtins.__import__
+
+        def blocked(name, *args, **kwargs):
+            if name == "qiskit" or name.startswith("qiskit"):
+                raise ImportError(name)
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", blocked)
+        from qknot.signing.entropy.backends import IbmQuantumBackend
+        with pytest.raises(QrngUnavailable, match="qrng-ibm"):
+            IbmQuantumBackend(token="present").get_bytes(1)
+
+    def test_sampler_bitstrings_are_read_in_order(self):
+        from qknot.signing.entropy.backends import _bits_from_sampler
+
+        class Register:
+            def get_bitstrings(self):
+                return ["01", "10"]
+
+        class Data:
+            meas = Register()
+
+        class Pub:
+            data = Data()
+
+        assert _bits_from_sampler(Pub()) == [0, 1, 1, 0]
+
+    def test_usb_reads_the_device(self, tmp_path):
+        from qknot.signing.entropy.backends import UsbQrngBackend
+        device = tmp_path / "qrng"
+        device.write_bytes(b"\x10\x20\x30\x40")
+        assert UsbQrngBackend(str(device)).get_bytes(4) == b"\x10\x20\x30\x40"
+
+    def test_usb_rejects_a_missing_device(self, tmp_path):
+        from qknot.signing.entropy.backends import UsbQrngBackend
+        with pytest.raises(QrngUnavailable, match="not found"):
+            UsbQrngBackend(str(tmp_path / "missing")).get_bytes(4)
+
+    def test_usb_rejects_constant_output(self, tmp_path):
+        from qknot.signing.entropy.backends import UsbQrngBackend
+        device = tmp_path / "stuck"
+        device.write_bytes(b"\x00\x00\x00\x00")
+        with pytest.raises(QrngUnavailable, match="health check"):
+            UsbQrngBackend(str(device)).get_bytes(4)
 
 
 def test_attestation_dataclass_fields_are_stable():

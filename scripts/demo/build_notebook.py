@@ -463,10 +463,11 @@ _ = run("sign", str(local),
         "--keys-out", "cli.keys.json",
         "--name", MODEL,
         "--context", "model-release",
-        "--deterministic",
+        "--deterministic", "--i-am-producing-test-vectors",
         show=["sign", "./model", "--out", "cli.bundle.json",
               "--keys-out", "cli.keys.json", "--name", MODEL,
-              "--context", "model-release", "--deterministic"])
+              "--context", "model-release", "--deterministic",
+              "--i-am-producing-test-vectors"])
 """)
 
 code(r"""

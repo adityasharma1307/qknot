@@ -36,7 +36,7 @@ class TestTheThirdStateChangesNoGate:
         assert status.permits_online is online
 
     def test_measured_leakage_is_refused_with_a_measured_reason(self):
-        backend = get_backend("ml-dsa-87")
+        backend = get_backend("ml-dsa-87", implementation="dilithium-py")
         assert backend.side_channel_status is SideChannelStatus.KNOWN_LEAKY
         with pytest.raises(BackendUnsuitable, match="MEASURED to leak"):
             check_exposure(backend, Exposure.ONLINE)
@@ -105,8 +105,9 @@ class TestRaisingABackendToAsserted:
     def test_measured_leakage_cannot_be_asserted_away(self):
         """The variance is a property of the implementation, not of a build."""
         with pytest.raises(BackendUnsuitable, match="MEASURED to leak"):
-            attest_constant_time(get_backend("ml-dsa-87"),
-                                 SideChannelEvidence(**GOOD))
+            attest_constant_time(
+                get_backend("ml-dsa-87", implementation="dilithium-py"),
+                SideChannelEvidence(**GOOD))
 
     def test_unknown_can_be_raised_and_then_signs_online(self):
         backend = get_backend("ml-dsa-87")

@@ -299,15 +299,17 @@ def mix_entropy(
 
 def default_sources(anu_api_key: str | None = None,
                     use_beacon: bool = True) -> list[EntropyBackend]:
-    """The recommended combination: system CSPRNG, ANU, and the NIST beacon.
+    """System CSPRNG plus the NIST beacon.
 
-    Ordered secret-first so that a seed is always obtainable even when both
-    network sources are down. The system CSPRNG never fails, so `mix_entropy`
-    over this list raises only if `os.urandom` itself is broken.
+    The beacon is the default public source. It is not key material: the
+    system CSPRNG is the secret half, and a mix of the beacon alone is refused.
+    ANU is still available with `--backend anu`. `anu_api_key` is accepted so
+    older callers keep working; it is not used.
     """
-    from .backends import AnuQrngBackend, SystemEntropyBackend
+    del anu_api_key
+    from .backends import SystemEntropyBackend
 
-    sources: list[EntropyBackend] = [SystemEntropyBackend(), AnuQrngBackend(api_key=anu_api_key)]
+    sources: list[EntropyBackend] = [SystemEntropyBackend()]
     if use_beacon:
         from .beacon import NistBeaconBackend
 

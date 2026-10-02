@@ -30,7 +30,6 @@ quantum adversary. The evidence for why RESPOND exists:
 """
 from __future__ import annotations
 
-import contextlib
 import json
 import logging
 import sys
@@ -337,8 +336,17 @@ def entropy(
     n_bytes: int = typer.Option(32, "--bytes", help="How much entropy to draw."),
     backend: str | None = typer.Option(
         None, "--backend",
-        help="LEGACY single-source mode: anu, system, ibm, usb. Omit to mix "
-             "all available sources, which is the recommended path.",
+        help="LEGACY single source: anu, system, ibm, or usb. Omit to mix "
+             "the system CSPRNG with the NIST beacon.",
+    ),
+    usb_device: str | None = typer.Option(
+        None, "--usb-device",
+        help="Device path for --backend usb. Default: QKNOT_USB_QRNG or /dev/qrandom0.",
+    ),
+    ibm_backend: str | None = typer.Option(
+        None, "--ibm-backend",
+        help="IBM Quantum backend for --backend ibm. Default least_busy. "
+             "Needs IBM_QUANTUM_TOKEN and pip install 'qknot\\[qrng-ibm]'.",
     ),
     no_beacon: bool = typer.Option(
         False, "--no-beacon", help="Skip the NIST beacon when mixing."),
@@ -401,13 +409,18 @@ def entropy(
         raise typer.Exit(2) from None
 
     try:
-        result = get_entropy(n_bytes=n_bytes, backend=backend, on_failure=policy)
+        options: dict[str, str] = {}
+        if usb_device:
+            options["device_path"] = usb_device
+        if ibm_backend:
+            options["backend_name"] = ibm_backend
+        result = get_entropy(
+            n_bytes=n_bytes, backend=backend, on_failure=policy,
+            backend_kwargs=options or None,
+        )
     except QrngUnavailable as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(1) from None
-    except NotImplementedError as exc:
-        console.print(f"[yellow]{exc}[/yellow]")
-        raise typer.Exit(3) from None
     except ValueError as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(2) from None
@@ -554,6 +567,12 @@ def sign_artefact(
                              help="Where to write the OMS-compatible bundle."),
     keys_out: Path | None = typer.Option(
         None, "--keys-out", help="Write the PUBLIC keys here (JSON)."),
+    secret_keys_out: Path | None = typer.Option(
+        None, "--secret-keys-out",
+        help="Directory for raw secret keys. Nothing secret is written unless "
+             "you pass this, and it must not be the artefact's directory. "
+             "These are raw key bytes, not an HSM.",
+    ),
     suite: str = typer.Option("ed25519+ml-dsa-87", "--suite",
                               help="Algorithms, '+'-separated."),
     name: str = typer.Option("artefact", "--name",
@@ -574,8 +593,11 @@ def sign_artefact(
              "entropy and the --seed witness path."),
     deterministic: bool = typer.Option(
         False, "--deterministic",
-        help="Byte-reproducible signatures (FIPS 204 deterministic mode). "
-             "Off by default: hedged signing defends against fault injection."),
+        help="FIPS 204 deterministic (byte-reproducible) signatures. "
+             "Requires --i-am-producing-test-vectors. Hedged is the default."),
+    test_vectors: bool = typer.Option(
+        False, "--i-am-producing-test-vectors",
+        help="Required with --deterministic. Confirms this is not a release."),
 ) -> None:
     """Sign a file or directory with a non-separable hybrid signature.
 
@@ -595,12 +617,29 @@ def sign_artefact(
 
     Keys: omit --seed to draw attested entropy (network, with a documented
     fallback to the system CSPRNG); pass --seed for reproducible keys. With
-    --keys-out only PUBLIC keys are written. To have an identity vouch for the
-    post-quantum key, see `register`.
+    --keys-out writes public keys only. Secrets are written only with
+    --secret-keys-out, as raw bytes (not an HSM), never into the artefact
+    directory. To have an identity vouch for the post-quantum key, see
+    `register`.
+
+    --deterministic is for test vectors only. It forgoes the hedged-mode
+    fault-injection margin (docs/THREAT-MODEL.md) and requires
+    --i-am-producing-test-vectors.
     """
     from .signing.backends import BackendUnsuitable, Exposure
     from .signing.bundle import build_bundle, bundle_to_json
     from .signing.sign import keygen, sign
+
+    if deterministic and not test_vectors:
+        console.print(
+            "[red]--deterministic is not for release signing.[/red] "
+            "Hedged mode is the default because it defends against fault "
+            "injection (docs/THREAT-MODEL.md, section "
+            "'Fault injection, when --deterministic is used'). "
+            "To produce test vectors, pass both:\n"
+            "    --deterministic --i-am-producing-test-vectors"
+        )
+        raise typer.Exit(2)
 
     algorithms = [a.strip() for a in suite.split("+") if a.strip()]
     try:
@@ -696,9 +735,26 @@ def sign_artefact(
         keys_out.parent.mkdir(parents=True, exist_ok=True)
         keys_out.write_text(json.dumps(keys.public_keys(), indent=2), encoding="utf-8")
         console.print(f"[green]public keys -> {keys_out}")
-    console.print("[bold red]Secret keys were NOT written. They exist only in "
-                  "this process and are gone now.[/bold red] Pass --seed to "
-                  "reproduce them.")
+    if secret_keys_out:
+        artefact_dir = target.resolve() if target.is_dir() else target.resolve().parent
+        if secret_keys_out.resolve() == artefact_dir:
+            console.print(
+                "[red]--secret-keys-out must not be the artefact directory.[/red]"
+            )
+            raise typer.Exit(2)
+        from .signing.sign import FileKeyStore
+
+        store = FileKeyStore(secret_keys_out)
+        for algorithm, key in keys.keys.items():
+            store.put(algorithm, key.secret_key)
+        console.print(
+            "[yellow]Secret keys are raw bytes, not an HSM. "
+            f"Written under {secret_keys_out}, owner-only.[/yellow]"
+        )
+    else:
+        console.print("[bold red]Secret keys were NOT written. They exist only in "
+                      "this process and are gone now.[/bold red] Pass --seed to "
+                      "reproduce them, or --secret-keys-out to keep the raw bytes.")
 
 
 def _load_cert_pool(path: Path) -> list[bytes]:
@@ -764,6 +820,8 @@ def _verify_with_registration(
     at: str | None = None, check_revocations: bool = False,
     rekor_url: str = "https://rekor.sigstore.dev",
     revocation_statements: Path | None = None,
+    expect_fingerprint: list[str] | None = None,
+    require_upper_bound: bool = False,
 ) -> None:
     """The composed verdict: a valid artefact, attributed to an identity."""
     from datetime import datetime
@@ -833,7 +891,8 @@ def _verify_with_registration(
             target, artefact, reg_bundle, fulcio_roots=roots,
             log_public_key=key_der, mode=mode, context=context.encode(),
             revocation_search=search,
-            artefact_signed_at=signed_at, now=as_of)
+            artefact_signed_at=signed_at, now=as_of,
+            expect_fingerprints=set(expect_fingerprint or []))
     except VerificationFailed as exc:
         console.print("[bold red]VERIFICATION FAILED[/bold red]")
         console.print(str(exc))
@@ -858,6 +917,24 @@ def _verify_with_registration(
     console.print(f"  mode              : {report['mode']}")
     console.print(f"  algorithms checked: {report['algorithms_checked']}")
     console.print(f"  quantum resistant : {report['quantum_resistant']}")
+
+    upper_bound_proven = verdict.signing_time_source is SigningTimeSource.TRUSTED
+    if not upper_bound_proven:
+        console.print(
+            "  [yellow]upper bound       : not checked. A NIST beacon is only "
+            "a lower bound, and an unverified timestamp is not a rescue."
+        )
+        if require_upper_bound:
+            console.print(
+                "[red]--require-upper-bound was set and no verified upper "
+                "bound is present.[/red]"
+            )
+            raise typer.Exit(1)
+    else:
+        console.print(
+            f"  upper bound       : {verdict.signing_time.isoformat()} "  # type: ignore[union-attr]
+            f"({verdict.signing_time_source.value})"
+        )
 
     if verdict.coverage_checked:
         console.print(f"  covers this sig   : yes, at "
@@ -892,6 +969,46 @@ def _verify_with_registration(
         console.print(f"    [{colour}]{finding}")
     for warning in report["warnings"]:
         console.print(f"  [yellow]warning: {warning}")
+
+
+@app.command()
+def timestamp(
+    bundle: Path = typer.Option(..., "--bundle", help="Signature bundle to stamp."),
+    out: Path = typer.Option(..., "--out", help="Where to write the stamped bundle."),
+    tsa: str = typer.Option(
+        "http://tsa.swisssign.net", "--tsa",
+        help="RFC 3161 authority. One TSA is one source of trust, not two.",
+    ),
+) -> None:
+    """Attach an RFC 3161 timestamp over the bundle's signatures.
+
+    This is an UPPER bound: the signatures already existed when the authority
+    signed. It does not say who signed. A NIST beacon remains only a lower
+    bound and is not used here. Needs `pip install qknot\\[transparency]`.
+    """
+    import json
+
+    from .signing.transparency import (
+        TimestampError,
+        TimestampUnavailableError,
+        attach_timestamp,
+    )
+
+    try:
+        loaded = json.loads(bundle.read_text(encoding="utf-8"))
+        stamped = attach_timestamp(loaded, tsa)
+    except TimestampUnavailableError as exc:
+        console.print("[red]" + str(exc).replace("[", "\\[") + "[/red]")
+        raise typer.Exit(2) from None
+    except (OSError, TimestampError, ValueError) as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from None
+    out.write_text(json.dumps(stamped, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    console.print(
+        "[green]Timestamp attached.[/green] This is an upper bound on the "
+        "signatures, not signer identity. Verify it with anchors you trust; "
+        "an unanchored token is not checked."
+    )
 
 
 @app.command("verify")
@@ -939,14 +1056,29 @@ def verify_artefact(
              "({payload, signature} b64) so --check-revocations can examine "
              "hashedrekord entries. Required for conclusive results when the "
              "identity has other log entries beyond this registration."),
+    expect_fingerprint: list[str] | None = typer.Option(
+        None, "--expect-fingerprint",
+        help="Fingerprint of a key you already trust. Repeatable. Every key "
+             "in the bundle must be in this set. Does not establish identity.",
+    ),
+    require_upper_bound: bool = typer.Option(
+        False, "--require-upper-bound",
+        help="With --registration, fail if the bundle has no verified UPPER "
+             "bound. Off by default so v0.1.1 bundles still verify. A missing "
+             "bound is 'not checked', not a rescue.",
+    ),
 ) -> None:
     """Verify an artefact against a bundle, and report what was checked.
 
-    With --registration, this answers the question that actually matters:
-    not merely "is this signature valid" but "whose signature is it, and can
-    that attribution still be trusted". The registration's PQC key must be the
-    very key the artefact was signed under -- otherwise a valid signature and a
-    valid registration would be two unrelated facts.
+    Without --registration this checks integrity only, not signer identity.
+    The public keys are read from the bundle, so a re-sign with new keys
+    still verifies. Pass --expect-fingerprint (repeatable) to require the
+    bundle's keys to be ones you already trust.
+
+    With --registration, the verdict also says whose key it is, and on what
+    basis. The registration's PQC key must be the key the artefact was signed
+    under -- otherwise a valid signature and a valid registration would be
+    two unrelated facts.
     """
     from .signing.bundle import parse_bundle
     from .signing.sign import VerificationFailed, VerifyMode, verify
@@ -970,7 +1102,8 @@ def verify_artefact(
         _verify_with_registration(
             target, parsed, registration, fulcio_roots, log_key,
             chosen, context, artefact_signed_at, at,
-            check_revocations, rekor_url, revocation_statements)
+            check_revocations, rekor_url, revocation_statements,
+            expect_fingerprint, require_upper_bound)
         return
     if (fulcio_roots is not None or log_key is not None
             or artefact_signed_at or at):
@@ -978,13 +1111,19 @@ def verify_artefact(
                       "--at only apply with --registration; ignoring them.")
 
     try:
-        report = verify(target, parsed, mode=chosen, context=context.encode())
+        report = verify(
+            target, parsed, mode=chosen, context=context.encode(),
+            expect_fingerprints=set(expect_fingerprint or []),
+        )
     except VerificationFailed as exc:
         console.print("[bold red]VERIFICATION FAILED[/bold red]")
         console.print(str(exc))
         raise typer.Exit(1) from None
 
     console.print("[bold green]VERIFIED[/bold green]")
+    console.print(
+        "  identity          : not checked (integrity only, not signer identity)"
+    )
     console.print(f"  mode              : {report['mode']}")
     console.print(f"  algorithms checked: {report['algorithms_checked']}")
     console.print(f"  quantum resistant : {report['quantum_resistant']}")
@@ -1132,6 +1271,22 @@ def register_cmd(
         help="A file or directory of trusted Fulcio roots (DER/PEM), or a TUF "
              "trusted_root.json. If omitted, the chain Fulcio returns is used, "
              "which does NOT establish independent trust."),
+    recovery_key: Path | None = typer.Option(
+        None, "--recovery-key",
+        help="Raw public key of a pre-authorised recovery key. Required unless "
+             "--generate-recovery-key. Ed25519 shares the classical disallow "
+             "date, so it is not an independent recovery family.",
+    ),
+    generate_recovery_key: bool = typer.Option(
+        False, "--generate-recovery-key",
+        help="Generate an Ed25519 recovery key, store the secret owner-only "
+             "under --out, and designate the public half. Same disallow date "
+             "as the classical anchor: not an independent family.",
+    ),
+    recovery_algorithm: str = typer.Option(
+        "ed25519", "--recovery-algorithm",
+        help="Algorithm of --recovery-key or --generate-recovery-key.",
+    ),
 ) -> None:
     """Register a PQC key against your OIDC identity, and log it.
 
@@ -1147,13 +1302,24 @@ def register_cmd(
     BEFORE the classical algorithm's disallow date -- registering after it
     proves nothing, so register early. And transparency is only useful if
     someone looks: monitor the log for registrations naming your identity.
+    A recovery key is required: --recovery-key or --generate-recovery-key.
+    Old bundles that logged no recoveryKey still verify as legacy bundles.
     """
+    if (recovery_key is None) == (not generate_recovery_key):
+        console.print(
+            "[red]Pass exactly one of --recovery-key or "
+            "--generate-recovery-key.[/red] A new registration always "
+            "designates a recovery key. Ed25519 shares the classical "
+            "disallow date, so it is not an independent recovery family."
+        )
+        raise typer.Exit(2)
+
     import base64 as b64
     from datetime import datetime, timezone
 
     from .signing.backends import get_backend
     from .signing.register import register
-    from .signing.registration import RegistrationError
+    from .signing.registration import KeyRef, RegistrationError
     from .signing.sigstore_clients import (
         FulcioRestClient,
         RekorRestClient,
@@ -1195,6 +1361,13 @@ def register_cmd(
         pqc_pub, pqc_sk = backend.keygen()
         generated = True
 
+    if generate_recovery_key:
+        recovery_pub, recovery_sk = get_backend(recovery_algorithm).keygen()
+    else:
+        assert recovery_key is not None
+        recovery_pub, recovery_sk = recovery_key.read_bytes(), None
+    designated = KeyRef(recovery_algorithm, recovery_pub)
+
     try:
         token = acquire_identity_token(
             force_oob=oauth_force_oob, supplied=identity_token)
@@ -1220,7 +1393,7 @@ def register_cmd(
             pqc_algorithm=pqc_algorithm, pqc_public_key=pqc_pub,
             pqc_secret=pqc_sk, fulcio=fulcio, rekor=rekor,
             fulcio_roots=roots, log_public_key=log_key_der,
-            not_after=not_after)
+            not_after=not_after, recovery_key=designated)
     except (SigstoreClientError, OSError, ValueError) as exc:
         console.print(f"[bold red]REGISTRATION FAILED[/bold red]\n{exc}")
         raise typer.Exit(2) from None
@@ -1237,10 +1410,22 @@ def register_cmd(
         (out / f"fulcio_root_{i}.der").write_bytes(der)
     if generated:
         (out / f"{pqc_algorithm}.pub").write_bytes(pqc_pub)
-        secret_path = out / f"{pqc_algorithm}.key"
-        secret_path.write_bytes(pqc_sk)
-        with contextlib.suppress(OSError):  # e.g. a Windows mount; not fatal
-            secret_path.chmod(0o600)
+        from .signing.sign import FileKeyStore
+
+        FileKeyStore(out).put(pqc_algorithm, pqc_sk)
+        console.print(
+            "[yellow]The PQC secret is raw key bytes, not an HSM, "
+            f"written owner-only as {pqc_algorithm}.key.[/yellow]"
+        )
+    if recovery_sk is not None:
+        from .signing.sign import FileKeyStore
+
+        FileKeyStore(out).put(f"recovery-{recovery_algorithm}", recovery_sk)
+        console.print(
+            "[yellow]Recovery secret is raw key bytes, not an HSM. "
+            f"{recovery_algorithm} shares the classical disallow date, so it "
+            "is not an independent recovery family.[/yellow]"
+        )
 
     from .signing.registration_chain import verify_registration_chain
 
@@ -1357,6 +1542,50 @@ def trust_material_cmd(
                   f"--registration ./my-registration/bundle.json \\\n"
                   f"        --fulcio-roots {roots_path} --log-key {key_path} "
                   f"--check-revocations")
+
+
+@app.command("monitor-registrations")
+def monitor_registrations(
+    identity: str = typer.Option(..., "--identity", help="OIDC identity, usually an email."),
+    rekor_url: str = typer.Option(
+        "https://rekor.sigstore.dev", "--rekor-url",
+        help="Transparency log to list. One log, not every log."),
+    max_entries: int = typer.Option(
+        512, "--max-entries",
+        help="Stop and report NOT ESTABLISHED above this many entries."),
+) -> None:
+    """List Rekor entries that name this identity.
+
+    OIDC remains the root of the binding: whoever controls the account at
+    registration time can register a key as you. This command only lists what
+    one log returns. If the walk cannot finish, the result is NOT ESTABLISHED.
+    That is not "no rogue registrations exist".
+    """
+    from .signing.revocation_search import walk_identity
+    from .signing.sigstore_clients import RekorRevocationSearchClient
+
+    entries, error = walk_identity(
+        RekorRevocationSearchClient(base_url=rekor_url, max_entries=max_entries),
+        identity,
+    )
+    if error is not None:
+        console.print("[yellow]NOT ESTABLISHED[/yellow]")
+        console.print(error)
+        console.print(
+            "The walk did not finish. This is not a finding that no rogue "
+            "registrations exist."
+        )
+        raise typer.Exit(1)
+    console.print(f"{len(entries)} log entr(ies) name {identity}.")
+    for entry in entries:
+        console.print(
+            f"  logIndex={entry.get('logIndex')}  "
+            f"integratedTime={entry.get('integratedTime')}"
+        )
+    console.print(
+        "A finished walk of this log is not a proof that no other "
+        "registration exists."
+    )
 
 
 # The __main__ guard MUST stay at the end of this file. It used to sit in the

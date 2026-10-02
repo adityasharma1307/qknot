@@ -28,6 +28,29 @@ class ParseResult:
     notes: str | None = None
 
 
+def _cert_der_from_sigstore(cert_chain: object) -> bytes | None:
+    """Best-effort DER from the two Sigstore certificate shapes.
+
+    `certificates` is a list of `{rawBytes: b64}`; `certificate.rawBytes`
+    is a single b64 string. Either may already be bytes. Returns None
+    rather than raising: a missing decode is not a finding.
+    """
+    candidate: object = cert_chain
+    if isinstance(cert_chain, list) and cert_chain:
+        first = cert_chain[0]
+        candidate = first.get("rawBytes") if isinstance(first, dict) else first
+    if candidate is None:
+        return None
+    if isinstance(candidate, bytes):
+        return candidate
+    if isinstance(candidate, str):
+        try:
+            return base64.b64decode(candidate)
+        except Exception:
+            return candidate.encode("latin-1")
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Sigstore bundle parser
 # ---------------------------------------------------------------------------
@@ -78,9 +101,20 @@ def parse_sigstore(raw: bytes) -> ParseResult:
         or vm.get("certificate", {}).get("rawBytes")
     )
     if cert_chain:
-        # We rely on a heuristic: keyless Sigstore certs are issued by Fulcio,
-        # which in 2026 uses ECDSA-P256 for ~all certificates. We mark it as
-        # ECDSA_P256 with a note that this is inferred from the Fulcio CA.
+        # Read the cert before assuming Fulcio's default. The 2026 audit
+        # inferred ECDSA-P256 from the CA; a post-quantum Fulcio leaf would
+        # have been labelled classical. The OID search is the same one
+        # PyPI/npm use, so a finding here is the same finding.
+        der = _cert_der_from_sigstore(cert_chain)
+        if der is not None:
+            from .pqc_oid import postquantum_oid_in
+            found = postquantum_oid_in(der)
+            if found is not None:
+                algorithm, dotted = found
+                return ParseResult(
+                    algorithm,
+                    notes=f"postquantum_oid_in_sigstore_cert:{dotted}",
+                )
         return ParseResult(
             algorithm=SigAlgorithm.ECDSA_P256,
             notes="inferred_from_sigstore_fulcio_default",
@@ -418,6 +452,41 @@ def parse_raw_signature(raw: bytes) -> ParseResult:
         algo,
         notes=f"inferred_from_raw_signature_length: {len(raw)} bytes, no header present",
     )
+
+
+def listed_artefacts(payload: bytes) -> list[tuple[str, str | None]]:
+    """Names, and an optional sha256, from a DSSE payload or in-toto statement.
+
+    Name compare only. File bodies are not opened. An unreadable payload
+    returns an empty list; the caller must not treat that as unsigned.
+    """
+    try:
+        data = json.loads(payload)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return []
+    if isinstance(data, dict) and isinstance(data.get("payload"), str):
+        try:
+            data = json.loads(base64.b64decode(data["payload"]))
+        except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
+            return []
+    if not isinstance(data, dict):
+        return []
+    found: list[tuple[str, str | None]] = []
+    resources = (data.get("predicate") or {}).get("resources") or []
+    for resource in resources:
+        if not isinstance(resource, dict) or not resource.get("name"):
+            continue
+        digest = resource.get("digest")
+        sha = digest if isinstance(digest, str) else None
+        found.append((str(resource["name"]), sha))
+    if found:
+        return found
+    for subject in data.get("subject") or []:
+        if isinstance(subject, dict) and subject.get("name"):
+            digests = subject.get("digest") or {}
+            sha = digests.get("sha256") if isinstance(digests, dict) else None
+            found.append((str(subject["name"]), sha))
+    return found
 
 
 def parse_signature(raw: bytes, fmt: SigFormat) -> ParseResult:
