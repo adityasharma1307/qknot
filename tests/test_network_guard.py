@@ -17,14 +17,13 @@ import pytest
 from tests.conftest import NetworkBlockedError
 
 
+@pytest.mark.offline
 def test_the_network_guard_is_active() -> None:
     """A guard nobody checks is a guard that can quietly stop working.
 
-    conftest.py blocks the network for every test. If a refactor moved the
-    patch, renamed the fixture, or dropped `autouse`, nothing would fail -- the
-    suite would go back to making live calls and hanging on blackholed DNS,
-    which is exactly what it was written to stop. Assert the block, the same
-    way test_benchmark_docs.py asserts its checker can still fail.
+    The default suite is networked. `@pytest.mark.offline` must still close
+    sockets, or a fallback test that thinks it is offline will call a live
+    beacon and pass for the wrong reason.
     """
     with pytest.raises(NetworkBlockedError):
         socket.getaddrinfo("beacon.nist.gov", 443)

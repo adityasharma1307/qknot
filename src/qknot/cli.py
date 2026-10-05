@@ -1305,15 +1305,6 @@ def register_cmd(
     A recovery key is required: --recovery-key or --generate-recovery-key.
     Old bundles that logged no recoveryKey still verify as legacy bundles.
     """
-    if (recovery_key is None) == (not generate_recovery_key):
-        console.print(
-            "[red]Pass exactly one of --recovery-key or "
-            "--generate-recovery-key.[/red] A new registration always "
-            "designates a recovery key. Ed25519 shares the classical "
-            "disallow date, so it is not an independent recovery family."
-        )
-        raise typer.Exit(2)
-
     import base64 as b64
     from datetime import datetime, timezone
 
@@ -1348,13 +1339,23 @@ def register_cmd(
                 out_ders.append(raw)
         return out_ders
 
+    if (pqc_public_key is None) != (pqc_secret_key is None):
+        console.print("[red]--pqc-public-key and --pqc-secret-key must be "
+                      "given together.")
+        raise typer.Exit(2)
+    if (recovery_key is None) == (not generate_recovery_key):
+        console.print(
+            "[red]Pass exactly one of --recovery-key or "
+            "--generate-recovery-key.[/red] A new registration always "
+            "designates a recovery key. Ed25519 shares the classical "
+            "disallow date, so it is not an independent recovery family."
+        )
+        raise typer.Exit(2)
+
     # The long-term PQC key: the thing being registered. Supplied or generated.
     backend = get_backend(pqc_algorithm)
     if pqc_public_key is not None or pqc_secret_key is not None:
-        if pqc_public_key is None or pqc_secret_key is None:
-            console.print("[red]--pqc-public-key and --pqc-secret-key must be "
-                          "given together.")
-            raise typer.Exit(2)
+        assert pqc_public_key is not None and pqc_secret_key is not None
         pqc_pub, pqc_sk = pqc_public_key.read_bytes(), pqc_secret_key.read_bytes()
         generated = False
     else:

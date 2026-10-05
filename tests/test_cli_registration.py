@@ -127,7 +127,8 @@ def test_register_writes_a_verifiable_bundle_and_keys(tmp_path, monkeypatch):
     roots.write_bytes(fulcio.root_der)          # a real trust store, not Fulcio's word
     out = tmp_path / "reg"
     result = runner.invoke(app, ["register", "--out", str(out),
-                                 "--fulcio-roots", str(roots)])
+                                 "--fulcio-roots", str(roots),
+                                 "--generate-recovery-key"])
     assert result.exit_code == 0, result.output
     assert "REGISTERED" in result.output
     assert "basis           : direct" in result.output
@@ -145,7 +146,8 @@ def test_register_writes_a_verifiable_bundle_and_keys(tmp_path, monkeypatch):
     # a generated PQC key pair is written, and the secret is flagged as such
     assert (out / "ml-dsa-87.pub").exists()
     assert (out / "ml-dsa-87.key").exists()
-    assert "SECRET KEY" in result.output
+    assert "raw key bytes" in result.output
+    assert (out / "recovery-ed25519.key").exists()
 
 
 def test_register_exits_non_zero_when_the_bundle_does_not_verify(
@@ -158,7 +160,8 @@ def test_register_exits_non_zero_when_the_bundle_does_not_verify(
     fulcio, rekor = _fakes(sign_with=ec.generate_private_key(ec.SECP256R1()))
     _patch_network(monkeypatch, fulcio, rekor)
     out = tmp_path / "reg"
-    result = runner.invoke(app, ["register", "--out", str(out)])
+    result = runner.invoke(app, ["register", "--out", str(out),
+                                 "--generate-recovery-key"])
     assert result.exit_code == 1, result.output
     assert "NOT VERIFIABLE" in result.output
     assert not (out / "bundle.json").exists()

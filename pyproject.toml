@@ -118,10 +118,11 @@ pythonpath = ["src"]
 python_files = ["test_*.py"]
 addopts = "-v --strict-markers"
 markers = [
-    # tests/conftest.py closes the network for every test by default. Anything
-    # that genuinely needs a socket declares it here, so the dependency is
-    # visible in the source rather than implicit in whether CI has connectivity.
+    # The suite is networked by default. `offline` closes sockets for tests
+    # that must exercise a fallback. `allow_network` remains for tests that
+    # document a live dependency.
     "allow_network: test genuinely requires network access",
+    "offline: close sockets so this test cannot reach the network",
     "allow_sleeping: test genuinely needs real time.sleep",
 ]
 

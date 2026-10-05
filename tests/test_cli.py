@@ -300,6 +300,7 @@ def test_monitor_help_does_not_claim_an_all_clear():
     assert "no rogue registrations" in result.output
 
 
+@pytest.mark.offline
 class TestEntropy:
     def test_mixing_is_the_default_and_works_offline(self, tmp_path):
         out = tmp_path / "att.json"

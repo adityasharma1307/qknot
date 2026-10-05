@@ -64,11 +64,12 @@ class RefTree:
         return self._proof(index, split, hi) + [self._root(lo, split)]
 
 
-@pytest.mark.parametrize("size", [1, 2, 3, 5, 8, 13])
-@pytest.mark.parametrize("index", [0, 1, 2, 4, 7, 12])
+@pytest.mark.parametrize(
+    ("size", "index"),
+    [(size, index) for size in (1, 2, 3, 5, 8, 13)
+     for index in (0, 1, 2, 4, 7, 12) if index < size],
+)
 def test_reference_proofs_verify_for_every_valid_index(size, index):
-    if index >= size:
-        pytest.skip("index outside tree")
     entries = [f"entry-{i}".encode() for i in range(size)]
     tree = RefTree(entries)
     computed = verify_inclusion_root(index, size, leaf_hash(entries[index]),

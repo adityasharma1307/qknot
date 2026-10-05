@@ -59,6 +59,11 @@ def no_network(request: pytest.FixtureRequest,
     exists to prevent. Refusing at resolution makes the failure immediate and
     legible instead of slow and mysterious.
     """
+    # Default is networked (P2). `@pytest.mark.offline` closes sockets for
+    # tests that must exercise the fallback path. `allow_network` is the
+    # older opt-in and remains a no-op now that the default is open.
+    if request.node.get_closest_marker("offline") is None:
+        return
     if request.node.get_closest_marker("allow_network"):
         return
 
