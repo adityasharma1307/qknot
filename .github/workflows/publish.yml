@@ -38,8 +38,10 @@ jobs:
       # Gate the upload on the suite passing. A release that cannot pass its
       # own tests should not reach PyPI, where versions cannot be reused.
       - name: Install and test
+        env:
+          QKNOT_IDENTITY_TOKEN: ${{ secrets.IDENTITY_TOKEN }}
         run: |
-          pip install -e ".[dev]"
+          pip install -e ".[dev,register,transparency,audit,pqc-fast]"
           ruff check src/ tests/ scripts/
           python -m pytest -q
 

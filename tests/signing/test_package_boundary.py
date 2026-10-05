@@ -106,6 +106,42 @@ class TestTheCliRespectsTheBoundaryToo:
                     sys.modules[name] = module
             sys.modules.pop("qknot.cli", None)
 
+    def test_sign_and_bare_verify_do_not_import_huggingface_or_sigstore(self, tmp_path):
+        """Running sign and verify must not load the audit or Sigstore stacks."""
+        import subprocess
+        import sys
+        import textwrap
+
+        script = tmp_path / "run.py"
+        script.write_text(textwrap.dedent("""
+            import sys
+            from pathlib import Path
+            from typer.testing import CliRunner
+            from qknot.cli import app
+
+            art = Path("a.bin")
+            art.write_bytes(b"hello")
+            bundle = Path("b.json")
+            runner = CliRunner()
+            signed = runner.invoke(app, [
+                "sign", str(art), "--out", str(bundle), "--seed", "11" * 32,
+                "--no-beacon", "--context", "model-release",
+            ])
+            assert signed.exit_code == 0, signed.output
+            verified = runner.invoke(app, [
+                "verify", str(art), "--bundle", str(bundle),
+                "--context", "model-release",
+            ])
+            assert verified.exit_code == 0, verified.output
+            for name in ("huggingface_hub", "sigstore"):
+                assert name not in sys.modules, name
+        """), encoding="utf-8")
+        result = subprocess.run(
+            [sys.executable, str(script)],
+            cwd=tmp_path, capture_output=True, text=True, timeout=120,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+
 
 def _toml_array(text: str, key: str) -> str:
     token = f"{key} = ["

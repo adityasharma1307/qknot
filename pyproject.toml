@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "qknot"
-version = "0.1.1"
+version = "2.0.0"
 description = "Hybrid post-quantum signing and identity registration for software supply chains, backed by a cross-registry audit"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -87,7 +87,7 @@ Homepage = "https://github.com/adityasharma1307/qknot"
 Repository = "https://github.com/adityasharma1307/qknot"
 Documentation = "https://github.com/adityasharma1307/qknot#readme"
 Issues = "https://github.com/adityasharma1307/qknot/issues"
-Changelog = "https://github.com/adityasharma1307/qknot/blob/main/docs/RELEASE-NOTES-v0.1.1.md"
+Changelog = "https://github.com/adityasharma1307/qknot/blob/main/docs/RELEASE-NOTES-v2.0.0.md"
 DOI = "https://doi.org/10.5281/zenodo.21886269"
 
 [project.scripts]
@@ -137,12 +137,11 @@ ignore_missing_imports = true
 # depend on, and the one where a wrong type is a correctness question rather
 # than a formatting one.
 #
-# `qknot.audit` and `qknot.cli` are checked but not strictly. They are research
-# code against an untyped HTTP API and a CLI framework that leans on runtime
-# introspection, where full annotation buys little. Relaxing them explicitly is
-# honest; leaving a global claim that fails is not.
+# `qknot.audit` stays loose: untyped HTTP APIs. `qknot.cli` is checked with
+# the project strict settings. Typer command signatures stay untyped where the
+# framework's Option() defaults would fight the checker.
 [[tool.mypy.overrides]]
-module = ["qknot.audit.*", "qknot.cli"]
+module = ["qknot.audit.*"]
 disallow_untyped_defs = false
 disallow_untyped_calls = false
 disallow_any_generics = false

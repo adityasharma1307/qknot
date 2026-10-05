@@ -99,6 +99,10 @@ class HybridKeySet:
         return {alg: key.public_info() for alg, key in self.keys.items()}
 
 
+# Frozen in v0.1.1. A test checks this exact value.
+KEYGEN_SALT = b"qknot-keygen-v1"
+
+
 class KeyStore(Protocol):
     """Where secret key bytes live. Not an HSM."""
 
@@ -257,7 +261,7 @@ def keygen(
         backend = get_backend(algorithm, implementation=impl)
         # Domain-separate per algorithm: one leaked key must not expose another.
         per_key_seed = hkdf(
-            ikm=seed, salt=b"qknot-keygen-v1",
+            ikm=seed, salt=KEYGEN_SALT,
             info=algorithm.encode(), length=32,
         )
         public_key, secret_key = backend.keygen(per_key_seed)

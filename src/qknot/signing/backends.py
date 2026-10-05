@@ -664,13 +664,17 @@ def constant_time_compare(a: bytes, b: bytes) -> bool:
     return hmac.compare_digest(a, b)
 
 
+# Frozen in v0.1.1. A test checks this exact value.
+KEY_FINGERPRINT_SALT = b"qknot-key-fingerprint-v1"
+
+
 def key_fingerprint(public_key: bytes) -> str:
     """A short, stable identifier for a public key.
 
     SHA3-256 truncated to 16 bytes. Used in bundles so a verifier can tell
     which key was meant without the bundle carrying the whole key.
     """
-    return hashlib.sha3_256(b"qknot-key-fingerprint-v1" + public_key).hexdigest()[:32]
+    return hashlib.sha3_256(KEY_FINGERPRINT_SALT + public_key).hexdigest()[:32]
 
 
 _BACKENDS: dict[str, Any] = {

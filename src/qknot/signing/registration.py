@@ -688,9 +688,9 @@ REVOCATION_PAYLOAD_TYPE = "application/vnd.qknot.key-revocation+json"
 
 
 def _key_fingerprint(public_key: bytes) -> str:
-    import hashlib
+    from .backends import key_fingerprint
 
-    return hashlib.sha3_256(b"qknot-key-fingerprint-v1" + public_key).hexdigest()[:32]
+    return key_fingerprint(public_key)
 
 
 @dataclass(frozen=True)
