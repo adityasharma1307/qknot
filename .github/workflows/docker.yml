@@ -1,0 +1,75 @@
+name: docker
+
+# Builds the image and runs the test suite inside it. Nothing is pushed.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build test image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          target: test
+          push: false
+          load: true
+          tags: qknot:test
+          cache-from: type=gha,scope=qknot-test
+          cache-to: type=gha,scope=qknot-test,mode=max,ignore-error=true
+
+      - name: Build runtime image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          target: runtime
+          push: false
+          load: true
+          tags: qknot:runtime
+          cache-from: type=gha,scope=qknot-runtime
+          cache-to: type=gha,scope=qknot-runtime,mode=max,ignore-error=true
+
+      - name: Runtime image runs as non-root and starts the CLI
+        run: |
+          docker run --rm qknot:runtime --help
+          uid="$(docker run --rm --entrypoint id qknot:runtime -u)"
+          test "$uid" != "0" || { echo "runtime image runs as root"; exit 1; }
+
+      - name: Ruff inside the test image
+        run: docker run --rm qknot:test ruff check src/ tests/ scripts/
+
+      # data/ is mounted read-only rather than baked into the image. The
+      # identity token is passed at run time only, so it never lands in a layer.
+      - name: Tests inside the test image
+        env:
+          QKNOT_IDENTITY_TOKEN: ${{ secrets.IDENTITY_TOKEN }}
+        run: |
+          docker run --rm \
+            -e QKNOT_IDENTITY_TOKEN \
+            -v "$PWD/data:/app/data:ro" \
+            qknot:test
+
+      - name: No secrets, keys or VCS data in either image
+        run: |
+          for image in qknot:runtime qknot:test; do
+            docker run --rm --entrypoint sh "$image" -c '
+              found=$(find / -xdev \( -name ".env" -o -name ".env.*" -o -name "*.key" \
+                -o -name "*.token" -o -name "id_rsa*" -o -name "id_ed25519*" -o -name ".git" \) \
+                -not -path "/proc/*" -not -path "/app/tests/*" -not -path "*/site-packages/*" 2>/dev/null)
+              if [ -n "$found" ]; then echo "unexpected files:"; echo "$found"; exit 1; fi'
+          done
