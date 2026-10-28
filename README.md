@@ -354,6 +354,27 @@ So a fresh clone with no network at all can still sign, verify signatures,
 verify a registration you already hold the trust material for, and run
 nearly the entire test suite.
 
+### Docker
+
+Docker is the only host requirement. Nothing is published to a registry.
+Build and run it locally:
+
+```bash
+# Runtime image: slim, non-root, `qknot` as the entrypoint
+docker build -t qknot .
+docker run --rm qknot --help
+docker run --rm -v "$PWD:/work:ro" -w /work qknot verify release/qknot-0.1.1.tar.gz \
+    --bundle release/qknot-0.1.1.bundle.json --context qknot-release
+
+# Test image: dev extras and liboqs, runs the suite (data/ is mounted, not copied)
+docker build --target test -t qknot:test .
+docker run --rm -e QKNOT_IDENTITY_TOKEN -v "$PWD/data:/app/data:ro" qknot:test
+```
+
+`.dockerignore` keeps `.git`, `.env` files, keys, and `data/` out of the build
+context. The `docker` workflow builds both targets and runs the suite inside
+the test image.
+
 ---
 
 ## Usage

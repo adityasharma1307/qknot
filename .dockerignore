@@ -1,0 +1,44 @@
+# VCS, CI and editor state
+.git
+.github
+.gitattributes
+
+# Secrets and key material. Public test fixtures are re-included below.
+.env
+.env.*
+**/.env
+**/.env.*
+*.token
+*.key
+*.pem
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+release/keys/
+security/
+trust/
+PAPER-NOTES.local.md
+!tests/**/*.key
+!tests/**/*.pem
+
+# Data, results and local artefacts. CI mounts data/ read-only for the tests.
+data/
+qrng.bin
+*.zip
+logs/
+
+# Environments and caches
+.venv
+venv
+env
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.ipynb_checkpoints
+.paper-check*
+build/
+dist/
+*.egg-info
